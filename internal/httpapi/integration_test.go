@@ -70,17 +70,17 @@ func openIntegrationDatabase(t *testing.T) *integrationDatabase {
 }
 
 type integrationFixture struct {
-	ownerID, clientID, gatewayID, simID   string
-	otherOwnerID, otherClientID           string
-	clientToken, gatewayToken, otherToken string
+	ownerID, clientID, gatewayID, simID                      string
+	otherOwnerID, otherClientID, otherGatewayID, otherSIMID  string
+	clientToken, gatewayToken, otherToken, otherGatewayToken string
 }
 
 func seedIntegrationFixture(t *testing.T, database *sql.DB) integrationFixture {
 	t.Helper()
 	f := integrationFixture{
 		ownerID: newUUID(), clientID: newUUID(), gatewayID: newUUID(), simID: newUUID(),
-		otherOwnerID: newUUID(), otherClientID: newUUID(),
-		clientToken: randomToken(), gatewayToken: randomToken(), otherToken: randomToken(),
+		otherOwnerID: newUUID(), otherClientID: newUUID(), otherGatewayID: newUUID(), otherSIMID: newUUID(),
+		clientToken: randomToken(), gatewayToken: randomToken(), otherToken: randomToken(), otherGatewayToken: randomToken(),
 	}
 	for _, statement := range []struct {
 		query string
@@ -91,11 +91,15 @@ func seedIntegrationFixture(t *testing.T, database *sql.DB) integrationFixture {
 		{`INSERT INTO devices(id,owner_id,role,name) VALUES ($1,$2,'client','client-a')`, []any{f.clientID, f.ownerID}},
 		{`INSERT INTO devices(id,owner_id,role,name) VALUES ($1,$2,'gateway','gateway-a')`, []any{f.gatewayID, f.ownerID}},
 		{`INSERT INTO devices(id,owner_id,role,name) VALUES ($1,$2,'client','client-b')`, []any{f.otherClientID, f.otherOwnerID}},
+		{`INSERT INTO devices(id,owner_id,role,name) VALUES ($1,$2,'gateway','gateway-b')`, []any{f.otherGatewayID, f.otherOwnerID}},
 		{`INSERT INTO gateways(device_id,mapping_revision,last_seen_at) VALUES ($1,1,now())`, []any{f.gatewayID}},
+		{`INSERT INTO gateways(device_id,mapping_revision,last_seen_at) VALUES ($1,1,now())`, []any{f.otherGatewayID}},
 		{`INSERT INTO sim_bindings(sim_id,owner_id,gateway_id,slot_index,label,state,identity_verified,mapping_revision,service_state) VALUES ($1,$2,$3,0,'Line A','active',true,1,'in_service')`, []any{f.simID, f.ownerID, f.gatewayID}},
+		{`INSERT INTO sim_bindings(sim_id,owner_id,gateway_id,slot_index,label,state,identity_verified,mapping_revision,service_state) VALUES ($1,$2,$3,0,'Line B','active',true,1,'in_service')`, []any{f.otherSIMID, f.otherOwnerID, f.otherGatewayID}},
 		{`INSERT INTO sessions(id,device_id,access_hash,access_expires_at,refresh_hash,refresh_expires_at) VALUES ($1,$2,$3,now()+interval '1 day',$4,now()+interval '30 days')`, []any{newUUID(), f.clientID, tokenHash(f.clientToken), tokenHash(randomToken())}},
 		{`INSERT INTO sessions(id,device_id,access_hash,access_expires_at,refresh_hash,refresh_expires_at) VALUES ($1,$2,$3,now()+interval '1 day',$4,now()+interval '30 days')`, []any{newUUID(), f.gatewayID, tokenHash(f.gatewayToken), tokenHash(randomToken())}},
 		{`INSERT INTO sessions(id,device_id,access_hash,access_expires_at,refresh_hash,refresh_expires_at) VALUES ($1,$2,$3,now()+interval '1 day',$4,now()+interval '30 days')`, []any{newUUID(), f.otherClientID, tokenHash(f.otherToken), tokenHash(randomToken())}},
+		{`INSERT INTO sessions(id,device_id,access_hash,access_expires_at,refresh_hash,refresh_expires_at) VALUES ($1,$2,$3,now()+interval '1 day',$4,now()+interval '30 days')`, []any{newUUID(), f.otherGatewayID, tokenHash(f.otherGatewayToken), tokenHash(randomToken())}},
 	} {
 		if _, err := database.Exec(statement.query, statement.args...); err != nil {
 			t.Fatal("seed integration database")

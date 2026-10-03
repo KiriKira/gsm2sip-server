@@ -15,6 +15,7 @@ validate(spec)
 registry = Registry().with_resource('urn:gsm2sip:openapi', Resource.from_contents(
     dict(spec, **{'$schema': 'https://json-schema.org/draft/2020-12/schema'})))
 fixtures = {
+    'wake-sync-required.json': 'WakeSyncRequired',
     'pairing-claim-response.json': 'PairingResult',
     'heartbeat-request.json': 'HeartbeatRequest',
     'heartbeat-response-invalidated.json': 'HeartbeatResult',
@@ -30,6 +31,16 @@ for filename, schema_name in fixtures.items():
     schema = {'$ref': f'urn:gsm2sip:openapi#/components/schemas/{schema_name}'}
     Draft202012Validator(schema, registry=registry, format_checker=FormatChecker()).validate(
         json.loads((ROOT / 'fixtures/api' / filename).read_text()))
+wake_validator = Draft202012Validator(
+    {'$ref': 'urn:gsm2sip:openapi#/components/schemas/WakeSyncRequired'},
+    registry=registry, format_checker=FormatChecker())
+wake_frame = json.loads((ROOT / 'fixtures/api/wake-sync-required.json').read_text())
+for invalid_wake in (
+    {**wake_frame, 'protocol_version': 2},
+    {**wake_frame, 'type': 'call_ready'},
+    {**wake_frame, 'owner_id': 'must-not-be-present'},
+):
+    assert not wake_validator.is_valid(invalid_wake), f'Unsafe wake frame accepted: {invalid_wake}'
 command_page = json.loads((ROOT / 'fixtures/api/command-list-response.json').read_text())
 Draft202012Validator(
     {'$ref': 'urn:gsm2sip:openapi#/paths/~1gateways~1{gateway_id}~1commands/get/responses/200/content/application~1json/schema'},

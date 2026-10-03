@@ -10,8 +10,10 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -26,13 +28,22 @@ type Server struct {
 	db     *sql.DB
 	logger *slog.Logger
 	now    func() time.Time
+
+	wsMu          sync.Mutex
+	wsByDevice    map[string]int
+	wsConnections map[*websocket.Conn]struct{}
+	wsClosing     bool
+	wsHandlers    sync.WaitGroup
 }
 
 func New(database *sql.DB, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Server{db: database, logger: logger, now: time.Now}
+	return &Server{
+		db: database, logger: logger, now: time.Now,
+		wsByDevice: make(map[string]int), wsConnections: make(map[*websocket.Conn]struct{}),
+	}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -44,6 +55,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/pairings/claim", s.claimPairing)
 	mux.HandleFunc("POST /v1/auth/refresh", s.refreshSession)
 	mux.HandleFunc("POST /v1/auth/revoke", s.revokeSession)
+	mux.HandleFunc("GET /v1/ws", s.wakeWebSocket)
 	mux.HandleFunc("GET /v1/devices/self/sip-config", s.authenticated(s.getSIPConfig))
 	mux.HandleFunc("POST /v1/devices/self/sip-credentials/rotate", s.authenticated(s.rotateSIPCredentials))
 	mux.HandleFunc("GET /v1/gateways", s.authenticated(s.listGateways))

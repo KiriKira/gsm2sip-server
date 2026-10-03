@@ -2,7 +2,7 @@
 
 Go + PostgreSQL 转发服务，把主机的短信任务投递到旧手机网关，并把网关的持久化事件安全同步回主机。M1/M2 核心已实现：一次性配对码、短时 access 与轮换 refresh token、device role/owner 隔离、SIM 两阶段绑定、heartbeat、短信 command claim、事件批量事务与 durable ACK、按 owner 分页的消息事件流。
 
-WSS/FCM 唤醒、通知投递、长期保留与完整背压仍待后续实施；当前三端使用 HTTPS 轮询。
+`GET /v1/ws` 已提供 authenticated wake-only WebSocket：连接建立时和对应 durable marker 改变时只发送 `{"protocol_version":1,"type":"sync_required"}`，客户端再通过 HTTPS 读取 durable cursor/command。它不传事件、命令或来电数据，不等价于 call-ready，也没有实现 FCM、通知投递、呼入 push、长期保留或完整背压。断线和重复唤醒仍以 HTTPS 同步恢复。
 
 通话控制与 Asterisk ARI 仍未实现。SIP 配置明确返回 `available:false`；`/calls` 与 `/call-intents` 返回 `503 CALLING_NOT_READY`。部署骨架中没有声称 Asterisk 已联调。
 
@@ -65,6 +65,6 @@ python3 scripts/check_contract.py
 
 ## 部署边界
 
-`compose.yaml` 是本地开发骨架，不是公网生产配置。公网部署应提供 TLS、托管或持久化 PostgreSQL、备份与受限管理员访问，并使用受信任的 `DATABASE_URL`。如果构建网络使用 HTTPS 检查代理，可通过 `CODEX_PROXY_CERT` 环境变量向 BuildKit 提供 CA 文件；该 CA 只在依赖下载步骤挂载，TLS 校验保持开启。
+`compose.yaml` 是本地开发骨架，不是公网生产配置。公网部署应提供 TLS、托管或持久化 PostgreSQL、备份与受限管理员访问，并使用受信任的 `DATABASE_URL`。生产客户端使用 `wss://`，保留默认 CA 和主机名验证；Caddy 可以在公网终止 TLS，再通过私有网络转发到 API 的 HTTP listener。明文 `ws://` 仅适用于本机开发和测试。如果构建网络使用 HTTPS 检查代理，可通过 `CODEX_PROXY_CERT` 环境变量向 BuildKit 提供 CA 文件；该 CA 只在依赖下载步骤挂载，TLS 校验保持开启。
 
 Asterisk/ARI 尚无可运行的呼叫桥。部署或监控系统不要把数据库 `/readyz` 当成呼叫就绪探针；目前它只验证 PostgreSQL 可用。呼叫端点会明确拒绝请求，直到 SIP/ARI 能力实现并通过设备联调。

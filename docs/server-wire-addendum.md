@@ -35,10 +35,52 @@ lost, the old token cannot recover the new secret; stop retrying it and ask the
 user to pair again. `POST /auth/revoke` takes the same body
 and returns `204`; it revokes the refresh family and its current access token.
 
-All authenticated requests use `Authorization: Bearer <access_token>`. Never
-put credentials in URLs. Writes use `Idempotency-Key`; its namespace is
+All authenticated HTTP and WebSocket requests use
+`Authorization: Bearer <access_token>`. Never put credentials in URLs. Writes use `Idempotency-Key`; its namespace is
 `owner_id + device_id + operation`. Same key and body replays the original
 resource; same key and a different body returns `409 IDEMPOTENCY_CONFLICT`.
+
+## Wake-only WebSocket
+
+`GET /v1/ws` upgrades an authenticated connection for either a `client` or
+`gateway` device. Send the current access token in the `Authorization: Bearer`
+header; query parameters (including token-like parameters) and request bodies
+are rejected. No WebSocket subprotocol is required. Clients do not send
+application messages; the server closes such a connection with code `1008`.
+An application frame larger than 4 KiB closes with `1009`. Browser connections
+must have the same origin as the request host. Native Android clients may omit
+`Origin`.
+
+Immediately after the upgrade the server sends exactly:
+
+```json
+{"protocol_version":1,"type":"sync_required"}
+```
+
+It repeats that same frame when the caller's marker changes. A client marker is
+the maximum durable `server_events.cursor` for that client's owner. A gateway
+marker covers only commands matching its authenticated device and owner: queued
+commands count only until expiry, while accepted or dispatching commands remain
+visible until terminal. Marker contents are internal and never appear in the
+frame. Hints may repeat or be coalesced; clients must use their HTTPS durable
+cursor and gateways must use HTTPS command sync to recover after disconnects or
+missed hints. A wake frame does not mean a call is ready and carries no event,
+command, number, owner, device, or cursor data.
+
+The server sends a WebSocket ping every 20 seconds and closes a connection if
+no pong arrives within 45 seconds. It checks the same access token and device
+state about once per second; expiry, revocation, token rotation, or an owner,
+device, or role change closes the connection with `1008`. A per-device limit
+of two connections applies. A shutdown closes active connections with `1001`.
+Upgrade errors use the usual HTTP errors before the `101` response (`401` for
+invalid credentials, `403` for a disallowed origin, and `429` for the device
+connection budget).
+
+Production clients connect with `wss://` and keep platform CA trust and
+hostname verification enabled. The API may run over private HTTP behind a
+trusted Caddy TLS terminator. Plain `ws://` is for local development and tests.
+This endpoint is only a synchronization hint; it does not implement FCM,
+incoming-call push, call-ready state, SIP, or ARI.
 
 ## Heartbeat and two-phase SIM binding
 

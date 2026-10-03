@@ -30,13 +30,14 @@ func main() {
 		os.Exit(1)
 	}
 	defer database.Close()
+	api := httpapi.New(database, logger)
 	address := strings.TrimSpace(os.Getenv("HTTP_ADDR"))
 	if address == "" {
 		address = ":8080"
 	}
 	server := &http.Server{
 		Addr:              address,
-		Handler:           httpapi.New(database, logger).Handler(),
+		Handler:           api.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       20 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -51,6 +52,7 @@ func main() {
 		}
 	}()
 	<-ctx.Done()
+	api.ShutdownWebSockets()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
