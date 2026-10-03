@@ -19,9 +19,13 @@ HTTPS journal/command 取代生产 SIP MESSAGE 发送通道是必要条件：SIP
 
 ## 已核实的 M0 门槛
 
-- Android 官方 `TelephonyManager.getPhoneAccountHandle()` 及 account→subId
-  API 从 31 起可用。API 26–30 无通用公开的可靠关联；本次通用实现保留
-  明确 subscription 的短信能力，语音选卡报告不可用，不解析 opaque handle.id。
+- 首批代码将语音选卡限定 API 31+；用户后续明确要求先按 Magisk 通用
+  接口实现，此限制由下一批网关适配移除。API 30 已有公开
+  `getSubscriptionId(PhoneAccountHandle)`，API 31 提供公开正向关联；API
+  26–29 通过 Magisk 启动受限 system-UID `app_process`，尝试系统的精确
+  account→subId 接口，只有当前有效、唯一、双向一致的账户才能使用。
+  不按机型筛选、不解析 opaque handle.id、不回落默认卡；不支持的实际
+  接口明确报告 unavailable，而不是按版本预先拒绝。资料见下方补充。
 - `SmsManager.createForSubscriptionId` 是 API 31+ 实例方法；旧系统采用
   `getSmsManagerForSubscriptionId`。任何异常不得回落默认实例。
 - `VOICE_CALL` 需要特权 `CAPTURE_AUDIO_OUTPUT`；root/特权安装不能证明
@@ -74,3 +78,20 @@ owner/配对 CLI、认证 HTTP 与 `CALLING_NOT_READY` 行为均已核验。
 Android 构建、SQLite/SIP/RTP 测试和 lint 的最终结果记录在相应 PR。
 原生 SQLite 的事务主写连接验证为 WAL + synchronous=FULL；此配置测试
 不代替目标手机突然断电、射频回执和实际双卡验收。
+
+## Magisk 通用适配补充
+
+网关提供固定模块入口 `gsm2sipctl` 的只读能力与账户查询，以及持久的
+root 本地音频配置。默认数字 Telephony Rx/Tx 按系统暴露的设备与实际
+路由探测，不根据 `Build.MODEL/HARDWARE/BOARD` 自动选择 mixer preset。
+Magisk priv-app 权限与 system-UID broker 分开处理；root UID 0 不能冒充
+`android` 包的 UID 1000，避免 Binder 包名归因不一致。
+
+服务端与主机继续保持 `CALLING_NOT_READY`，直到 SIP/ARI 通话链路完成。
+通用适配允许继续开发；实际接口探测失败不会变成默认卡拨号或扬声器/
+麦克风兜底成功。Magisk 本身没有统一蜂窝 PCM API。
+
+- [Magisk su CLI](https://topjohnwu.github.io/Magisk/tools.html#su)
+- [Magisk module lifecycle](https://topjohnwu.github.io/Magisk/guides.html#boot-scripts)
+- [Android O 精确 account/subId 接口](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-8.0.0_r1/telephony/java/android/telephony/TelephonyManager.java)
+- [Android R 公开 reverse 接口](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-11.0.0_r1/telephony/java/android/telephony/TelephonyManager.java)

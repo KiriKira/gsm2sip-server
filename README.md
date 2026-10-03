@@ -6,6 +6,8 @@ WSS/FCM 唤醒、通知投递、长期保留与完整背压仍待后续实施；
 
 通话控制与 Asterisk ARI 仍未实现。SIP 配置明确返回 `available:false`；`/calls` 与 `/call-intents` 返回 `503 CALLING_NOT_READY`。部署骨架中没有声称 Asterisk 已联调。
 
+网关后续按 Magisk 通用能力接口实现账户映射和数字音频适配，取消机型白名单及 API 31 整体语音门槛。此适配不改变本仓库的通话 readiness；详见实施审查中的 Magisk 补充。
+
 - [服务端计划](PLAN.md)
 - [原始协议](docs/protocol-v1.md)
 - [服务端 wire addendum](docs/server-wire-addendum.md)
