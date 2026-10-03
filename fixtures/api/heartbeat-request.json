@@ -1,0 +1,17 @@
+{
+  "sequence": 42,
+  "protocol_version": 1,
+  "app_version": "1.0.0",
+  "root": true,
+  "sip_registered": false,
+  "battery_percent": 87,
+  "charging": true,
+  "sim_states": [
+    {
+      "sim_id": "e3000000-0000-4000-8000-000000000001",
+      "mapping_revision": 3,
+      "service_state": "in_service",
+      "identity_verified": true
+    }
+  ]
+}
