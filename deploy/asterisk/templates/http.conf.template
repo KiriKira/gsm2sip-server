@@ -1,0 +1,5 @@
+[general]
+enabled = yes
+bindaddr = ${ASTERISK_ARI_BIND_ADDR}
+bindport = 8088
+tlsenable = no

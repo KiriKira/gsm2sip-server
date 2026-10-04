@@ -5,3 +5,7 @@
 *.log
 coverage.out
 tmp/
+.local/
+artifacts/
+__pycache__/
+*.pyc

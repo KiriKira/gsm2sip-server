@@ -46,3 +46,13 @@ jobs:
           python scripts/check_contract.py
       - name: Container build
         run: docker build --tag gsm2sip-server:ci .
+      - name: Asterisk runtime and safety probe
+        run: |
+          bash -n scripts/asterisk-local-cert.sh scripts/asterisk-local-probe.sh
+          sh -n deploy/asterisk/entrypoint.sh deploy/asterisk/healthcheck.sh
+          docker tag gsm2sip-server:ci gsm2sip-server:dev
+          docker build --file deploy/asterisk/Dockerfile --tag gsm2sip-asterisk:22.11.0-local .
+          SKIP_BUILD=1 scripts/asterisk-local-probe.sh
+      - name: Stop local probe containers
+        if: always()
+        run: docker compose down

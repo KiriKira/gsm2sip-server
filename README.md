@@ -1,12 +1,12 @@
 # gsm2sip-server
 
-Go + PostgreSQL 转发服务，把主机的短信任务投递到旧手机网关，并把网关的持久化事件安全同步回主机。M1/M2 核心已实现：一次性配对码、短时 access 与轮换 refresh token、device role/owner 隔离、SIM 两阶段绑定、heartbeat、短信 command claim、事件批量事务与 durable ACK、按 owner 分页的消息事件流。
+Go + PostgreSQL 转发服务，把主机的短信任务投递到旧手机网关，并把网关的持久化事件安全同步回主机。短信控制核心已实现：一次性配对码、短时 access 与轮换 refresh token、device role/owner 隔离、SIM 两阶段绑定、heartbeat、短信 command claim、事件批量事务与 durable ACK、按 owner 分页的消息事件流。
 
-`GET /v1/ws` 已提供 authenticated wake-only WebSocket：连接建立时和对应 durable marker 改变时只发送 `{"protocol_version":1,"type":"sync_required"}`，客户端再通过 HTTPS 读取 durable cursor/command。它不传事件、命令或来电数据，不等价于 call-ready，也没有实现 FCM、通知投递、呼入 push、长期保留或完整背压。断线和重复唤醒仍以 HTTPS 同步恢复。
+`GET /v1/ws` 已提供 authenticated wake-only WebSocket：连接建立时和对应 durable marker 改变时只发送 `{"protocol_version":1,"type":"sync_required"}`，客户端再通过 HTTPS 读取 durable cursor/command。它不传事件、命令或来电数据，不等价于 call-ready，FCM、呼入 push 和完整背压仍待实现；消息事件当前保留在数据库中。断线和重复唤醒仍以 HTTPS 同步恢复。
 
-通话控制与 Asterisk ARI 仍未实现。SIP 配置明确返回 `available:false`；`/calls` 与 `/call-intents` 返回 `503 CALLING_NOT_READY`。部署骨架中没有声称 Asterisk 已联调。
+新增 SIP 凭据配置/加密恢复、一次性呼叫意图、Asterisk ARI/Stasis 编排、设备通话占位、呼入 pending/ready/expiry 和呼叫历史。配置缺失或 ARI 未连接时拒绝创建呼叫；实际双 SIM 音频和公网联调仍需真机验收。参见 [运行说明](docs/operations.md)。
 
-网关后续按 Magisk 通用能力接口实现账户映射和数字音频适配，取消机型白名单及 API 31 整体语音门槛。此适配不改变本仓库的通话 readiness；详见实施审查中的 Magisk 补充。
+网关后续按 Magisk 通用能力接口实现账户映射和数字音频适配，取消机型白名单及 API 31 整体语音门槛。短信路径无需 root；语音能力按实际接口验证，详见实施审查中的 Magisk 补充。
 
 - [服务端计划](PLAN.md)
 - [原始协议](docs/protocol-v1.md)
@@ -22,6 +22,7 @@ Go + PostgreSQL 转发服务，把主机的短信任务投递到旧手机网关�
 
 ```sh
 cp .env.example .env
+# 按 docs/operations.md 生成并保存加密键、配置 TLS 证书与 ARI 凭据
 docker compose up --build -d
 curl http://127.0.0.1:8080/healthz
 curl http://127.0.0.1:8080/readyz
@@ -68,4 +69,4 @@ python3 scripts/check_contract.py
 
 `compose.yaml` 是本地开发骨架，不是公网生产配置。公网部署应提供 TLS、托管或持久化 PostgreSQL、备份与受限管理员访问，并使用受信任的 `DATABASE_URL`。生产客户端使用 `wss://`，保留默认 CA 和主机名验证；Caddy 可以在公网终止 TLS，再通过私有网络转发到 API 的 HTTP listener。明文 `ws://` 仅适用于本机开发和测试。如果构建网络使用 HTTPS 检查代理，可通过 `CODEX_PROXY_CERT` 环境变量向 BuildKit 提供 CA 文件；该 CA 只在依赖下载步骤挂载，TLS 校验保持开启。
 
-Asterisk/ARI 尚无可运行的呼叫桥。部署或监控系统不要把数据库 `/readyz` 当成呼叫就绪探针；目前它只验证 PostgreSQL 可用。呼叫端点会明确拒绝请求，直到 SIP/ARI 能力实现并通过设备联调。
+数据库 `/readyz` 只验证 PostgreSQL，不能表示电话已就绪。呼叫控制另行检查 ARI 连接、设备和 SIM 的可用状态；SIP REGISTER 也不能代替数字音频验收。服务端事件事务提交后才 ACK；主机另行确认 SQLite durable cursor，确认不会删除事件。刷新响应丢失可用原 token 和持久化请求键恢复当前令牌代际，直到其自然到期。

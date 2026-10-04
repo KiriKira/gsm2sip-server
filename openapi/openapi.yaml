@@ -5,7 +5,7 @@ info:
   description: >-
     HTTP and WebSocket contract for gsm2sip protocol v1. See docs/protocol-v1.md
     and docs/server-wire-addendum.md. /ws is a wake-only channel; call and SIP
-    capabilities remain unavailable until their explicit M3 configuration is implemented.
+    capabilities require configured SIP TLS, credentials, and a connected ARI coordinator.
 servers:
   - url: https://{apiHost}/v1
     variables:
@@ -62,6 +62,12 @@ paths:
     post:
       security: []
       operationId: refreshSession
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Persist before refresh. With server encryption configured, retry the identical old token and key within the current refresh expiry to recover a lost response. A later rotation or revocation invalidates recovery.
+          schema: {type: string, minLength: 16, maxLength: 128}
       requestBody:
         required: true
         content:
@@ -94,12 +100,26 @@ paths:
           description: Explicit SIP capability status.
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/SipCapability'}
+              schema: {$ref: '#/components/schemas/SipConfiguration'}
         '401': {$ref: '#/components/responses/Unauthorized'}
   /devices/self/sip-credentials/rotate:
     post:
       operationId: rotateSipCredentials
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: false}
       responses:
+        '200':
+          description: Provision or rotate this device's TLS/SRTP endpoint. Password is returned only here; an identical current key recovers the same response for five minutes. Old generation keys conflict. Rotation during a call is rejected.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SipCredentialResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409': {$ref: '#/components/responses/Conflict'}
         '503':
           description: SIP has not been configured; no credentials are issued.
           content:
@@ -308,10 +328,39 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/EventPage'}
+  /events/ack:
+    post:
+      operationId: acknowledgeClientEvents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [durable_cursor]
+              properties:
+                durable_cursor: {type: string, minLength: 1}
+      responses:
+        '200':
+          description: Monotonic per-device receipt after the client reports SQLite commit. Events remain retained. This does not acknowledge notification display or human reading.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClientEventReceipt'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /calls:
     get:
       operationId: listCalls
+      parameters:
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
       responses:
+        '200':
+          description: Authoritative calls belonging to this authenticated host.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CallPage'}
         '503': {$ref: '#/components/responses/CallingNotReady'}
   /calls/{call_id}:
     get:
@@ -319,11 +368,70 @@ paths:
       parameters:
         - {name: call_id, in: path, required: true, schema: {type: string, format: uuid}}
       responses:
+        '200':
+          description: Authoritative business call UUID and monotonic state revision. SIP Call-ID is a separate identifier.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RemoteCall'}
+        '404': {description: Call is unavailable to this client.}
         '503': {$ref: '#/components/responses/CallingNotReady'}
   /call-intents:
     post:
       operationId: createCallIntent
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [gateway_id, sim_id, mapping_revision, to]
+              properties:
+                gateway_id: {type: string, format: uuid}
+                sim_id: {type: string, format: uuid}
+                mapping_revision: {type: integer, minimum: 1}
+                to: {type: string, minLength: 1, maxLength: 64}
       responses:
+        '202':
+          description: Short-lived intent, including an identical idempotency replay. Cellular dialing is dispatched after an authenticated SIP INVITE consumes it once.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CallIntentResult'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '503': {$ref: '#/components/responses/CallingNotReady'}
+  /call-intents/{intent_id}:
+    delete:
+      operationId: cancelCallIntent
+      parameters:
+        - {name: intent_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '204': {description: Unconsumed intent cancelled. A consumed intent requires SIP hangup.}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /clients/{client_id}/ready:
+    post:
+      operationId: clientReady
+      parameters:
+        - {name: client_id, in: path, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [call_id, wake_nonce]
+              properties:
+                call_id: {type: string, format: uuid}
+                wake_nonce: {type: string, minLength: 16}
+      responses:
+        '200':
+          description: Authenticated registered host is ready within the 25-second incoming deadline.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RemoteCall'}
+        '409': {$ref: '#/components/responses/Conflict'}
         '503': {$ref: '#/components/responses/CallingNotReady'}
 components:
   securitySchemes:
@@ -434,6 +542,72 @@ components:
       properties:
         available: {type: boolean}
         reason: {type: string, enum: [sip_not_configured]}
+    SipConfiguration:
+      allOf:
+        - {$ref: '#/components/schemas/SipCapability'}
+        - type: object
+          properties:
+            endpoint_id: {type: string, pattern: '^dev_[0-9a-f]{32}$'}
+            auth_username: {type: string}
+            auth_realm: {type: string, const: gsm2sip}
+            aor: {type: string}
+            registrar_uri: {type: string, pattern: '^sips:'}
+            outbound_proxy_uri: {type: string, pattern: '^sips:'}
+            server_name: {type: string}
+            ca_pem: {type: string, description: Optional private CA from authenticated HTTPS. Otherwise Android trusted CAs are used.}
+    SipCredentialResult:
+      allOf:
+        - {$ref: '#/components/schemas/SipConfiguration'}
+        - type: object
+          required: [password]
+          properties:
+            password: {type: string, minLength: 32, readOnly: true}
+    ClientEventReceipt:
+      type: object
+      additionalProperties: false
+      required: [durable_cursor, confirmed_at, events_retained]
+      properties:
+        durable_cursor: {type: string}
+        confirmed_at: {type: string, format: date-time}
+        events_retained: {type: boolean, const: true}
+    CallIntentResult:
+      type: object
+      additionalProperties: false
+      required: [intent_id, call_id, sip_uri, expires_at]
+      properties:
+        intent_id: {type: string, format: uuid}
+        call_id: {type: string, format: uuid}
+        sip_uri: {type: string, pattern: '^sips:', description: Sensitive authorization-bearing URI. Never log or persist in call history.}
+        expires_at: {type: string, format: date-time}
+    RemoteCall:
+      type: object
+      required: [call_id, gateway_id, client_id, sim_id, mapping_revision, direction, state, state_revision, to, created_at]
+      properties:
+        call_id: {type: string, format: uuid}
+        gateway_id: {type: string, format: uuid}
+        client_id: {type: string, format: uuid}
+        sim_id: {type: string, format: uuid}
+        mapping_revision: {type: integer, minimum: 1}
+        direction: {type: string, enum: [incoming, outgoing]}
+        state: {type: string, enum: [reserved, pending_wakeup, ringing, dialing, connecting, active, ended, unknown]}
+        state_revision: {type: integer, minimum: 1}
+        from: {type: string}
+        to: {type: string}
+        reason: {type: string}
+        created_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        answered_at: {type: string, format: date-time}
+        ended_at: {type: string, format: date-time}
+        wake_nonce: {type: string}
+    CallPage:
+      type: object
+      required: [items, next_cursor, resync_required]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/RemoteCall'}
+        next_cursor: {type: [string, 'null']}
+        resync_required: {type: boolean}
     HeartbeatRequest:
       type: object
       required: [sequence, protocol_version, app_version, root, sip_registered, sim_states]

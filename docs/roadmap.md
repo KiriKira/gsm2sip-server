@@ -1,6 +1,6 @@
 # 三端联合实施顺序
 
-更新：2026-10-03。这里列的是开发和验收顺序，不代表任何阶段已完成。三份仓库计划和 [protocol-v1.md](protocol-v1.md) 配合使用。
+更新：2026-10-04。这里列的是开发和验收顺序，不代表任何阶段已完成。三份仓库计划和 [protocol-v1.md](protocol-v1.md) 配合使用。
 
 | 阶段 | 网关 gsm2sip | server | 主机 client-android | 完成门槛 |
 |---|---|---|---|---|
@@ -13,6 +13,6 @@
 
 可以并行：M0 三端探针；M1 schema 与客户端 mock/网关纯逻辑；M2 server/API/UI/网关执行器；M3 SIP routing 与Telecom UI。必须顺序执行：先确认旧机音频可行性，再承诺完整通话；先冻结契约再分别接入；先前台通话状态机再处理后台唤醒；先构建并验收再发布。
 
-当前 M2 WSS 只提示 HTTPS durable sync，不发送通知或来电信息，不代表 call-ready；M4 的 pending/ready/expiry/cancel、呼入 push 和断线状态校正仍待实现。M2 短信可单独交付可用阶段，但完整目标到 M5 才算完成。外部 Linphone/baresip 等只用于 M0/M3 对照测试，不能以‘另装软电话’作为最终主机 App 的验收结果。
+当前 M1/M2 短信核心及系统库补扫、刷新恢复、主机 durable receipt 已落代码。M3 的内置 SDK/Telecom、SIP 配置和 ARI 编排，以及 M4 的 pending/ready/expiry 与后台 SIP 服务已实现；实现不表示已完成两卡音频、锁屏或弱网实机验收。FCM、ICE/TURN 仍待实现；现有跨网媒体恢复策略、M5 持续运行和生产发布仍待验收。折叠屏按实际窗口和铰链适配，Z Fold8 需最终实机验证。
 
-测试账号、真实号码、实际拨号/发送短信由实施阶段的设备集成测试执行并记录；本次仅提交计划，没有操作 SIM、创建 VPS 或发送任何消息。
+本地软件测试、官方 Android Emulator 与 Asterisk 探针用于初步验证；没有执行真实短信、计费拨号或公网生产部署。结果以验证产物及三份 PR 的对应提交记录为准。

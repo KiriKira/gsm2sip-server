@@ -13,6 +13,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kirikira/gsm2sip-server/internal/calls"
+	"github.com/kirikira/gsm2sip-server/internal/securestore"
+
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -25,9 +28,12 @@ const (
 )
 
 type Server struct {
-	db     *sql.DB
-	logger *slog.Logger
-	now    func() time.Time
+	db           *sql.DB
+	logger       *slog.Logger
+	now          func() time.Time
+	secretCipher *securestore.Cipher
+	calls        *calls.Manager
+	sip          SIPSettings
 
 	wsMu          sync.Mutex
 	wsByDevice    map[string]int
@@ -37,11 +43,22 @@ type Server struct {
 }
 
 func New(database *sql.DB, logger *slog.Logger) *Server {
+	return NewWithOptions(database, logger, Options{})
+}
+
+type Options struct {
+	SecretCipher *securestore.Cipher
+	Calls        *calls.Manager
+	SIP          SIPSettings
+}
+
+func NewWithOptions(database *sql.DB, logger *slog.Logger, options Options) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Server{
 		db: database, logger: logger, now: time.Now,
+		secretCipher: options.SecretCipher, calls: options.Calls, sip: options.SIP,
 		wsByDevice: make(map[string]int), wsConnections: make(map[*websocket.Conn]struct{}),
 	}
 }
@@ -69,9 +86,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/messages", s.authenticated(s.createMessage))
 	mux.HandleFunc("GET /v1/messages/{message_id}", s.authenticated(s.getMessage))
 	mux.HandleFunc("GET /v1/events", s.authenticated(s.listEvents))
-	mux.HandleFunc("GET /v1/calls", s.notReady("CALLING_NOT_READY"))
-	mux.HandleFunc("GET /v1/calls/{call_id}", s.notReady("CALLING_NOT_READY"))
-	mux.HandleFunc("POST /v1/call-intents", s.notReady("CALLING_NOT_READY"))
+	mux.HandleFunc("POST /v1/events/ack", s.authenticated(s.acknowledgeClientEvents))
+	mux.HandleFunc("GET /v1/calls", s.authenticated(s.listCalls))
+	mux.HandleFunc("GET /v1/calls/{call_id}", s.authenticated(s.getCall))
+	mux.HandleFunc("POST /v1/call-intents", s.authenticated(s.createCallIntent))
+	mux.HandleFunc("DELETE /v1/call-intents/{intent_id}", s.authenticated(s.cancelCallIntent))
+	mux.HandleFunc("POST /v1/clients/{client_id}/ready", s.authenticated(s.clientReady))
 	return requestIDMiddleware(recoverMiddleware(s.logger, mux))
 }
 
@@ -135,14 +155,6 @@ func (s *Server) notReady(code string) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, code, "SIP and ARI calling are not configured.", false)
 	}
-}
-
-func (s *Server) getSIPConfig(w http.ResponseWriter, _ *http.Request, _ Principal) {
-	writeJSON(w, http.StatusOK, SIPCapability{Available: false, Reason: "sip_not_configured"})
-}
-
-func (s *Server) rotateSIPCredentials(w http.ResponseWriter, _ *http.Request, _ Principal) {
-	writeError(w, http.StatusServiceUnavailable, "SIP_NOT_CONFIGURED", "SIP credentials are not configured.", false)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

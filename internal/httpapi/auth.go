@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net"
 	"net/http"
 	"strings"
@@ -86,13 +87,14 @@ func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 		writeDBUnavailable(w)
 		return
 	}
+	sip := s.sipConfig(Principal{DeviceID: deviceID})
 	writeJSON(w, http.StatusOK, PairingClaimResponse{
 		OwnerID: ownerID, DeviceID: deviceID, Role: role,
 		SessionTokens: SessionTokens{
 			AccessToken: accessToken, AccessExpiresAt: accessExpires,
 			RefreshToken: refreshToken, RefreshExpiresAt: refreshExpires,
 		},
-		SIP: SIPCapability{Available: false, Reason: "sip_not_configured"},
+		SIP: SIPCapability{Available: sip.Available, Reason: sip.Reason},
 	})
 }
 
@@ -151,6 +153,14 @@ func (s *Server) refreshSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "SESSION_REVOKED", "Refresh token is invalid or expired; pair this device again.", false)
 		return
 	}
+	idempotencyKey := r.Header.Get("Idempotency-Key")
+	if idempotencyKey != "" && !validRefreshIdempotencyKey(idempotencyKey) {
+		writeError(w, http.StatusBadRequest, "IDEMPOTENCY_KEY_INVALID", "Idempotency-Key must contain 16 to 128 visible characters.", false)
+		return
+	}
+	oldRefreshHash := tokenHash(request.RefreshToken)
+	keyHash := refreshRecoveryKeyHash(idempotencyKey)
+	now := s.now().UTC()
 	tx, err := beginDurable(r.Context(), s.db)
 	if err != nil {
 		writeDBUnavailable(w)
@@ -168,12 +178,49 @@ func (s *Server) refreshSession(w http.ResponseWriter, r *http.Request) {
 		writeDBUnavailable(w)
 		return
 	}
-	if err == sql.ErrNoRows || !expires.After(s.now().UTC()) {
+	if err == sql.ErrNoRows {
+		if idempotencyKey != "" && s.secretCipher != nil {
+			var recoverySessionID string
+			var newRefreshHash, ciphertext []byte
+			replayErr := tx.QueryRowContext(r.Context(), `
+				SELECT s.id::text, rr.new_refresh_hash, rr.response_ciphertext
+				FROM refresh_recoveries rr
+				JOIN sessions s ON s.id=rr.session_id
+				JOIN devices d ON d.id=s.device_id
+				WHERE rr.old_refresh_hash=$1 AND rr.idempotency_key_hash=$2
+				AND rr.expires_at > $3 AND s.refresh_hash=rr.new_refresh_hash
+				AND s.access_expires_at > $3 AND s.refresh_expires_at > $3
+				AND d.state='active'
+				FOR UPDATE OF s, rr`, oldRefreshHash, keyHash, now).
+				Scan(&recoverySessionID, &newRefreshHash, &ciphertext)
+			if replayErr == nil {
+				plaintext, openErr := s.secretCipher.Open(ciphertext,
+					refreshRecoveryAAD(recoverySessionID, oldRefreshHash, keyHash, newRefreshHash))
+				if openErr != nil || !json.Valid(plaintext) {
+					writeError(w, http.StatusServiceUnavailable, "REFRESH_RECOVERY_UNAVAILABLE", "The refresh result could not be recovered.", true)
+					return
+				}
+				if err := tx.Commit(); err != nil {
+					writeDBUnavailable(w)
+					return
+				}
+				writeRawJSON(w, http.StatusOK, plaintext)
+				return
+			}
+			if replayErr != sql.ErrNoRows {
+				writeDBUnavailable(w)
+				return
+			}
+		}
+		writeError(w, http.StatusUnauthorized, "SESSION_REVOKED", "Refresh token is invalid or expired; pair this device again.", false)
+		return
+	}
+	if !expires.After(now) {
 		writeError(w, http.StatusUnauthorized, "SESSION_REVOKED", "Refresh token is invalid or expired; pair this device again.", false)
 		return
 	}
 	accessToken, refreshToken := randomToken(), randomToken()
-	accessExpires, refreshExpires := s.now().UTC().Add(accessLifetime), s.now().UTC().Add(refreshLifetime)
+	accessExpires, refreshExpires := now.Add(accessLifetime), now.Add(refreshLifetime)
 	if _, err := tx.ExecContext(r.Context(), `
 		UPDATE sessions SET access_hash=$1, access_expires_at=$2,
 		refresh_hash=$3, refresh_expires_at=$4, rotated_at=now() WHERE id=$5`,
@@ -181,14 +228,46 @@ func (s *Server) refreshSession(w http.ResponseWriter, r *http.Request) {
 		writeDBUnavailable(w)
 		return
 	}
+	if _, err := tx.ExecContext(r.Context(), `DELETE FROM refresh_recoveries WHERE session_id=$1`, sessionID); err != nil {
+		writeDBUnavailable(w)
+		return
+	}
+	response := SessionTokens{
+		AccessToken: accessToken, AccessExpiresAt: accessExpires,
+		RefreshToken: refreshToken, RefreshExpiresAt: refreshExpires,
+	}
+	var responseJSON []byte
+	if idempotencyKey != "" && s.secretCipher != nil {
+		responseJSON, err = json.Marshal(response)
+		if err != nil {
+			writeDBUnavailable(w)
+			return
+		}
+		newRefreshHash := tokenHash(refreshToken)
+		ciphertext, sealErr := s.secretCipher.Seal(responseJSON,
+			refreshRecoveryAAD(sessionID, oldRefreshHash, keyHash, newRefreshHash))
+		if sealErr != nil {
+			writeError(w, http.StatusServiceUnavailable, "REFRESH_RECOVERY_UNAVAILABLE", "The refresh result could not be stored safely.", true)
+			return
+		}
+		if _, err := tx.ExecContext(r.Context(), `
+			INSERT INTO refresh_recoveries(session_id, old_refresh_hash, idempotency_key_hash,
+				new_refresh_hash, response_ciphertext, expires_at)
+			VALUES ($1,$2,$3,$4,$5,$6)`, sessionID, oldRefreshHash, keyHash,
+			newRefreshHash, ciphertext, refreshExpires); err != nil {
+			writeDBUnavailable(w)
+			return
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		writeDBUnavailable(w)
 		return
 	}
-	writeJSON(w, http.StatusOK, SessionTokens{
-		AccessToken: accessToken, AccessExpiresAt: accessExpires,
-		RefreshToken: refreshToken, RefreshExpiresAt: refreshExpires,
-	})
+	if responseJSON != nil {
+		writeRawJSON(w, http.StatusOK, responseJSON)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) {
@@ -200,8 +279,68 @@ func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Refresh token is required.", false)
 		return
 	}
-	_, err := s.db.ExecContext(r.Context(), `DELETE FROM sessions WHERE refresh_hash=$1`, tokenHash(request.RefreshToken))
+	tx, err := beginDurable(r.Context(), s.db)
 	if err != nil {
+		writeDBUnavailable(w)
+		return
+	}
+	defer tx.Rollback()
+
+	var sessionID, deviceID string
+	err = tx.QueryRowContext(r.Context(), `
+		SELECT s.id::text, s.device_id::text
+		FROM sessions s JOIN devices d ON d.id=s.device_id
+		WHERE s.refresh_hash=$1 OR EXISTS (
+			SELECT 1 FROM refresh_recoveries rr
+			WHERE rr.session_id=s.id AND rr.old_refresh_hash=$1 AND rr.expires_at>now()
+		)
+		FOR UPDATE OF d, s`, tokenHash(request.RefreshToken)).Scan(&sessionID, &deviceID)
+	if err != nil && err != sql.ErrNoRows {
+		writeDBUnavailable(w)
+		return
+	}
+	if err == sql.ErrNoRows {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if _, err := tx.ExecContext(r.Context(), `DELETE FROM sessions WHERE id=$1`, sessionID); err != nil {
+		writeDBUnavailable(w)
+		return
+	}
+	var hasLiveSession bool
+	if err := tx.QueryRowContext(r.Context(), `
+		SELECT EXISTS(SELECT 1 FROM sessions WHERE device_id=$1
+			AND (access_expires_at > now() OR refresh_expires_at > now()))`, deviceID).
+		Scan(&hasLiveSession); err != nil {
+		writeDBUnavailable(w)
+		return
+	}
+	if !hasLiveSession {
+		var endpointID string
+		bindingErr := tx.QueryRowContext(r.Context(), `
+			UPDATE sip_endpoint_bindings SET state='revoked', updated_at=now()
+			WHERE device_id=$1 RETURNING endpoint_id`, deviceID).Scan(&endpointID)
+		if bindingErr != nil && bindingErr != sql.ErrNoRows {
+			writeDBUnavailable(w)
+			return
+		}
+		if bindingErr == sql.ErrNoRows {
+			// The endpoint ID is deterministic; this also removes any orphaned
+			// Asterisk realtime rows left by an interrupted older bootstrap.
+			endpointID = "dev_" + strings.ReplaceAll(deviceID, "-", "")
+		}
+		if _, err := tx.ExecContext(r.Context(), `DELETE FROM device_sip_credentials WHERE device_id=$1`, deviceID); err != nil {
+			writeDBUnavailable(w)
+			return
+		}
+		for _, table := range []string{"ps_auths", "ps_endpoints", "ps_aors"} {
+			if _, err := tx.ExecContext(r.Context(), `DELETE FROM `+table+` WHERE id=$1`, endpointID); err != nil {
+				writeDBUnavailable(w)
+				return
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		writeDBUnavailable(w)
 		return
 	}

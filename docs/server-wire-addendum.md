@@ -30,9 +30,15 @@ capability must not be interpreted as a bootstrap account. Access lifetime is
 15 minutes; refresh lifetime defaults to 30 days. `POST /auth/refresh` takes
 `{"refresh_token":"..."}` and returns the same four token fields as pairing.
 Refresh is single-use and atomically replaces both tokens. Reuse of the old
-refresh token is `401 SESSION_REVOKED`. If a committed rotation's response is
-lost, the old token cannot recover the new secret; stop retrying it and ask the
-user to pair again. `POST /auth/revoke` takes the same body
+refresh token with a different idempotency key is `401 SESSION_REVOKED`. When
+the server's stable recovery-encryption key is configured, a client can send a
+durably saved `Idempotency-Key` and retry the exact refresh request after a
+lost response. The server keeps only the latest encrypted response for the
+session and replays it only for the same old token and key while the session's
+current refresh token remains valid. The cache expires at that token's
+`refresh_expires_at`; replay does not rotate tokens or extend their lifetime.
+Without the recovery-encryption key, refresh still rotates normally but a lost
+response cannot be recovered. `POST /auth/revoke` takes the same body
 and returns `204`; it revokes the refresh family and its current access token.
 
 All authenticated HTTP and WebSocket requests use
@@ -237,10 +243,30 @@ conflict; `413` means the event batch limit was exceeded; `429` is a budget
 limit; and `503` means the capability is not configured. `retryable:true`
 only allows retrying the same resource/key.
 
-## Call and SIP capability in M1/M2
+## SIP credentials and call control
 
-Call intent creation and SIP connection bootstrap are not implemented in
-M1/M2. When SIP is absent, pairing and `GET /devices/self/sip-config` report
-`{"available":false,"reason":"sip_not_configured"}`. Call-intent and
-call-history routes fail closed with `503 CALLING_NOT_READY`; they never
-pretend to authorize or route a call.
+`GET /devices/self/sip-config` returns non-secret TLS configuration. When configured,
+`POST /devices/self/sip-credentials/rotate` with a persisted `Idempotency-Key`
+returns a new password once, with encrypted replay for five minutes. The same key
+never rotates twice; an expired/obsolete key fails explicitly. Asterisk stores a
+Digest A1 hash rather than the plaintext password. The TLS certificate server
+name is distinct from the fixed SIP Digest realm `gsm2sip`.
+
+`POST /call-intents` returns HTTP 202, reserves gateway capacity for 30 seconds,
+and does not dial a carrier call. Only an authenticated client SIP INVITE may
+consume the one-use token. Gateway routing uses the four trusted `X-GSM-*`
+headers from protocol v1; the client leg uses `X-GSM2SIP-Call-ID`. Incoming calls
+wait at most 25 seconds for the selected client's authenticated, nonce-bound
+`/ready`, verified contact, and actual SIP leg. Expiry/cancellation cannot revive
+a call. `GET /calls` and `/calls/{id}` return authorized call history and current
+state. ARI disconnection/restart must reconcile uncertain legs. An unknown call
+keeps its gateway lease while any related channel remains or channel absence
+cannot be confirmed. Once a fresh ARI inventory confirms that every related
+channel is gone, the call becomes terminal and releases the lease. A
+time-based reservation expiry never releases an active or uncertain call.
+
+Calling requires configured SIP credentials, a connected ARI coordinator and
+eligible device/SIM state. Missing configuration returns 503. Database `/readyz`
+and SIP registration alone do not certify media capability. FCM and ICE/TURN
+are not implemented. The host implements bounded IP-change/session recovery;
+media resumption across real networks still requires interoperability testing.

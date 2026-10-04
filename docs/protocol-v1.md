@@ -1,4 +1,4 @@
-# gsm2sip 三端协议 v1（实现目标，尚未实现）
+# gsm2sip 三端协议 v1（实现与验收目标）
 
 更新：2026-10-03。权威源在 `KiriKira/gsm2sip-server/docs/protocol-v1.md`；另两仓库用链接和固定协议提交号引用，不独立修改副本。所有 v1 示例是待实现的接口，不表示当前服务已存在。
 
@@ -21,9 +21,9 @@
 - gateway 与 client 使用不同 API 凭据和 SIP endpoint/auth/AOR。gateway 只能同步自身状态、认领自身命令、上报自身事件；client 只能操作授权 SIM，不能调用 root/ADB/shell。
 - API 配对与 SIP 凭据由同一权限控制面管理，解绑立即撤销 API 凭据并使 SIP endpoint 停用。SIP Call-ID、From、客户端自带 X-* 头均不是授权依据。
 
-配对成功响应一次性下发 API 会话和 SIP bootstrap（`device_id,role,sip_endpoint_id,auth_username,auth_realm,password,aor,registrar_uri,outbound_proxy_uri`）。设备与 SIP auth/AOR 固定一对一，v1 每 AOR 一个有效 contact；password 随机生成，若需再次下发由控制面加密保存，不以明文写配置仓库/DB普通列。`GET /devices/self/sip-config` 返回非秘密连接配置；凭据丢失用已授权 API 的 `POST /devices/self/sip-credentials/rotate` 重发一次新密码并撤销旧凭据，不能重放配对码再造 endpoint。API refresh 不自动轮换 SIP 密码。
+配对成功响应下发 API 会话与 SIP 是否配置的状态。两端随后通过已授权 API 获取非秘密 SIP 配置，并用持久化 Idempotency-Key 显式 bootstrap/rotate 取得密码（`endpoint_id,auth_username,auth_realm,password,aor,registrar_uri,outbound_proxy_uri,server_name`）；五分钟内同请求键可恢复相同加密响应。设备与 SIP auth/AOR 固定一对一，v1 每 AOR 一个有效 contact；password 随机生成，若需再次下发由控制面加密保存，不以明文写配置仓库/DB普通列。`GET /devices/self/sip-config` 返回非秘密连接配置；凭据丢失用已授权 API 的 `POST /devices/self/sip-credentials/rotate` 重发一次新密码并撤销旧凭据，不能重放配对码再造 endpoint。API refresh 不自动轮换 SIP 密码。
 
-SIP realm 使用配置的固定域名（如 `sip.example.com`），TLS 端口默认 5061；两端 REGISTER/INVITE 的 401/407 Digest 流程必须实测支持相同算法与 `qop=auth`。server 以通过 Digest 验证的 endpoint/auth identity 反查 device_id；不以 From 声称的号码认身份。SHA-256 优先在网关和 SDK 已实现并互通后启用，不能将当前仅简化 MD5 的网关直接接到只接受 SHA-256 的配置。凭据轮换、端点禁用和已有注册 contact 清理均可验证。
+SIP Digest realm 固定为 `gsm2sip`，与 TLS 的公开服务器域名分开；TLS 端口默认 5061；两端 REGISTER/INVITE 的 401/407 Digest 流程必须实测支持相同算法与 `qop=auth`。server 以通过 Digest 验证的 endpoint/auth identity 反查 device_id；不以 From 声称的号码认身份。SHA-256 优先在网关和 SDK 已实现并互通后启用，不能将当前仅简化 MD5 的网关直接接到只接受 SHA-256 的配置。凭据轮换、端点禁用和已有注册 contact 清理均可验证。
 
 ## 3. 双 SIM 身份和版本
 

@@ -16,6 +16,10 @@ registry = Registry().with_resource('urn:gsm2sip:openapi', Resource.from_content
     dict(spec, **{'$schema': 'https://json-schema.org/draft/2020-12/schema'})))
 fixtures = {
     'wake-sync-required.json': 'WakeSyncRequired',
+    'sip-config-response.json': 'SipConfiguration',
+    'client-event-receipt-response.json': 'ClientEventReceipt',
+    'call-intent-response.json': 'CallIntentResult',
+    'call-pending-response.json': 'RemoteCall',
     'pairing-claim-response.json': 'PairingResult',
     'heartbeat-request.json': 'HeartbeatRequest',
     'heartbeat-response-invalidated.json': 'HeartbeatResult',

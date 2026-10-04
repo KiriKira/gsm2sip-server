@@ -1,0 +1,17 @@
+[directories]
+astetcdir => ${ASTERISK_CONFIG_DIR}
+astmoddir => /usr/lib/asterisk/modules
+astvarlibdir => /var/lib/asterisk
+astdbdir => /var/lib/asterisk
+astkeydir => /var/lib/asterisk/keys
+astdatadir => /var/lib/asterisk
+astagidir => /var/lib/asterisk/agi-bin
+astspooldir => /var/spool/asterisk
+astrundir => /run/asterisk
+astlogdir => /var/log/asterisk
+
+[options]
+runuser = asterisk
+rungroup = asterisk
+verbose = 0
+debug = 0

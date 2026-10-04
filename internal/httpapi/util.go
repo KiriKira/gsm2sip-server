@@ -31,6 +31,18 @@ func newUUID() string {
 
 func validUUID(value string) bool { return uuidPattern.MatchString(value) }
 
+func visibleIdempotencyKey(key string) bool {
+	if len(key) < 16 || len(key) > 128 {
+		return false
+	}
+	for i := 0; i < len(key); i++ {
+		if key[i] < 0x21 || key[i] > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
 func tokenHash(token string) []byte {
 	hash := sha256.Sum256([]byte(token))
 	return hash[:]

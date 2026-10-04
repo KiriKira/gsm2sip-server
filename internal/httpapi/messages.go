@@ -31,7 +31,7 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request, principal
 		return
 	}
 	idempotencyKey := r.Header.Get("Idempotency-Key")
-	if len(idempotencyKey) < 16 || len(idempotencyKey) > 128 || strings.TrimSpace(idempotencyKey) != idempotencyKey || strings.ContainsAny(idempotencyKey, "\r\n\x00") {
+	if !visibleIdempotencyKey(idempotencyKey) {
 		writeError(w, http.StatusBadRequest, "IDEMPOTENCY_KEY_REQUIRED", "Idempotency-Key must contain 16 to 128 visible characters.", false)
 		return
 	}
