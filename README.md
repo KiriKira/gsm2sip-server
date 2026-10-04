@@ -13,6 +13,7 @@ Go + PostgreSQL 转发服务，把主机的短信任务投递到旧手机网关�
 - [服务端 wire addendum](docs/server-wire-addendum.md)
 - [OpenAPI](openapi/openapi.yaml)
 - [跨端路线图](docs/roadmap.md)
+- [功能缺口与弱网恢复审查](docs/network-and-feature-status.md)
 - [实施审查记录](docs/IMPLEMENTATION-REVIEW-2026-10-03.md)
 
 ## 本地运行
