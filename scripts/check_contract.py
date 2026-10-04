@@ -21,6 +21,10 @@ fixtures = {
     'call-intent-response.json': 'CallIntentResult',
     'call-pending-response.json': 'RemoteCall',
     'pairing-claim-response.json': 'PairingResult',
+    'pairing-claim-request-windows.json': 'PairingClaim',
+    'pairing-claim-request-blank-platform.json': 'PairingClaim',
+    'clients-list-response.json': 'ClientList',
+    'call-answered-elsewhere.json': 'RemoteCall',
     'heartbeat-request.json': 'HeartbeatRequest',
     'heartbeat-response-invalidated.json': 'HeartbeatResult',
     'sim-bindings-response.json': 'SimBindingResult',
@@ -74,4 +78,25 @@ for mutate in mutations:
     event = copy.deepcopy(base_event)
     mutate(event)
     assert not event_validator.is_valid(event), f'Unsafe event accepted: {event}'
-print(f'OpenAPI and {len(fixtures) + 1} fixture files passed; {len(mutations)} invalid events rejected')
+claim_validator = Draft202012Validator(
+    {'$ref': 'urn:gsm2sip:openapi#/components/schemas/PairingClaim'},
+    registry=registry, format_checker=FormatChecker())
+claim = json.loads((ROOT / 'fixtures/api/pairing-claim-request-windows.json').read_text())
+for value in ('Windows', 'windows!', 'x' * 33):
+    invalid_claim = {**claim, 'platform': value}
+    assert not claim_validator.is_valid(invalid_claim), f'Invalid platform accepted: {value!r}'
+client_validator = Draft202012Validator(
+    {'$ref': 'urn:gsm2sip:openapi#/components/schemas/ClientSummary'},
+    registry=registry, format_checker=FormatChecker())
+clients = json.loads((ROOT / 'fixtures/api/clients-list-response.json').read_text())['items']
+base_client = clients[0]
+for invalid_client in (
+    {**base_client, 'platform': 'Windows'},
+    {**base_client, 'state': 'online'},
+    {**base_client, 'access_token': 'must-not-be-listed'},
+):
+    assert not client_validator.is_valid(invalid_client), f'Unsafe client row accepted: {invalid_client}'
+print(
+    f'OpenAPI and {len(fixtures) + 1} fixture files passed; '
+    f'{len(mutations)} invalid events, 3 invalid platform labels, and 3 unsafe client rows rejected'
+)

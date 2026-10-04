@@ -151,7 +151,10 @@ func (s *Server) rotateSIPCredentials(w http.ResponseWriter, r *http.Request, p 
 		writeError(w, 409, "IDEMPOTENCY_KEY_REUSED", "This key belongs to a previous SIP credential generation.", false)
 		return
 	}
-	if err = tx.QueryRowContext(r.Context(), `SELECT EXISTS(SELECT 1 FROM call_sessions WHERE (gateway_id=$1 OR client_device_id=$1) AND state<>'ended')`, p.DeviceID).Scan(&busy); err != nil {
+	if err = tx.QueryRowContext(r.Context(), `SELECT
+		EXISTS(SELECT 1 FROM call_sessions WHERE (gateway_id=$1 OR client_device_id=$1) AND state<>'ended')
+		OR EXISTS(SELECT 1 FROM call_participants WHERE client_device_id=$1
+			AND state IN ('candidate','pending_wakeup','ringing','connecting','accepted'))`, p.DeviceID).Scan(&busy); err != nil {
 		writeDBUnavailable(w)
 		return
 	}

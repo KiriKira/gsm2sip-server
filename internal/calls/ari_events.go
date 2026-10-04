@@ -39,9 +39,9 @@ type callLegs struct {
 }
 
 type reconcileSession struct {
-	callID, ownerID, clientID, gatewayID, state             string
-	clientChannel, gatewayChannel, wrapperChannel, bridgeID string
-	clientValid, gatewayValid                               bool
+	callID, ownerID, clientID, gatewayID, state, direction, reason string
+	clientChannel, gatewayChannel, wrapperChannel, bridgeID        string
+	clientValid, gatewayValid                                      bool
 }
 
 func (m *Manager) handleEvent(ctx context.Context, event asterisk.Event) error {
@@ -57,10 +57,14 @@ func (m *Manager) handleEvent(ctx context.Context, event asterisk.Event) error {
 			return m.ari.Hangup(ctx, event.Channel.ID)
 		}
 		if event.Args[0] == "originate-wrapper" {
-			if len(event.Args) != 2 || !validUUID(event.Args[1]) {
+			if (len(event.Args) != 2 && len(event.Args) != 3) || !validUUID(event.Args[1]) || len(event.Args) == 3 && !validUUID(event.Args[2]) {
 				return m.ari.Hangup(ctx, event.Channel.ID)
 			}
-			if err := m.dialWrapper(ctx, event.Channel.ID, strings.ToLower(event.Args[1])); err != nil {
+			clientID := ""
+			if len(event.Args) == 3 {
+				clientID = strings.ToLower(event.Args[2])
+			}
+			if err := m.dialWrapper(ctx, event.Channel.ID, strings.ToLower(event.Args[1]), clientID); err != nil {
 				_ = m.ari.Hangup(ctx, event.Channel.ID)
 				if errors.Is(err, ErrConflict) || errors.Is(err, ErrNotFound) {
 					return nil
@@ -116,13 +120,25 @@ func (m *Manager) handleEvent(ctx context.Context, event asterisk.Event) error {
 		default:
 			return m.ari.Hangup(ctx, event.Channel.ID)
 		}
+	case "ChannelStateChange":
+		if strings.EqualFold(event.Channel.State, "up") {
+			if endpointID, ok := endpointFromChannelName(event.Channel.Name); ok {
+				identity, err := m.identityForEndpoint(ctx, endpointID)
+				if err == nil && identity.role == "client" {
+					if err := m.acceptIncomingAnswer(ctx, identity, endpointID, event.Channel.ID); err != nil &&
+						!errors.Is(err, ErrConflict) && !errors.Is(err, ErrNotFound) && !errors.Is(err, ErrForbidden) {
+						return err
+					}
+				}
+			}
+		}
 	case "ChannelDestroyed":
 		return m.onChannelDestroyed(ctx, event.Channel.ID, event.Cause, event.CauseText)
 	}
 	return nil
 }
 
-func (m *Manager) dialWrapper(ctx context.Context, channelID, callID string) error {
+func (m *Manager) dialWrapper(ctx context.Context, channelID, callID, participantClientID string) error {
 	tx, err := beginDurable(ctx, m.db)
 	if err != nil {
 		return err
@@ -142,6 +158,39 @@ func (m *Manager) dialWrapper(ctx context.Context, channelID, callID string) err
 	}
 	if state == "ended" || state == "unknown" {
 		return ErrConflict
+	}
+	if direction == "incoming" && participantClientID != "" {
+		var participantState, oldParticipantWrapper, winner string
+		var participantDialStarted bool
+		if err := tx.QueryRowContext(ctx, `
+			SELECT p.state,COALESCE(p.wrapper_channel_id,''),COALESCE(c.incoming_winner_client_device_id::text,''),p.dial_started
+			FROM call_participants p JOIN call_sessions c ON c.call_id=p.call_id
+			WHERE p.call_id=$1 AND p.client_device_id=$2 AND p.owner_id=c.owner_id FOR UPDATE OF p,c`, callID, participantClientID).
+			Scan(&participantState, &oldParticipantWrapper, &winner, &participantDialStarted); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if participantState != "ringing" || winner != "" || oldParticipantWrapper != "" && oldParticipantWrapper != channelID {
+			return ErrConflict
+		}
+		if participantDialStarted {
+			return tx.Commit()
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE call_participants SET wrapper_channel_id=COALESCE(wrapper_channel_id,$3),dial_started=true,updated_at=clock_timestamp()
+			WHERE call_id=$1 AND client_device_id=$2`, callID, participantClientID, channelID); err != nil {
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		timeout := time.Until(expires)
+		if err := m.ari.Dial(ctx, channelID, timeout); err != nil {
+			return err
+		}
+		return nil
 	}
 	if oldChannel != "" && oldChannel != channelID {
 		return ErrConflict
@@ -351,20 +400,13 @@ func (m *Manager) acceptIncoming(ctx context.Context, endpointID string, channel
 	if err != nil || identity.role != "gateway" {
 		return ErrForbidden
 	}
-	client, err := m.loadPrimaryClient(ctx, identity.ownerID)
-	if err != nil {
-		return err
-	}
-	wakeNonce, err := m.makeWakeNonce(callID)
-	if err != nil {
-		return err
-	}
 	tx, err := beginDurable(ctx, m.db)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if err := lockIntentDevices(ctx, tx, identity.ownerID, client.deviceID, identity.deviceID); err != nil {
+	clients, err := activeIncomingClientsTx(ctx, tx, identity.ownerID, identity.deviceID)
+	if err != nil {
 		return err
 	}
 	var existingGateway, existingSIM, existingChannel string
@@ -394,10 +436,17 @@ func (m *Manager) acceptIncoming(ctx context.Context, endpointID string, channel
 	if err != nil {
 		return err
 	}
-	if err := validateBindingTx(ctx, tx, identity.ownerID, client.deviceID, "client", client.endpointID); err != nil {
+	if err := m.preemptOrRejectSlot(ctx, tx, identity.deviceID); err != nil {
 		return err
 	}
-	if err := m.preemptOrRejectSlot(ctx, tx, identity.deviceID); err != nil {
+	for _, client := range clients {
+		if err := validateBindingTx(ctx, tx, identity.ownerID, client.deviceID, "client", client.endpointID); err != nil {
+			return err
+		}
+	}
+	primary := clients[0]
+	primaryNonce, err := m.makeWakeNonce(callID)
+	if err != nil {
 		return err
 	}
 	toAddress := channel.Connected.Number
@@ -412,15 +461,29 @@ func (m *Manager) acceptIncoming(ctx context.Context, endpointID string, channel
 		 client_endpoint_id,gateway_channel_id,gateway_sip_call_id)
 		VALUES($1,$2,$3,$4,$5,$6,'incoming',NULLIF($7,''),$8,'pending_wakeup',1,
 		       clock_timestamp()+interval '25 seconds',$9,$10,$11,$12,$13)
-		RETURNING expires_at`, callID, identity.ownerID, client.deviceID, identity.deviceID, simID, revision,
-		fromAddress, toAddress, wakeNonce, endpointID, client.endpointID, channel.ID, "").Scan(&expiresAt); err != nil {
+		RETURNING expires_at`, callID, identity.ownerID, primary.deviceID, identity.deviceID, simID, revision,
+		fromAddress, toAddress, primaryNonce, endpointID, primary.endpointID, channel.ID, "").Scan(&expiresAt); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO gateway_call_slots(gateway_id,call_id) VALUES($1,$2)`, identity.deviceID, callID); err != nil {
 		return err
 	}
-	if err := appendEvent(ctx, tx, callID, identity.ownerID, client.deviceID, 1, "call.pending_wakeup", "pending_wakeup"); err != nil {
-		return err
+	for i, client := range clients {
+		nonce := primaryNonce
+		if i != 0 {
+			nonce, err = m.makeWakeNonce(callID)
+			if err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO call_participants(call_id,owner_id,client_device_id,endpoint_id,wake_nonce,state,state_revision)
+			VALUES($1,$2,$3,$4,$5,'pending_wakeup',1)`, callID, identity.ownerID, client.deviceID, client.endpointID, nonce); err != nil {
+			return err
+		}
+		if err := appendParticipantEvent(ctx, tx, callID, identity.ownerID, client.deviceID, 1, "call.pending_wakeup", "pending_wakeup", ""); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return err
@@ -430,23 +493,6 @@ func (m *Manager) acceptIncoming(ctx context.Context, endpointID string, channel
 		return err
 	}
 	return nil
-}
-
-type primaryClient struct {
-	deviceID   string
-	endpointID string
-}
-
-func (m *Manager) loadPrimaryClient(ctx context.Context, ownerID string) (primaryClient, error) {
-	var client primaryClient
-	err := m.db.QueryRowContext(ctx, `
-		SELECT d.id::text,b.endpoint_id FROM devices d JOIN sip_endpoint_bindings b ON b.device_id=d.id
-		WHERE d.owner_id=$1 AND d.role='client' AND d.state='active' AND b.state='active'
-		ORDER BY d.created_at,d.id LIMIT 1`, ownerID).Scan(&client.deviceID, &client.endpointID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return primaryClient{}, ErrNotFound
-	}
-	return client, err
 }
 
 func (m *Manager) preemptOrRejectSlot(ctx context.Context, tx *sql.Tx, gatewayID string) error {
@@ -489,6 +535,18 @@ func (m *Manager) onCallLeg(ctx context.Context, endpointID string, channel aste
 	identity, err := m.identityForEndpoint(ctx, endpointID)
 	if err != nil {
 		return err
+	}
+	if kind == "client-leg" {
+		var direction string
+		if err := m.db.QueryRowContext(ctx, `SELECT direction FROM call_sessions WHERE call_id=$1`, callID).Scan(&direction); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if direction == "incoming" {
+			return m.onIncomingClientLeg(ctx, identity, endpointID, channel, callID)
+		}
 	}
 	tx, err := beginDurable(ctx, m.db)
 	if err != nil {
@@ -560,6 +618,18 @@ func (m *Manager) connectIfReady(ctx context.Context, callID string) error {
 	if legs.state == "ended" || legs.state == "active" || legs.clientChannel == "" || legs.gatewayChannel == "" {
 		return nil
 	}
+	if legs.state == "unknown" {
+		return nil
+	}
+	if legs.direction == "incoming" {
+		var winner string
+		if err := m.db.QueryRowContext(ctx, `SELECT COALESCE(incoming_winner_client_device_id::text,'') FROM call_sessions WHERE call_id=$1`, callID).Scan(&winner); err != nil {
+			return err
+		}
+		if winner != legs.clientID {
+			return nil
+		}
+	}
 	bridgeID := "gsm2sip-" + strings.ReplaceAll(callID, "-", "")
 	tx, err := beginDurable(ctx, m.db)
 	if err != nil {
@@ -570,7 +640,7 @@ func (m *Manager) connectIfReady(ctx context.Context, callID string) error {
 		_ = tx.Rollback()
 		return err
 	}
-	if locked.state == "ended" || locked.state == "active" || locked.clientChannel == "" || locked.gatewayChannel == "" {
+	if locked.state == "ended" || locked.state == "unknown" || locked.state == "active" || locked.clientChannel == "" || locked.gatewayChannel == "" {
 		_ = tx.Rollback()
 		return nil
 	}
@@ -640,16 +710,27 @@ func (m *Manager) connectIfReady(ctx context.Context, callID string) error {
 	if err != nil {
 		return err
 	}
-	if current.state == "ended" || current.state == "active" {
+	if current.state == "ended" || current.state == "unknown" || current.state == "active" {
 		return tx.Commit()
 	}
 	if current.clientChannel != legs.clientChannel || current.gatewayChannel != legs.gatewayChannel {
 		return ErrConflict
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE call_sessions SET bridge_id=$2,state='active',state_revision=state_revision+1,answered_at=COALESCE(answered_at,clock_timestamp()),updated_at=clock_timestamp() WHERE call_id=$1 AND state<>'ended'`, callID, bridgeID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE call_sessions SET bridge_id=$2,state='active',state_revision=state_revision+1,answered_at=COALESCE(answered_at,clock_timestamp()),updated_at=clock_timestamp() WHERE call_id=$1 AND state='connecting'`, callID, bridgeID); err != nil {
 		return err
 	}
-	if err := appendEvent(ctx, tx, callID, legs.ownerID, legs.clientID, current.stateRevision+1, "call.active", "active"); err != nil {
+	if legs.direction == "incoming" {
+		var participantRevision int64
+		if err := tx.QueryRowContext(ctx, `SELECT state_revision FROM call_participants WHERE call_id=$1 AND client_device_id=$2 FOR UPDATE`, callID, legs.clientID).Scan(&participantRevision); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE call_participants SET state_revision=state_revision+1,updated_at=clock_timestamp() WHERE call_id=$1 AND client_device_id=$2`, callID, legs.clientID); err != nil {
+			return err
+		}
+		if err := appendParticipantEvent(ctx, tx, callID, legs.ownerID, legs.clientID, participantRevision+1, "call.active", "active", ""); err != nil {
+			return err
+		}
+	} else if err := appendEvent(ctx, tx, callID, legs.ownerID, legs.clientID, current.stateRevision+1, "call.active", "active"); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -689,8 +770,34 @@ func (m *Manager) onChannelDestroyed(ctx context.Context, channelID string, caus
 	if channelID == "" {
 		return nil
 	}
+	var participantCallID, participantClientID, participantState, participantReason, participantWinner string
+	err := m.db.QueryRowContext(ctx, `
+		SELECT p.call_id::text,p.client_device_id::text,p.state,COALESCE(p.reason,''),
+		       COALESCE(c.incoming_winner_client_device_id::text,'')
+		FROM call_participants p JOIN call_sessions c ON c.call_id=p.call_id
+	WHERE p.client_channel_id=$1 OR p.wrapper_channel_id=$1 LIMIT 1`, channelID).
+		Scan(&participantCallID, &participantClientID, &participantState, &participantReason, &participantWinner)
+	if err == nil {
+		if participantState == "ended" {
+			return nil
+		}
+		if participantWinner == "" {
+			return m.endIncomingParticipant(ctx, participantCallID, participantClientID, cause)
+		}
+		if participantWinner == participantClientID {
+			reason := "failed"
+			if cause == 16 || strings.Contains(strings.ToLower(causeText), "normal") {
+				reason = "remote_hangup"
+			}
+			return m.endIncomingCall(ctx, participantCallID, reason)
+		}
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
 	var callID string
-	err := m.db.QueryRowContext(ctx, `SELECT call_id::text FROM call_sessions WHERE client_channel_id=$1 OR gateway_channel_id=$1 OR ari_wrapper_channel_id=$1 LIMIT 1`, channelID).Scan(&callID)
+	err = m.db.QueryRowContext(ctx, `SELECT call_id::text FROM call_sessions WHERE client_channel_id=$1 OR gateway_channel_id=$1 OR ari_wrapper_channel_id=$1 LIMIT 1`, channelID).Scan(&callID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -704,6 +811,9 @@ func (m *Manager) onChannelDestroyed(ctx context.Context, channelID string, caus
 	legs, err := loadLegs(ctx, m.db, callID)
 	if err != nil {
 		return err
+	}
+	if legs.direction == "incoming" {
+		return m.endIncomingCall(ctx, callID, reason)
 	}
 	if err := m.markUnknown(ctx, callID, reason); err != nil {
 		return err
@@ -728,10 +838,10 @@ func (m *Manager) finishCall(ctx context.Context, callID, reason string) error {
 		return err
 	}
 	defer tx.Rollback()
-	var ownerID, clientID, gatewayID, state string
+	var ownerID, clientID, gatewayID, direction, state string
 	var revision int64
-	err = tx.QueryRowContext(ctx, `SELECT owner_id::text,client_device_id::text,gateway_id::text,state,state_revision FROM call_sessions WHERE call_id=$1 FOR UPDATE`, callID).
-		Scan(&ownerID, &clientID, &gatewayID, &state, &revision)
+	err = tx.QueryRowContext(ctx, `SELECT owner_id::text,client_device_id::text,gateway_id::text,direction,state,state_revision FROM call_sessions WHERE call_id=$1 FOR UPDATE`, callID).
+		Scan(&ownerID, &clientID, &gatewayID, &direction, &state, &revision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -740,6 +850,38 @@ func (m *Manager) finishCall(ctx context.Context, callID, reason string) error {
 	}
 	if state == "ended" {
 		return tx.Commit()
+	}
+	if direction == "incoming" {
+		rows, err := tx.QueryContext(ctx, `SELECT client_device_id::text,state_revision FROM call_participants WHERE call_id=$1 AND state<>'ended' FOR UPDATE`, callID)
+		if err != nil {
+			return err
+		}
+		type participantEnd struct {
+			clientID string
+			revision int64
+		}
+		var pending []participantEnd
+		for rows.Next() {
+			var item participantEnd
+			if err := rows.Scan(&item.clientID, &item.revision); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			pending = append(pending, item)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		_ = rows.Close()
+		for _, item := range pending {
+			if _, err := tx.ExecContext(ctx, `UPDATE call_participants SET state='ended',reason=$3,ended_at=clock_timestamp(),state_revision=state_revision+1,updated_at=clock_timestamp() WHERE call_id=$1 AND client_device_id=$2 AND state<>'ended'`, callID, item.clientID, reason); err != nil {
+				return err
+			}
+			if err := appendParticipantEvent(ctx, tx, callID, ownerID, item.clientID, item.revision+1, "call.ended", "ended", reason); err != nil {
+				return err
+			}
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE call_sessions SET state='ended',reason=$2,state_revision=state_revision+1,ended_at=clock_timestamp(),wake_nonce=NULL,updated_at=clock_timestamp() WHERE call_id=$1`, callID, reason); err != nil {
 		return err
@@ -750,8 +892,10 @@ func (m *Manager) finishCall(ctx context.Context, callID, reason string) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM gateway_call_slots WHERE gateway_id=$1 AND call_id=$2`, gatewayID, callID); err != nil {
 		return err
 	}
-	if err := appendEvent(ctx, tx, callID, ownerID, clientID, revision+1, "call.ended", "ended"); err != nil {
-		return err
+	if direction != "incoming" {
+		if err := appendEvent(ctx, tx, callID, ownerID, clientID, revision+1, "call.ended", "ended"); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -768,16 +912,26 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	if err := m.expireDueCalls(ctx); err != nil {
 		return err
 	}
+	if err := m.reconcileIncomingParticipants(ctx, channels); err != nil {
+		return err
+	}
 	rows, err := m.db.QueryContext(ctx, `
-		SELECT c.call_id::text,c.owner_id::text,c.client_device_id::text,c.gateway_id::text,c.state,
+		SELECT c.call_id::text,c.owner_id::text,c.client_device_id::text,c.gateway_id::text,c.state,c.direction,COALESCE(c.reason,''),
 		       COALESCE(c.client_channel_id,''),COALESCE(c.gateway_channel_id,''),
 	       COALESCE(c.ari_wrapper_channel_id,''),COALESCE(c.bridge_id,''),
-	       EXISTS(
+	       CASE WHEN c.direction='incoming' THEN EXISTS(
+	         SELECT 1 FROM call_participants p JOIN devices d ON d.id=p.client_device_id
+	         WHERE p.call_id=c.call_id AND p.state<>'ended'
+	           AND (c.incoming_winner_client_device_id IS NULL OR p.client_device_id=c.incoming_winner_client_device_id)
+	           AND d.owner_id=c.owner_id AND d.role='client' AND d.state='active'
+	           AND EXISTS(SELECT 1 FROM sip_endpoint_bindings b WHERE b.device_id=d.id AND b.endpoint_id=p.endpoint_id AND b.state='active')
+	           AND EXISTS(SELECT 1 FROM sessions s WHERE s.device_id=d.id AND (s.access_expires_at>clock_timestamp() OR s.refresh_expires_at>clock_timestamp()))
+	       ) ELSE EXISTS(
 	         SELECT 1 FROM devices d
 	         WHERE d.id=c.client_device_id AND d.owner_id=c.owner_id AND d.role='client' AND d.state='active'
 	           AND EXISTS(SELECT 1 FROM sip_endpoint_bindings b WHERE b.device_id=d.id AND b.endpoint_id=c.client_endpoint_id AND b.state='active')
 	           AND EXISTS(SELECT 1 FROM sessions s WHERE s.device_id=d.id AND (s.access_expires_at>clock_timestamp() OR s.refresh_expires_at>clock_timestamp()))
-	       ) AS client_valid,
+	       ) END AS client_valid,
 	       EXISTS(
 	         SELECT 1 FROM devices d
 	         WHERE d.id=c.gateway_id AND d.owner_id=c.owner_id AND d.role='gateway' AND d.state='active'
@@ -791,7 +945,7 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	var sessions []reconcileSession
 	for rows.Next() {
 		var item reconcileSession
-		if err := rows.Scan(&item.callID, &item.ownerID, &item.clientID, &item.gatewayID, &item.state,
+		if err := rows.Scan(&item.callID, &item.ownerID, &item.clientID, &item.gatewayID, &item.state, &item.direction, &item.reason,
 			&item.clientChannel, &item.gatewayChannel, &item.wrapperChannel, &item.bridgeID,
 			&item.clientValid, &item.gatewayValid); err != nil {
 			_ = rows.Close()
@@ -805,6 +959,56 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	}
 	_ = rows.Close()
 	for _, session := range sessions {
+		if session.direction == "incoming" {
+			if session.state == "unknown" {
+				reason := session.reason
+				if reason == "" {
+					reason = "ari_reconciliation_uncertain"
+				}
+				confirmedGone, err := m.stopIncomingCall(ctx, session.callID)
+				if err != nil {
+					return err
+				}
+				if confirmedGone {
+					if err := m.finishCall(ctx, session.callID, reason); err != nil {
+						return err
+					}
+				}
+				continue
+			}
+			if !session.gatewayValid {
+				if err := m.endIncomingCall(ctx, session.callID, "gateway_endpoint_revoked"); err != nil {
+					return err
+				}
+				continue
+			}
+			if session.state == "pending_wakeup" || session.state == "ringing" {
+				if session.gatewayChannel == "" || !live[session.gatewayChannel] {
+					if err := m.endIncomingCall(ctx, session.callID, "remote_hangup"); err != nil {
+						return err
+					}
+				}
+				continue
+			}
+			if !session.clientValid {
+				if err := m.endIncomingCall(ctx, session.callID, "client_endpoint_revoked"); err != nil {
+					return err
+				}
+				continue
+			}
+			if session.clientChannel == "" || !live[session.clientChannel] || session.gatewayChannel == "" || !live[session.gatewayChannel] {
+				if err := m.endIncomingCall(ctx, session.callID, "ari_reconciliation_uncertain"); err != nil {
+					return err
+				}
+				continue
+			}
+			if session.state == "connecting" {
+				if err := m.connectIfReady(ctx, session.callID); err != nil {
+					return err
+				}
+			}
+			continue
+		}
 		if session.state == "reserved" {
 			if !session.clientValid || !session.gatewayValid {
 				if err := m.finishCall(ctx, session.callID, revokedCallReason(session)); err != nil {
@@ -1063,6 +1267,19 @@ func (m *Manager) expireDueCalls(ctx context.Context) error {
 	}
 	_ = rows.Close()
 	for _, item := range items {
+		var direction string
+		if err := m.db.QueryRowContext(ctx, `SELECT direction FROM call_sessions WHERE call_id=$1`, item.callID).Scan(&direction); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return err
+		}
+		if direction == "incoming" {
+			if err := m.endIncomingCall(ctx, item.callID, "no_answer"); err != nil {
+				return err
+			}
+			continue
+		}
 		tx, err := beginDurable(ctx, m.db)
 		if err != nil {
 			return err

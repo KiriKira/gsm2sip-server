@@ -7,6 +7,7 @@
 | 双向短信、指定 SIM、任务幂等、消息与事件持久化 | 已实现；真实双卡和运营商回执待验收 |
 | 短信系统库补扫 | 网关可选 READ_SMS、启用时间起点或显式全历史导入、分页 checkpoint 与恢复去重；无需 root |
 | 主机持久化确认 | 消息、游标、通知待发在 SQLite 同一事务；之后提交服务器 receipt，服务器继续保留事件 |
+| 多主机 | 同 owner 多 client 独立配对、会话、SIP AOR 与 receipt；来电多候选、真实接通选唯一赢家，Android 显示已配对主机；Windows 客户端 UI/音频尚未实现 |
 | refresh 响应丢失 | 同原 token/请求键恢复当前代际的加密响应，窗口为该 refresh 自然到期时间；撤销和再次轮换使旧结果失效 |
 | SIP/ARI/通话意图 | 主机内置 PJSUA2；服务端一次性授权、设备占位、Stasis 编排、媒体锚定、pending/ready/expiry、历史；完整三端音频待真机 |
 | Telecom 和后台来电 | self-managed ConnectionService、CallStyle、实际通话 FGS、用户开启后台 SIP 注册与 HTTPS 查询；Doze/锁屏接听待真机 |
@@ -18,6 +19,8 @@
 | 场景 | 当前行为与限制 |
 |---|---|
 | 主机长期断网 | 服务端保留已提交事件，恢复后按 durable cursor 分页补齐；离线期间无法即时提醒 |
+| 一台主机已读/确认短信，另一台离线 | 各设备本地游标与服务器 receipt 独立；一台确认不会删除另一台尚未拉取的 owner 事件 |
+| 多台主机同时接来电 | 呼入时快照有有效会话的设备，各自 nonce/振铃腿；实际认证 PJSIP 接通先选唯一赢家，其余显示 answered_elsewhere；单台拒接/撤权不结束其他候选 |
 | 旧机断网仍收短信 | 广播收件与事件先写 SQLite WAL/FULL，重连上传同 event_id；Android 未交付的广播可在用户授权后从系统短信库补扫 |
 | 服务端 ACK 丢失 | 重投同 event_id/hash，事务去重；不创建第二条消息 |
 | WSS 提示丢失 | WSS 仅唤醒；HTTPS 轮询补齐，网络回归触发重试；Doze 和系统限制会延迟 |

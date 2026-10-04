@@ -103,20 +103,24 @@ func seedCallFixture(t *testing.T, database *sql.DB) callFixture {
 }
 
 type fakeARI struct {
-	mu             sync.Mutex
-	createCalls    []map[string]any
-	dialCalls      []string
-	hangupCalls    []string
-	destroyCalls   []string
-	channels       []asterisk.Channel
-	channelVars    map[string]string
-	endpointState  string
-	endpointStates map[string]string
-	endpointChecks []string
+	mu                sync.Mutex
+	createCalls       []map[string]any
+	dialCalls         []string
+	hangupCalls       []string
+	destroyCalls      []string
+	channels          []asterisk.Channel
+	channelVars       map[string]string
+	endpointState     string
+	endpointStates    map[string]string
+	endpointChecks    []string
+	answerCalls       []string
+	bridgeCreateCalls []string
+	bridges           map[string]asterisk.Bridge
+	removeOnHangup    bool
 }
 
 func newFakeARI() *fakeARI {
-	return &fakeARI{endpointState: "online", channelVars: make(map[string]string)}
+	return &fakeARI{endpointState: "online", channelVars: make(map[string]string), bridges: make(map[string]asterisk.Bridge)}
 }
 
 func (f *fakeARI) serveHTTP(w http.ResponseWriter, r *http.Request) {
@@ -171,10 +175,55 @@ func (f *fakeARI) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	case strings.HasPrefix(path, "/channels/") && strings.HasSuffix(path, "/progress") && r.Method == http.MethodPost:
 		w.WriteHeader(http.StatusNoContent)
+	case strings.HasPrefix(path, "/channels/") && strings.HasSuffix(path, "/answer") && r.Method == http.MethodPost:
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/channels/"), "/answer")
+		f.mu.Lock()
+		f.answerCalls = append(f.answerCalls, id)
+		for i := range f.channels {
+			if f.channels[i].ID == id {
+				f.channels[i].State = "Up"
+			}
+		}
+		f.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	case path == "/bridges" && r.Method == http.MethodPost:
+		id := r.URL.Query().Get("bridgeId")
+		f.mu.Lock()
+		f.bridgeCreateCalls = append(f.bridgeCreateCalls, id)
+		f.bridges[id] = asterisk.Bridge{ID: id, Type: "mixing"}
+		f.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	case strings.HasPrefix(path, "/bridges/") && strings.HasSuffix(path, "/addChannel") && r.Method == http.MethodPost:
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/bridges/"), "/addChannel")
+		f.mu.Lock()
+		bridge := f.bridges[id]
+		bridge.ChannelIDs = append(bridge.ChannelIDs, r.URL.Query().Get("channel"))
+		f.bridges[id] = bridge
+		f.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	case strings.HasPrefix(path, "/bridges/") && r.Method == http.MethodGet:
+		id := strings.TrimPrefix(path, "/bridges/")
+		f.mu.Lock()
+		bridge, ok := f.bridges[id]
+		f.mu.Unlock()
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		writeJSONForTest(w, http.StatusOK, bridge)
 	case strings.HasPrefix(path, "/channels/") && r.Method == http.MethodDelete:
 		channelID := strings.TrimPrefix(path, "/channels/")
 		f.mu.Lock()
 		f.hangupCalls = append(f.hangupCalls, channelID)
+		if f.removeOnHangup {
+			remaining := f.channels[:0]
+			for _, channel := range f.channels {
+				if channel.ID != channelID {
+					remaining = append(remaining, channel)
+				}
+			}
+			f.channels = remaining
+		}
 		f.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	case strings.HasPrefix(path, "/bridges/") && r.Method == http.MethodDelete:

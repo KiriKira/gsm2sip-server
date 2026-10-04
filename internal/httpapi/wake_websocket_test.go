@@ -143,6 +143,96 @@ func TestPostgresWakeWebSocketOwnerScopedChangesAndReauthentication(t *testing.T
 	_ = clientA.Close()
 }
 
+func TestPostgresWakeWebSocketCallEventsArePerClientAndSMSEventsAreShared(t *testing.T) {
+	database := openIntegrationDatabase(t)
+	f := seedIntegrationFixture(t, database.db)
+	clientBID, clientBToken := newUUID(), randomToken()
+	if _, err := database.db.Exec(`INSERT INTO devices(id,owner_id,role,name) VALUES ($1,$2,'client','client-a-sibling')`, clientBID, f.ownerID); err != nil {
+		t.Fatal("seed sibling client")
+	}
+	if _, err := database.db.Exec(`INSERT INTO sessions(id,device_id,access_hash,access_expires_at,refresh_hash,refresh_expires_at)
+		VALUES ($1,$2,$3,now()+interval '1 day',$4,now()+interval '30 days')`,
+		newUUID(), clientBID, tokenHash(clientBToken), tokenHash(randomToken())); err != nil {
+		t.Fatal("seed sibling client session")
+	}
+	api := New(database.db, nil)
+	server := httptest.NewServer(api.Handler())
+	t.Cleanup(func() {
+		api.ShutdownWebSockets()
+		server.Close()
+	})
+
+	var connections []*websocket.Conn
+	dialPair := func() (*websocket.Conn, *websocket.Conn) {
+		t.Helper()
+		clientA := dialWake(t, server.URL, f.clientToken)
+		clientB := dialWake(t, server.URL, clientBToken)
+		connections = append(connections, clientA, clientB)
+		requireWakeHint(t, clientA)
+		requireWakeHint(t, clientB)
+		return clientA, clientB
+	}
+	closePair := func(clientA, clientB *websocket.Conn) {
+		t.Helper()
+		_ = clientA.Close()
+		_ = clientB.Close()
+	}
+	t.Cleanup(func() {
+		for _, conn := range connections {
+			_ = conn.Close()
+		}
+	})
+	clientA, clientB := dialPair()
+
+	callID := newUUID()
+	if _, err := database.db.Exec(`INSERT INTO call_sessions(
+		call_id,owner_id,client_device_id,gateway_id,sim_id,mapping_revision,direction,to_address,state,
+		expires_at,wake_nonce,gateway_endpoint_id,client_endpoint_id)
+		VALUES ($1,$2,$3,$4,$5,1,'incoming','+12025550123','pending_wakeup',now()+interval '30 seconds',
+		'call-wake-nonce','gateway-endpoint','client-endpoint')`,
+		callID, f.ownerID, f.clientID, f.gatewayID, f.simID); err != nil {
+		t.Fatal("seed incoming call for participant wake test")
+	}
+	for _, clientID := range []string{f.clientID, clientBID} {
+		if _, err := database.db.Exec(`INSERT INTO call_participants(call_id,owner_id,client_device_id,endpoint_id,wake_nonce,state)
+			VALUES ($1,$2,$3,$4,$5,'candidate')`, callID, f.ownerID, clientID, "endpoint-"+clientID, "nonce-"+clientID); err != nil {
+			t.Fatal("seed incoming call participant")
+		}
+	}
+	appendCallEvent := func(clientID, eventType string) {
+		t.Helper()
+		if _, err := database.db.Exec(`UPDATE call_participants SET state='pending_wakeup',state_revision=state_revision+1
+			WHERE call_id=$1 AND client_device_id=$2`, callID, clientID); err != nil {
+			t.Fatal("advance participant state")
+		}
+		var revision int64
+		if err := database.db.QueryRow(`SELECT state_revision FROM call_participants WHERE call_id=$1 AND client_device_id=$2`, callID, clientID).Scan(&revision); err != nil {
+			t.Fatal("read participant revision")
+		}
+		if _, err := database.db.Exec(`INSERT INTO call_events(call_id,owner_id,client_device_id,state_revision,event_type,event_json)
+			VALUES ($1,$2,$3,$4,$5,'{}'::jsonb)`, callID, f.ownerID, clientID, revision, eventType); err != nil {
+			t.Fatal("append participant call event")
+		}
+	}
+
+	appendCallEvent(clientBID, "call.pending_wakeup")
+	requireWakeHint(t, clientB)
+	requireNoWake(t, clientA)
+	closePair(clientA, clientB)
+
+	clientA, clientB = dialPair()
+	appendCallEvent(f.clientID, "call.pending_wakeup")
+	requireWakeHint(t, clientA)
+	requireNoWake(t, clientB)
+	closePair(clientA, clientB)
+
+	// SMS remains an owner-level feed, so either host's new SMS wakes both.
+	clientA, clientB = dialPair()
+	createWakeTestMessage(t, api.Handler(), f.clientToken, f.gatewayID, f.simID, "wake-sms-shared-between-hosts-01")
+	requireWakeHint(t, clientA)
+	requireWakeHint(t, clientB)
+}
+
 func TestPostgresWakeWebSocketAuthenticationOriginBudgetAndFrames(t *testing.T) {
 	database := openIntegrationDatabase(t)
 	f := seedIntegrationFixture(t, database.db)

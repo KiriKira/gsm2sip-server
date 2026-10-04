@@ -75,6 +75,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/ws", s.wakeWebSocket)
 	mux.HandleFunc("GET /v1/devices/self/sip-config", s.authenticated(s.getSIPConfig))
 	mux.HandleFunc("POST /v1/devices/self/sip-credentials/rotate", s.authenticated(s.rotateSIPCredentials))
+	mux.HandleFunc("GET /v1/clients", s.authenticated(s.listClients))
 	mux.HandleFunc("GET /v1/gateways", s.authenticated(s.listGateways))
 	mux.HandleFunc("GET /v1/gateways/{gateway_id}/sims", s.authenticated(s.listSIMs))
 	mux.HandleFunc("POST /v1/gateways/{gateway_id}/heartbeat", s.authenticated(s.heartbeat))

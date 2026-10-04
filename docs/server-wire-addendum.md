@@ -1,24 +1,33 @@
 # Server v1 wire addendum
 
-Updated 2026-10-03. This addendum fills request/response shapes omitted from
+Updated 2026-10-04. This addendum fills request/response shapes omitted from
 `protocol-v1.md`; it does not change the protocol's authority or its safety
 rules. `openapi/openapi.yaml` is the machine-readable counterpart. All paths
 are under `/v1`, JSON is UTF-8, IDs are UUIDs, and timestamps are UTC RFC3339.
 
 ## Pairing and sessions
 
-`POST /pairings/claim` is the only unauthenticated API. Request:
+`POST /pairings/claim` authorizes the initial device using a one-time pairing
+code rather than a bearer session. Refresh and revoke use the refresh token
+in their request body. Pairing request:
 
 ```json
-{"pairing_code":"one-time-secret","device_name":"Old phone"}
+{"pairing_code":"one-time-secret","device_name":"Windows host","platform":"windows"}
 ```
 
-The role and owner come from the server-side pairing row, never the request.
+`platform` is optional, descriptive metadata. The server trims it; missing or
+whitespace-only input is stored as `unknown`. Other values must match
+`^[a-z][a-z0-9_-]{0,31}$` after trimming. This is an open label, not an OS
+allowlist: examples include `android`, `windows`, and `linux`, and future
+labels are accepted without a server upgrade. Platform does not grant a role,
+root access, telephony permissions, SIP media support, or a client UI. The role
+and owner come from the server-side pairing row, never the request. The pairing
+response does not echo platform.
 Success is `200`:
 
 ```json
 {
-  "owner_id":"UUID", "device_id":"UUID", "role":"gateway",
+  "owner_id":"UUID", "device_id":"UUID", "role":"client",
   "access_token":"opaque-random-token", "access_expires_at":"RFC3339",
   "refresh_token":"opaque-random-token", "refresh_expires_at":"RFC3339",
   "sip":{"available":false,"reason":"sip_not_configured"}
@@ -46,6 +55,16 @@ All authenticated HTTP and WebSocket requests use
 `owner_id + device_id + operation`. Same key and body replays the original
 resource; same key and a different body returns `409 IDEMPOTENCY_CONFLICT`.
 
+`GET /clients` is client-role only and lists every paired client belonging to
+the authenticated owner's account, including devices whose pair state is
+`revoked`. It returns only `{"items":[{"id":"UUID","name":"Host",
+"platform":"windows","state":"active","is_self":true}]}`. The
+current authenticated device has `is_self:true`; exactly one returned item is
+self. No token, endpoint, SIP username, or password is exposed. This is a
+device list, not an account-sharing surface. Every host retains its own access
+and refresh session, SIP endpoint/AOR, local cursor receipts, and operation
+idempotency namespace.
+
 ## Wake-only WebSocket
 
 `GET /v1/ws` upgrades an authenticated connection for either a `client` or
@@ -63,15 +82,27 @@ Immediately after the upgrade the server sends exactly:
 {"protocol_version":1,"type":"sync_required"}
 ```
 
-It repeats that same frame when the caller's marker changes. A client marker is
-the maximum durable `server_events.cursor` for that client's owner. A gateway
-marker covers only commands matching its authenticated device and owner: queued
+It repeats that same frame when the caller's marker changes. A client marker
+tracks two independent sources: the maximum durable `server_events.cursor` for
+that client's owner, and the maximum `call_events.cursor` for that exact
+`owner_id + client_device_id`. Owner SMS events wake every paired client; call
+participant changes wake only that participant's device. These markers are
+not merged into one durable cursor and the frame does not reveal either value.
+A gateway marker covers only commands matching its authenticated device and owner: queued
 commands count only until expiry, while accepted or dispatching commands remain
 visible until terminal. Marker contents are internal and never appear in the
 frame. Hints may repeat or be coalesced; clients must use their HTTPS durable
 cursor and gateways must use HTTPS command sync to recover after disconnects or
 missed hints. A wake frame does not mean a call is ready and carries no event,
 command, number, owner, device, or cursor data.
+
+After any client wake hint, the client syncs its owner-scoped SMS event cursor
+and local SQLite receipt separately from its own paginated `GET /calls` view.
+Call state uses each participant's `state_revision`; `/events/ack` acknowledges
+only the reported SMS durable cursor and is not a call acknowledgement. The
+server does not expose a separate call-events read/ack API. Reconciliation
+reads current per-client call snapshots, while `sync_required` remains only a
+wake signal.
 
 The server sends a WebSocket ping every 20 seconds and closes a connection if
 no pong arrives within 45 seconds. It checks the same access token and device
@@ -245,25 +276,61 @@ only allows retrying the same resource/key.
 
 ## SIP credentials and call control
 
-`GET /devices/self/sip-config` returns non-secret TLS configuration. When configured,
+Every paired device has its own endpoint/auth identity and AOR, including all
+host clients under one owner. Each AOR allows at most one registered contact;
+separate AORs allow multiple hosts to be reachable without multiple contacts
+competing under one device identity. `GET /devices/self/sip-config` returns non-secret TLS configuration. When configured,
 `POST /devices/self/sip-credentials/rotate` with a persisted `Idempotency-Key`
 returns a new password once, with encrypted replay for five minutes. The same key
 never rotates twice; an expired/obsolete key fails explicitly. Asterisk stores a
 Digest A1 hash rather than the plaintext password. The TLS certificate server
 name is distinct from the fixed SIP Digest realm `gsm2sip`.
 
-`POST /call-intents` returns HTTP 202, reserves gateway capacity for 30 seconds,
-and does not dial a carrier call. Only an authenticated client SIP INVITE may
-consume the one-use token. Gateway routing uses the four trusted `X-GSM-*`
-headers from protocol v1; the client leg uses `X-GSM2SIP-Call-ID`. Incoming calls
-wait at most 25 seconds for the selected client's authenticated, nonce-bound
-`/ready`, verified contact, and actual SIP leg. Expiry/cancellation cannot revive
-a call. `GET /calls` and `/calls/{id}` return authorized call history and current
-state. ARI disconnection/restart must reconcile uncertain legs. An unknown call
-keeps its gateway lease while any related channel remains or channel absence
-cannot be confirmed. Once a fresh ARI inventory confirms that every related
-channel is gone, the call becomes terminal and releases the lease. A
-time-based reservation expiry never releases an active or uncertain call.
+`POST /call-intents` returns HTTP 202, reserves the owner's sole gateway call
+slot for 30 seconds, and does not dial a carrier call. The slot is unique to the
+gateway across all clients and SIM bindings. Only an authenticated client SIP
+INVITE may consume the one-use token. Gateway routing uses the four trusted
+`X-GSM-*` headers from protocol v1; the client leg uses `X-GSM2SIP-Call-ID`.
+Outgoing calls remain a single client-created intent tied to that client and
+chosen SIM. They never fall back to a host's local SIM or another paired SIM.
+
+For an incoming cellular call, the server snapshots owner client devices that
+are active, have an active SIP endpoint binding, and have at least one access
+or refresh session that has not expired. A temporarily disconnected host with
+a live refresh session is still eligible; endpoint-online status is checked
+when it completes `/ready`. New clients paired after the snapshot join the next
+incoming call, not the call already ringing. Each eligible client gets an
+independent participant row sharing one `call_id`, its own `wake_nonce`, state,
+and monotonic `state_revision`. `GET /calls` returns the caller's latest
+participant snapshots, paginated by descending `created_at,call_id`; it is a
+current-state snapshot, not a revision event timeline. `GET /calls/{id}` returns
+only that call's caller-scoped projection. For incoming rows, the existing JSON field
+`client_id` is the authenticated requesting device. A pending row exposes only
+that device's `wake_nonce`; after its `/ready` succeeds the nonce is no longer
+returned. `/ready` checks the authenticated device, call, nonce, pending
+participant, deadline, current active device/binding and that device's actual
+registered contact before dialing its own AOR. A nonce from another host cannot
+ready this participant. A revoked device or device with no live access/refresh
+session is excluded from new incoming snapshots; if a participant becomes
+invalid during an active incoming call, that participant is ended without
+joining another client identity to it.
+
+`ready`, push delivery, REGISTER, and local UI state do not select the call
+winner. The first authenticated client PJSIP channel that actually reaches
+`Up` wins through an atomic selection. All other participants end with
+`reason:"answered_elsewhere"`; a single host declining ends only its own
+participant and leaves the others eligible. When the last participant declines,
+or the 25-second incoming deadline expires, all participants end as
+`no_answer`, the call ends, and the single gateway slot is released. A cellular
+hangup also ends all related participants. One participant's revision and call
+event are scoped to that device; no losing host should continue ringing.
+
+Expiry/cancellation cannot revive a call. ARI disconnection/restart must
+reconcile uncertain legs. An unknown call keeps its gateway lease while any
+related channel remains or channel absence cannot be confirmed. Once a fresh
+ARI inventory confirms that every related channel is gone, the call becomes
+terminal and releases the lease. A time-based reservation expiry never releases
+an active or uncertain call.
 
 Calling requires configured SIP credentials, a connected ARI coordinator and
 eligible device/SIM state. Missing configuration returns 503. Database `/readyz`

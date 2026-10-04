@@ -1,12 +1,12 @@
 # gsm2sip-server
 
-Go + PostgreSQL 转发服务，把主机的短信任务投递到旧手机网关，并把网关的持久化事件安全同步回主机。短信控制核心已实现：一次性配对码、短时 access 与轮换 refresh token、device role/owner 隔离、SIM 两阶段绑定、heartbeat、短信 command claim、事件批量事务与 durable ACK、按 owner 分页的消息事件流。
+Go + PostgreSQL 转发服务，把主机的短信任务投递到旧手机网关，并把网关的持久化事件安全同步回主机。一个 owner 可配对多个独立 client；每台 host 有自己的 API 会话、SIP endpoint/AOR、事件 durable receipt 和短信写请求幂等范围。短信控制核心包括一次性配对码、短时 access 与轮换 refresh token、owner/device 隔离、SIM 两阶段绑定、heartbeat、短信 command claim、事件批量事务与 durable ACK、按 owner 分页的消息事件流。
 
-`GET /v1/ws` 已提供 authenticated wake-only WebSocket：连接建立时和对应 durable marker 改变时只发送 `{"protocol_version":1,"type":"sync_required"}`，客户端再通过 HTTPS 读取 durable cursor/command。它不传事件、命令或来电数据，不等价于 call-ready，FCM、呼入 push 和完整背压仍待实现；消息事件当前保留在数据库中。断线和重复唤醒仍以 HTTPS 同步恢复。
+`GET /v1/clients` 让 client 查看同 owner 已配对设备及 `platform/state/is_self`。`POST /pairings/claim` 的平台标签是开放展示标识（如 `android`、`windows`、`linux`），不构成系统白名单或能力声明。`GET /v1/ws` 仍是 authenticated wake-only WebSocket，只发 `{"protocol_version":1,"type":"sync_required"}`；owner 的短信事件变化唤醒 owner clients，呼入 participant 变化只唤醒对应 client。客户端分别通过 HTTPS 恢复短信游标和读取自己的 `/calls` 视图。frame 不带事件、命令、来电数据或游标；FCM/APNs、呼入 push 与完整背压仍待实现。
 
-新增 SIP 凭据配置/加密恢复、一次性呼叫意图、Asterisk ARI/Stasis 编排、设备通话占位、呼入 pending/ready/expiry 和呼叫历史。配置缺失或 ARI 未连接时拒绝创建呼叫；实际双 SIM 音频和公网联调仍需真机验收。参见 [运行说明](docs/operations.md)。
+SIP 凭据配置/加密恢复、一次性呼叫意图、Asterisk ARI/Stasis 编排、设备通话占位、呼入 pending/ready/expiry 和呼叫历史已接入。一个蜂窝呼入可为多个 active client 快照各自的 participant 状态；只有真正到达 Up 的已认证 SIP channel 决定 winner，其他 host 得到 `ended/answered_elsewhere`。拒接一台设备不会结束其它候选，所有候选结束或呼入超时才释放 gateway 通话 slot。配置缺失或 ARI 未连接时拒绝创建呼叫；实际双 SIM 音频和公网联调仍需真机验收。参见 [运行说明](docs/operations.md)。
 
-网关后续按 Magisk 通用能力接口实现账户映射和数字音频适配，取消机型白名单及 API 31 整体语音门槛。短信路径无需 root；语音能力按实际接口验证，详见实施审查中的 Magisk 补充。
+平台标签不会授予 host root、短信或蜂窝控制权限。Windows 的 host UI 与媒体验证尚未实现；`windows` 可用于未来版本配对识别，但不能当作 Windows 客户端已交付。MagiskVM 或其他 Android 运行环境也必须单独验证 SIM/Telecom 账户与实际媒体路径；当前契约不承诺 raw PCM、特定 root 接口或短信必达。
 
 - [服务端计划](PLAN.md)
 - [原始协议](docs/protocol-v1.md)

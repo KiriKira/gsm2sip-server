@@ -15,6 +15,7 @@ type Principal struct {
 type PairingClaimRequest struct {
 	PairingCode string `json:"pairing_code"`
 	DeviceName  string `json:"device_name"`
+	Platform    string `json:"platform,omitempty"`
 }
 
 type RefreshRequest struct {

@@ -394,17 +394,29 @@ func (m *Manager) ListCalls(ctx context.Context, ownerID, clientID, cursor strin
 		return nil, "", ErrInvalid
 	}
 	query := `
-		SELECT call_id::text,gateway_id::text,client_device_id::text,sim_id::text,mapping_revision,direction,state,
-		       state_revision,from_address,to_address,reason,created_at,expires_at,
-		       CASE WHEN direction='incoming' AND state='pending_wakeup' AND expires_at>clock_timestamp() THEN wake_nonce ELSE NULL END
-		FROM call_sessions WHERE owner_id=$1 AND client_device_id=$2`
+		SELECT c.call_id::text,c.gateway_id::text,
+		       COALESCE(p.client_device_id,c.client_device_id)::text,c.sim_id::text,c.mapping_revision,c.direction,
+	       CASE WHEN p.client_device_id IS NOT NULL AND c.state='unknown' AND p.state<>'ended' THEN 'unknown'
+	            WHEN p.client_device_id IS NULL THEN c.state
+		            WHEN p.state='candidate' THEN 'pending_wakeup'
+		            WHEN p.state='accepted' AND c.state='active' THEN 'active'
+		            WHEN p.state='accepted' THEN 'connecting'
+		            ELSE p.state END,
+		       COALESCE(p.state_revision,c.state_revision),c.from_address,c.to_address,
+		       CASE WHEN p.client_device_id IS NULL OR c.state='unknown' AND p.state<>'ended' THEN c.reason ELSE p.reason END,c.created_at,c.expires_at,
+	       CASE WHEN p.state='pending_wakeup' AND c.state<>'unknown' AND c.expires_at>clock_timestamp() THEN p.wake_nonce
+		            WHEN p.client_device_id IS NULL AND c.direction='incoming' AND c.state='pending_wakeup' AND c.expires_at>clock_timestamp() THEN c.wake_nonce
+		            ELSE NULL END
+		FROM call_sessions c LEFT JOIN call_participants p
+		  ON p.call_id=c.call_id AND p.owner_id=c.owner_id AND p.client_device_id=$2
+		WHERE c.owner_id=$1 AND (c.client_device_id=$2 OR p.client_device_id=$2)`
 	args := []any{ownerID, clientID}
 	if !createdAt.IsZero() {
-		query += ` AND (created_at,call_id)<($3,$4)`
+		query += ` AND (c.created_at,c.call_id)<($3,$4)`
 		args = append(args, createdAt, callID)
 	}
 	args = append(args, limit+1)
-	query += ` ORDER BY created_at DESC,call_id DESC LIMIT $` + strconv.Itoa(len(args))
+	query += ` ORDER BY c.created_at DESC,c.call_id DESC LIMIT $` + strconv.Itoa(len(args))
 	rows, err := m.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, "", err
@@ -451,10 +463,22 @@ func (m *Manager) GetCall(ctx context.Context, ownerID, clientID, callID string)
 
 func loadCall(ctx context.Context, q queryer, ownerID, clientID, callID string) (Call, error) {
 	return scanCall(q.QueryRowContext(ctx, `
-		SELECT call_id::text,gateway_id::text,client_device_id::text,sim_id::text,mapping_revision,direction,state,
-		       state_revision,from_address,to_address,reason,created_at,expires_at,
-		       CASE WHEN direction='incoming' AND state='pending_wakeup' AND expires_at>clock_timestamp() THEN wake_nonce ELSE NULL END
-		FROM call_sessions WHERE call_id=$1 AND owner_id=$2 AND client_device_id=$3`, callID, ownerID, clientID))
+		SELECT c.call_id::text,c.gateway_id::text,
+		       COALESCE(p.client_device_id,c.client_device_id)::text,c.sim_id::text,c.mapping_revision,c.direction,
+	       CASE WHEN p.client_device_id IS NOT NULL AND c.state='unknown' AND p.state<>'ended' THEN 'unknown'
+	            WHEN p.client_device_id IS NULL THEN c.state
+		            WHEN p.state='candidate' THEN 'pending_wakeup'
+		            WHEN p.state='accepted' AND c.state='active' THEN 'active'
+		            WHEN p.state='accepted' THEN 'connecting'
+		            ELSE p.state END,
+		       COALESCE(p.state_revision,c.state_revision),c.from_address,c.to_address,
+		       CASE WHEN p.client_device_id IS NULL OR c.state='unknown' AND p.state<>'ended' THEN c.reason ELSE p.reason END,c.created_at,c.expires_at,
+	       CASE WHEN p.state='pending_wakeup' AND c.state<>'unknown' AND c.expires_at>clock_timestamp() THEN p.wake_nonce
+		            WHEN p.client_device_id IS NULL AND c.direction='incoming' AND c.state='pending_wakeup' AND c.expires_at>clock_timestamp() THEN c.wake_nonce
+		            ELSE NULL END
+		FROM call_sessions c LEFT JOIN call_participants p
+		  ON p.call_id=c.call_id AND p.owner_id=c.owner_id AND p.client_device_id=$3
+		WHERE c.call_id=$1 AND c.owner_id=$2 AND (c.client_device_id=$3 OR p.client_device_id=$3)`, callID, ownerID, clientID))
 }
 
 type rowScanner interface{ Scan(...any) error }
@@ -493,6 +517,15 @@ func (m *Manager) ClientReady(ctx context.Context, ownerID, clientID, pathClient
 	item, err := m.GetCall(ctx, ownerID, clientID, callID)
 	if err != nil {
 		return Call{}, err
+	}
+	if item.Direction == "incoming" {
+		var participantExists bool
+		if err := m.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM call_participants WHERE call_id=$1 AND owner_id=$2 AND client_device_id=$3)`, callID, ownerID, clientID).Scan(&participantExists); err != nil {
+			return Call{}, err
+		}
+		if participantExists {
+			return m.clientReadyParticipant(ctx, ownerID, clientID, item, wakeNonce)
+		}
 	}
 	// A duplicate /ready is a replay of the same nonce, not a new originate
 	// request. Return the durable result even when ARI or the SIP contact has
@@ -655,10 +688,10 @@ func (m *Manager) markUnknown(ctx context.Context, callID, reason string) error 
 		return err
 	}
 	defer tx.Rollback()
-	var ownerID, clientID, state string
+	var ownerID, clientID, direction, state string
 	var revision int64
-	err = tx.QueryRowContext(ctx, `SELECT owner_id::text,client_device_id::text,state,state_revision FROM call_sessions WHERE call_id=$1 FOR UPDATE`, callID).
-		Scan(&ownerID, &clientID, &state, &revision)
+	err = tx.QueryRowContext(ctx, `SELECT owner_id::text,client_device_id::text,direction,state,state_revision FROM call_sessions WHERE call_id=$1 FOR UPDATE`, callID).
+		Scan(&ownerID, &clientID, &direction, &state, &revision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -670,6 +703,39 @@ func (m *Manager) markUnknown(ctx context.Context, callID, reason string) error 
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE call_sessions SET state='unknown',reason=$2,state_revision=state_revision+1,wake_nonce=NULL,updated_at=clock_timestamp() WHERE call_id=$1`, callID, reason); err != nil {
 		return err
+	}
+	if direction == "incoming" {
+		rows, err := tx.QueryContext(ctx, `SELECT client_device_id::text,state_revision FROM call_participants WHERE call_id=$1 AND state<>'ended' FOR UPDATE`, callID)
+		if err != nil {
+			return err
+		}
+		type participantState struct {
+			clientID string
+			revision int64
+		}
+		var participants []participantState
+		for rows.Next() {
+			var participant participantState
+			if err := rows.Scan(&participant.clientID, &participant.revision); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			participants = append(participants, participant)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		_ = rows.Close()
+		for _, participant := range participants {
+			if _, err := tx.ExecContext(ctx, `UPDATE call_participants SET state_revision=state_revision+1,updated_at=clock_timestamp() WHERE call_id=$1 AND client_device_id=$2`, callID, participant.clientID); err != nil {
+				return err
+			}
+			if err := appendParticipantEvent(ctx, tx, callID, ownerID, participant.clientID, participant.revision+1, "call.unknown", "unknown", reason); err != nil {
+				return err
+			}
+		}
+		return tx.Commit()
 	}
 	if err := appendEvent(ctx, tx, callID, ownerID, clientID, revision+1, "call.unknown", "unknown"); err != nil {
 		return err

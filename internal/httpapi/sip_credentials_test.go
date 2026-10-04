@@ -160,6 +160,42 @@ func TestPostgresSIPCredentialRotationBlockedDuringCall(t *testing.T) {
 	if created {
 		t.Fatal("blocked rotation persisted SIP credentials")
 	}
+
+	// The aggregate's primary client is A. Incoming fanout also has an active
+	// participant for B, whose credentials must not rotate during its SIP leg.
+	participantID, participantToken := newUUID(), randomToken()
+	if _, err := database.db.Exec(`INSERT INTO devices(id,owner_id,role,name) VALUES ($1,$2,'client','incoming participant')`, participantID, f.ownerID); err != nil {
+		t.Fatal("seed incoming call participant device")
+	}
+	if _, err := database.db.Exec(`INSERT INTO sessions(id,device_id,access_hash,access_expires_at,refresh_hash,refresh_expires_at)
+		VALUES ($1,$2,$3,now()+interval '1 day',$4,now()+interval '30 days')`,
+		newUUID(), participantID, tokenHash(participantToken), tokenHash(randomToken())); err != nil {
+		t.Fatal("seed incoming participant session")
+	}
+	incomingCallID := newUUID()
+	if _, err := database.db.Exec(`INSERT INTO call_sessions(call_id,owner_id,client_device_id,gateway_id,sim_id,
+		mapping_revision,direction,to_address,state,expires_at,wake_nonce,gateway_endpoint_id,client_endpoint_id)
+		VALUES ($1,$2,$3,$4,$5,1,'incoming','+12025550123','ringing',now()+interval '30 seconds','nonce',$6,$7)`,
+		incomingCallID, f.ownerID, f.clientID, f.gatewayID, f.simID,
+		"dev_"+strings.ReplaceAll(f.gatewayID, "-", ""), "dev_"+strings.ReplaceAll(f.clientID, "-", "")); err != nil {
+		t.Fatal("seed incoming aggregate call")
+	}
+	if _, err := database.db.Exec(`INSERT INTO call_participants(call_id,owner_id,client_device_id,endpoint_id,wake_nonce,state)
+		VALUES ($1,$2,$3,$4,'participant-nonce','ringing')`, incomingCallID, f.ownerID, participantID,
+		"dev_"+strings.ReplaceAll(participantID, "-", "")); err != nil {
+		t.Fatal("seed live incoming participant")
+	}
+	participantRotation := requestJSON(t, handler, http.MethodPost, "/v1/devices/self/sip-credentials/rotate",
+		participantToken, struct{}{}, "sip-participant-call-block-00001")
+	requireStatus(t, participantRotation, http.StatusConflict)
+	var participantCredentialCreated bool
+	if err := database.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM device_sip_credentials WHERE device_id=$1)`, participantID).
+		Scan(&participantCredentialCreated); err != nil {
+		t.Fatal("check credentials after incoming participant rotation block")
+	}
+	if participantCredentialCreated {
+		t.Fatal("rotation during an incoming participant leg persisted SIP credentials")
+	}
 }
 
 func TestPostgresFinalSessionRevokeRevokesSIPRealtimeCredentials(t *testing.T) {

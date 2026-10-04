@@ -125,6 +125,25 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResponse'}
+  /clients:
+    get:
+      operationId: listClients
+      description: >-
+        Client-role only. Lists paired client devices owned by the caller, including
+        revoked devices, and marks exactly the authenticated device with is_self.
+        Platform is open descriptive metadata; it does not grant OS capabilities.
+      responses:
+        '200':
+          description: Owner-scoped paired clients, with no credentials or SIP fields.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClientList'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '503':
+          description: Database unavailable.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
   /gateways:
     get:
       operationId: listGateways
@@ -357,7 +376,12 @@ paths:
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
       responses:
         '200':
-          description: Authoritative calls belonging to this authenticated host.
+          description: >-
+            Current call snapshots for this authenticated client. Incoming rows are
+            this client's participant projections, not a shared owner-level state.
+            Pagination is ordered by descending created_at and call_id; each row carries the
+            latest state_revision for this participant. After a wake hint, fetch
+            pages to reconcile the current view.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/CallPage'}
@@ -369,7 +393,10 @@ paths:
         - {name: call_id, in: path, required: true, schema: {type: string, format: uuid}}
       responses:
         '200':
-          description: Authoritative business call UUID and monotonic state revision. SIP Call-ID is a separate identifier.
+          description: >-
+            This authenticated client's view of the business call. For incoming
+            calls client_id is the requesting client device. A pending participant
+            may receive only its own wake_nonce; SIP Call-ID is a separate identifier.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RemoteCall'}
@@ -512,6 +539,36 @@ components:
       properties:
         pairing_code: {type: string, minLength: 20, maxLength: 128}
         device_name: {type: string, minLength: 1, maxLength: 100}
+        platform:
+          type: string
+          pattern: '^\s*(?:[a-z][a-z0-9_-]{0,31})?\s*$'
+          description: >-
+            Optional open platform label. The server trims surrounding whitespace;
+            an omitted or whitespace-only value becomes unknown. After trimming,
+            a non-empty value must match ^[a-z][a-z0-9_-]{0,31}$. Labels such as
+            android, windows, and magiskvm are descriptive only and do not assert
+            client UI, SIP media, or OS integration support.
+    ClientList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/ClientSummary'}
+    ClientSummary:
+      type: object
+      additionalProperties: false
+      required: [id, name, platform, state, is_self]
+      properties:
+        id: {$ref: '#/components/schemas/UUID'}
+        name: {type: string, minLength: 1, maxLength: 100}
+        platform:
+          type: string
+          pattern: '^[a-z][a-z0-9_-]{0,31}$'
+          description: Normalized descriptive label; unknown when no label was supplied.
+        state: {type: string, enum: [active, revoked]}
+        is_self: {type: boolean}
     PairingResult:
       allOf:
         - {$ref: '#/components/schemas/SessionTokens'}
@@ -580,6 +637,13 @@ components:
         sip_uri: {type: string, pattern: '^sips:', description: Sensitive authorization-bearing URI. Never log or persist in call history.}
         expires_at: {type: string, format: date-time}
     RemoteCall:
+      description: >-
+        A client-scoped call projection. For incoming calls client_id is the
+        authenticated requesting device, and state/state_revision/reason describe
+        only its participant. Each participant has an independent nonce and
+        monotonic revision for the shared call_id. A losing participant ends with
+        reason answered_elsewhere after another authenticated client SIP channel
+        wins; readiness and local UI state do not select a winner.
       type: object
       required: [call_id, gateway_id, client_id, sim_id, mapping_revision, direction, state, state_revision, to, created_at]
       properties:
@@ -590,15 +654,19 @@ components:
         mapping_revision: {type: integer, minimum: 1}
         direction: {type: string, enum: [incoming, outgoing]}
         state: {type: string, enum: [reserved, pending_wakeup, ringing, dialing, connecting, active, ended, unknown]}
-        state_revision: {type: integer, minimum: 1}
+        state_revision: {type: integer, minimum: 1, description: Monotonic revision for this client's participant view.}
         from: {type: string}
         to: {type: string}
-        reason: {type: string}
+        reason:
+          type: string
+          description: >-
+            Terminal or failure reason. Incoming non-winners use answered_elsewhere;
+            rejecting one participant does not end the other participants.
         created_at: {type: string, format: date-time}
         expires_at: {type: string, format: date-time}
         answered_at: {type: string, format: date-time}
         ended_at: {type: string, format: date-time}
-        wake_nonce: {type: string}
+        wake_nonce: {type: string, description: Present only while this participant is pending_wakeup; never shared across clients.}
     CallPage:
       type: object
       required: [items, next_cursor, resync_required]

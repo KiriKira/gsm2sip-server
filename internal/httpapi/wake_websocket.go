@@ -26,6 +26,7 @@ var errWakeApplicationFrame = errors.New("client application frames are not supp
 
 type wakeMarker struct {
 	cursor        int64
+	callCursor    int64
 	count         int64
 	latestUpdated sql.NullTime
 	latestCreated sql.NullTime
@@ -261,6 +262,12 @@ func (s *Server) readWakeMarker(parent context.Context, principal Principal) (wa
 	case "client":
 		err := s.db.QueryRowContext(ctx, `
 			SELECT COALESCE(MAX(cursor),0) FROM server_events WHERE owner_id=$1`, principal.OwnerID).Scan(&marker.cursor)
+		if err != nil {
+			return wakeMarker{}, err
+		}
+		err = s.db.QueryRowContext(ctx, `
+			SELECT COALESCE(MAX(cursor),0) FROM call_events
+			WHERE owner_id=$1 AND client_device_id=$2`, principal.OwnerID, principal.DeviceID).Scan(&marker.callCursor)
 		return marker, err
 	case "gateway":
 		err := s.db.QueryRowContext(ctx, `
@@ -281,7 +288,7 @@ func sameWakePrincipal(expected, current Principal) bool {
 }
 
 func sameWakeMarker(a, b wakeMarker) bool {
-	return a.cursor == b.cursor && a.count == b.count &&
+	return a.cursor == b.cursor && a.callCursor == b.callCursor && a.count == b.count &&
 		sameWakeTime(a.latestUpdated, b.latestUpdated) &&
 		sameWakeTime(a.latestCreated, b.latestCreated) &&
 		sameWakeTime(a.nextExpiry, b.nextExpiry)

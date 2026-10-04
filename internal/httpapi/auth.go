@@ -25,8 +25,12 @@ func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 	}
 	request.PairingCode = strings.TrimSpace(request.PairingCode)
 	request.DeviceName = strings.TrimSpace(request.DeviceName)
-	if len(request.PairingCode) < 20 || len(request.PairingCode) > 128 || request.DeviceName == "" || len(request.DeviceName) > 100 {
-		writeError(w, http.StatusBadRequest, "INVALID_PAIRING_REQUEST", "Pairing code or device name is invalid.", false)
+	request.Platform = strings.TrimSpace(request.Platform)
+	if request.Platform == "" {
+		request.Platform = "unknown"
+	}
+	if len(request.PairingCode) < 20 || len(request.PairingCode) > 128 || request.DeviceName == "" || len(request.DeviceName) > 100 || !validPlatform(request.Platform) {
+		writeError(w, http.StatusBadRequest, "INVALID_PAIRING_REQUEST", "Pairing code, device name, or platform is invalid.", false)
 		return
 	}
 	tx, err := beginDurable(r.Context(), s.db)
@@ -55,7 +59,7 @@ func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 		writeDBUnavailable(w)
 		return
 	}
-	if _, err := tx.ExecContext(r.Context(), `INSERT INTO devices(id, owner_id, role, name) VALUES ($1,$2,$3,$4)`, deviceID, ownerID, role, request.DeviceName); err != nil {
+	if _, err := tx.ExecContext(r.Context(), `INSERT INTO devices(id, owner_id, role, name, platform) VALUES ($1,$2,$3,$4,$5)`, deviceID, ownerID, role, request.DeviceName, request.Platform); err != nil {
 		if isUniqueViolation(err) {
 			writeError(w, http.StatusConflict, "DEVICE_CONFLICT", "This device could not be paired.", false)
 			return

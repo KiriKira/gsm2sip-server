@@ -4,9 +4,54 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
+
+var platformPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+
+func validPlatform(value string) bool {
+	return platformPattern.MatchString(value)
+}
+
+type ClientSummary struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Platform string `json:"platform"`
+	State    string `json:"state"`
+	IsSelf   bool   `json:"is_self"`
+}
+
+func (s *Server) listClients(w http.ResponseWriter, r *http.Request, principal Principal) {
+	if principal.Role != "client" {
+		writeError(w, http.StatusForbidden, "CLIENT_REQUIRED", "Only a client can list paired clients.", false)
+		return
+	}
+	rows, err := s.db.QueryContext(r.Context(), `
+		SELECT id::text, name, platform, state, id=$2
+		FROM devices WHERE owner_id=$1 AND role='client'
+		ORDER BY created_at, id`, principal.OwnerID, principal.DeviceID)
+	if err != nil {
+		writeDBUnavailable(w)
+		return
+	}
+	defer rows.Close()
+	items := make([]ClientSummary, 0)
+	for rows.Next() {
+		var item ClientSummary
+		if err := rows.Scan(&item.ID, &item.Name, &item.Platform, &item.State, &item.IsSelf); err != nil {
+			writeDBUnavailable(w)
+			return
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		writeDBUnavailable(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
 
 type GatewaySummary struct {
 	GatewayID       string     `json:"gateway_id"`
