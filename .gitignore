@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+.local/
+coverage.out
+*.test
+bin/
+artifacts/
+
+# Local Python contract/probe bytecode
+__pycache__/
+*.pyc

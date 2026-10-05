@@ -1,0 +1,253 @@
+{
+  "abi": "x86_64",
+  "boot_ids": [
+    "5fb0ab63-0c79-4be9-a4ae-0ed9491a620e",
+    "a7e7c944-abf2-4519-b8bb-e8995e87e3f9",
+    "87bc2a8c-5526-4b70-8255-7ada4d87507d",
+    "54da32f1-be89-485e-8709-7d9a32e1c069",
+    "f3240a2e-db59-4c92-8e8d-9e17dc37ddef"
+  ],
+  "broker_diagnostic_logcat": "collected",
+  "checks": [
+    {
+      "detail": "rootAVD=613caa44371f85e1a461bc030e07ddc2d71afe32; Magisk=30.7; sha256=e0d32d2123532860f97123d927b1bb86c4e08e6fd8a48bfc6b5bee0afae9ebd5",
+      "name": "pinned_sources",
+      "status": "pass"
+    },
+    {
+      "detail": "validated 14 APK entries; app_functions sha256=6c0acfadcfca72dcdc1a6bd37874ef0ef10ff793a19ead34a4b77e5b2ca13f0b",
+      "name": "official_magisk_env_fix_sources",
+      "status": "pass"
+    },
+    {
+      "detail": "disable dynamic network entry point CheckAVDIsOnline; disable dynamic network entry point DownLoadFile; disable dynamic network entry point GetUSBHPmod; disable dynamic network entry point DownloadUptoDateSript; replace 4 BusyBox wget applet calls with false",
+      "name": "rootavd_network_guards",
+      "status": "pass"
+    },
+    {
+      "detail": "fresh API 34 google_apis x86_64 AVD",
+      "name": "avd_created",
+      "status": "pass"
+    },
+    {
+      "detail": "magisk-validation-smoke.zip; 5 required files",
+      "name": "probe_module_packaged",
+      "status": "pass"
+    },
+    {
+      "detail": "API=34; ABI=x86_64; boot_id=5fb0ab63-0c79-4be9-a4ae-0ed9491a620e",
+      "name": "android_boot_1",
+      "status": "pass"
+    },
+    {
+      "detail": "Magisk not yet installed; used only as the running rootAVD target",
+      "name": "pre_patch_boot",
+      "status": "pass"
+    },
+    {
+      "detail": "ramdisk sha256 66b2074665da2aaa88229b2b495cc34ca6c7aa1db6b1c8992a306d3afddc5bbe -> ca9a769f994b7ee160f341a50b723520ec7be0a851ac7779b0e92f13012808d8",
+      "name": "magisk_ramdisk_patch",
+      "status": "pass"
+    },
+    {
+      "detail": "API=34; ABI=x86_64; boot_id=a7e7c944-abf2-4519-b8bb-e8995e87e3f9",
+      "name": "android_boot_2",
+      "status": "pass"
+    },
+    {
+      "detail": "sha256=e0d32d2123532860f97123d927b1bb86c4e08e6fd8a48bfc6b5bee0afae9ebd5",
+      "name": "official_magisk_apk_revalidated",
+      "status": "pass"
+    },
+    {
+      "detail": "restarting adbd as root; privileged actions use Magisk su namespace",
+      "name": "root_access_fallback",
+      "status": "pass"
+    },
+    {
+      "detail": "fix_environment ran via Magisk su -c",
+      "name": "magisk_su_action",
+      "status": "pass"
+    },
+    {
+      "detail": "sync-after-fix_environment",
+      "name": "guest_filesystem_sync",
+      "status": "pass"
+    },
+    {
+      "detail": "root_uid=0; magisk_path=/debug_ramdisk/magisk; magisk_version=30.7:MAGISK:R; magisk_version_code=30700; official_apk_extract=magisk-scripts; official_apk_extract=chromeos-assets; official_apk_extract=x86_64-libraries; official_app_functions=loaded; official_app_functions_metadata=2000:2000:666:5518; magisk_environment_before_fix_util_functions=missing; root_uid=0; magisk_path=/debug_ramdisk/magisk; magisk_version=30.7:MAGISK:R; magisk_version_code=30700; official_app_functions=loaded; official_app_functions_metadata=2000:2000:666:5518; magisk_diag_expected_version=30.7; magisk_diag_expected_version_code=30700; magisk_diag_identity=uid=0(root) gid=0(root) groups=0(root) context=u:r:magisk:s0; magisk_diag_selinux_identity=u:r:magisk:s0; magisk_diag_grep_path=/system/bin/grep; magisk_diag_sha256sum_path=/system/bin/sha256sum; active_util_functions_path=/data/adb/magisk/util_functions.sh; active_util_functions_exists=true; active_util_functions_metadata=0:0:755:20418; active_util_functions_selinux_context=u:object_r:system_file:s0 /data/adb/magisk/util_functions.sh; active_util_functions_sha256=efe385ffdb72c7fc9b5bcef4267acc4f68ad73b2ac02bb577328f77ea66643eb; 5:MAGISK_VER='30.7'; 6:MAGISK_VER_CODE=30700; active_util_functions_version_lines_rc=0; active_util_functions_version_match_rc=0; active_util_functions_version_code_match_rc=0; cache_alt_util_functions_path=/cache/data_adb/magisk/util_functions.sh; cache_alt_util_functions_exists=false; data_alt_util_functions_path=/data/magisk/util_functions.sh; data_alt_util_functions_exists=false; manager_alt_util_functions_path=/data/user_de/0/com.topjohnwu.magisk/install/util_functions.sh; manager_alt_util_functions_exists=false; magisk_diag_grep_exact_expected_line_rc=0; magisk_environment=complete; magisk_environment_path=/data/adb/magisk; magisk_runtime_path=/debug_ramdisk; magisk_environment_fix=official_app_functions_fix_env",
+      "name": "official_magisk_environment_fix",
+      "status": "pass"
+    },
+    {
+      "detail": "magisk_diag_grep_path=/system/bin/grep; active_util_functions_metadata=0:0:755:20418; active_util_functions_sha256=efe385ffdb72c7fc9b5bcef4267acc4f68ad73b2ac02bb577328f77ea66643eb; active_util_functions_version_lines_rc=0; active_util_functions_version_match_rc=0; active_util_functions_version_code_match_rc=0; magisk_diag_grep_exact_expected_line_rc=0",
+      "name": "util_functions_before_cold_boot",
+      "status": "pass"
+    },
+    {
+      "detail": "before-emulator-stop-sync",
+      "name": "guest_filesystem_sync",
+      "status": "pass"
+    },
+    {
+      "detail": "API=34; ABI=x86_64; boot_id=87bc2a8c-5526-4b70-8255-7ada4d87507d",
+      "name": "android_boot_3",
+      "status": "pass"
+    },
+    {
+      "detail": "restarting adbd as root; privileged actions use Magisk su namespace",
+      "name": "root_access_fallback",
+      "status": "pass"
+    },
+    {
+      "detail": "verify_environment ran via Magisk su -c",
+      "name": "magisk_su_action",
+      "status": "pass"
+    },
+    {
+      "detail": "magisk_diag_grep_path=/system/bin/grep; active_util_functions_metadata=0:0:755:20418; active_util_functions_sha256=efe385ffdb72c7fc9b5bcef4267acc4f68ad73b2ac02bb577328f77ea66643eb; active_util_functions_version_lines_rc=0; active_util_functions_version_match_rc=0; active_util_functions_version_code_match_rc=0; magisk_diag_grep_exact_expected_line_rc=0",
+      "name": "util_functions_after_cold_boot",
+      "status": "pass"
+    },
+    {
+      "detail": "root_uid=0; magisk_path=/debug_ramdisk/magisk; magisk_version=30.7:MAGISK:R; magisk_version_code=30700; official_app_functions=loaded; official_app_functions_metadata=2000:2000:666:5518; magisk_diag_expected_version=30.7; magisk_diag_expected_version_code=30700; magisk_diag_identity=uid=0(root) gid=0(root) groups=0(root) context=u:r:magisk:s0; magisk_diag_selinux_identity=u:r:magisk:s0; magisk_diag_grep_path=/system/bin/grep; magisk_diag_sha256sum_path=/system/bin/sha256sum; active_util_functions_path=/data/adb/magisk/util_functions.sh; active_util_functions_exists=true; active_util_functions_metadata=0:0:755:20418; active_util_functions_selinux_context=u:object_r:system_file:s0 /data/adb/magisk/util_functions.sh; active_util_functions_sha256=efe385ffdb72c7fc9b5bcef4267acc4f68ad73b2ac02bb577328f77ea66643eb; 5:MAGISK_VER='30.7'; 6:MAGISK_VER_CODE=30700; active_util_functions_version_lines_rc=0; active_util_functions_version_match_rc=0; active_util_functions_version_code_match_rc=0; cache_alt_util_functions_path=/cache/data_adb/magisk/util_functions.sh; cache_alt_util_functions_exists=false; data_alt_util_functions_path=/data/magisk/util_functions.sh; data_alt_util_functions_exists=false; manager_alt_util_functions_path=/data/user_de/0/com.topjohnwu.magisk/install/util_functions.sh; manager_alt_util_functions_exists=false; magisk_diag_grep_exact_expected_line_rc=0; magisk_environment=complete; magisk_environment_path=/data/adb/magisk; magisk_runtime_path=/debug_ramdisk",
+      "name": "official_magisk_environment_persisted",
+      "status": "pass"
+    },
+    {
+      "detail": "adbd is already running as root; privileged actions use Magisk su namespace",
+      "name": "root_access_fallback",
+      "status": "pass"
+    },
+    {
+      "detail": "install_probe ran via Magisk su -c",
+      "name": "magisk_su_action",
+      "status": "pass"
+    },
+    {
+      "detail": "sync-after-install_probe",
+      "name": "guest_filesystem_sync",
+      "status": "pass"
+    },
+    {
+      "detail": "root_uid=0; magisk_path=/debug_ramdisk/magisk; magisk_version=30.7:MAGISK:R; magisk_version_code=30700; official_app_functions=loaded; official_app_functions_metadata=2000:2000:666:5518; magisk_diag_expected_version=30.7; magisk_diag_expected_version_code=30700; magisk_diag_identity=uid=0(root) gid=0(root) groups=0(root) context=u:r:magisk:s0; magisk_diag_selinux_identity=u:r:magisk:s0; magisk_diag_grep_path=/system/bin/grep; magisk_diag_sha256sum_path=/system/bin/sha256sum; active_util_functions_path=/data/adb/magisk/util_functions.sh; active_util_functions_exists=true; active_util_functions_metadata=0:0:755:20418; active_util_functions_selinux_context=u:object_r:system_file:s0 /data/adb/magisk/util_functions.sh; active_util_functions_sha256=efe385ffdb72c7fc9b5bcef4267acc4f68ad73b2ac02bb577328f77ea66643eb; 5:MAGISK_VER='30.7'; 6:MAGISK_VER_CODE=30700; active_util_functions_version_lines_rc=0; active_util_functions_version_match_rc=0; active_util_functions_version_code_match_rc=0; cache_alt_util_functions_path=/cache/data_adb/magisk/util_functions.sh; cache_alt_util_functions_exists=false; data_alt_util_functions_path=/data/magisk/util_functions.sh; data_alt_util_functions_exists=false; manager_alt_util_functions_path=/data/user_de/0/com.topjohnwu.magisk/install/util_functions.sh; manager_alt_util_functions_exists=false; magisk_diag_grep_exact_expected_line_rc=0; magisk_environment=complete; magisk_environment_path=/data/adb/magisk; magisk_runtime_path=/debug_ramdisk; - Device is system-as-root; *************************;  Magisk Validation Smoke ;  by workspace ; *************************; *******************;  Powered by Magisk ; *******************; - Extracting module files; - Done; probe_module_install=accepted; su_shell_uid=2000; su_policy_persisted=false",
+      "name": "probe_module_installed",
+      "status": "pass"
+    },
+    {
+      "detail": "before-emulator-stop-sync",
+      "name": "guest_filesystem_sync",
+      "status": "pass"
+    },
+    {
+      "detail": "API=34; ABI=x86_64; boot_id=54da32f1-be89-485e-8709-7d9a32e1c069",
+      "name": "android_boot_4",
+      "status": "pass"
+    },
+    {
+      "detail": "restarting adbd as root; privileged actions use Magisk su namespace",
+      "name": "root_access_fallback",
+      "status": "pass"
+    },
+    {
+      "detail": "install_gateway ran via Magisk su -c",
+      "name": "magisk_su_action",
+      "status": "pass"
+    },
+    {
+      "detail": "sync-after-install_gateway",
+      "name": "guest_filesystem_sync",
+      "status": "pass"
+    },
+    {
+      "detail": "root_uid=0; magisk_path=/debug_ramdisk/magisk; magisk_version=30.7:MAGISK:R; magisk_version_code=30700; official_app_functions=loaded; official_app_functions_metadata=2000:2000:666:5518; magisk_diag_expected_version=30.7; magisk_diag_expected_version_code=30700; magisk_diag_identity=uid=0(root) gid=0(root) groups=0(root) context=u:r:magisk:s0; magisk_diag_selinux_identity=u:r:magisk:s0; magisk_diag_grep_path=/system/bin/grep; magisk_diag_sha256sum_path=/system/bin/sha256sum; active_util_functions_path=/data/adb/magisk/util_functions.sh; active_util_functions_exists=true; active_util_functions_metadata=0:0:755:20418; active_util_functions_selinux_context=u:object_r:system_file:s0 /data/adb/magisk/util_functions.sh; active_util_functions_sha256=efe385ffdb72c7fc9b5bcef4267acc4f68ad73b2ac02bb577328f77ea66643eb; 5:MAGISK_VER='30.7'; 6:MAGISK_VER_CODE=30700; active_util_functions_version_lines_rc=0; active_util_functions_version_match_rc=0; active_util_functions_version_code_match_rc=0; cache_alt_util_functions_path=/cache/data_adb/magisk/util_functions.sh; cache_alt_util_functions_exists=false; data_alt_util_functions_path=/data/magisk/util_functions.sh; data_alt_util_functions_exists=false; manager_alt_util_functions_path=/data/user_de/0/com.topjohnwu.magisk/install/util_functions.sh; manager_alt_util_functions_exists=false; magisk_diag_grep_exact_expected_line_rc=0; magisk_environment=complete; magisk_environment_path=/data/adb/magisk; magisk_runtime_path=/debug_ramdisk; probe_module_id=magisk-validation-smoke; probe_module_enabled=true; current_boot_id=54da32f1-be89-485e-8709-7d9a32e1c069; post_fs_data_boot_id=54da32f1-be89-485e-8709-7d9a32e1c069; service_boot_id=54da32f1-be89-485e-8709-7d9a32e1c069; systemless_marker=systemless-mounted; - Device is system-as-root; - SIP-GSM Gateway Magisk Module v1.4.0; ; - Extracting module files; Archive:  /data/local/tmp/gateway-magisk.zip;   inflating: post-fs-data.sh;   inflating: tinymix-x86;   inflating: install.sh;   inflating: tinymix-x86_64;   inflating: module.prop;   inflating: system.prop;   inflating: tinymix32;   inflating: tinymix;    creating: system/;    creating: system/etc/;    creating: system/etc/permissions/;   inflating: system/etc/permissions/privapp-permissions-gateway.xml;    creating: system/priv-app/;    creating: system/priv-app/Gateway/;   inflating: system/priv-app/Gateway/Gateway.apk;   inflating: service.sh;   inflating: tinycap;    creating: bin/;   inflating: bin/gsm2sipctl; - APK found in module (from build.sh); - tinymix: installed the x86_64 build; ; - SIP-GSM Gateway installed as priv-app; - Privileged permissions configured:;     CAPTURE_AUDIO_OUTPUT, MODIFY_PHONE_STATE,;     READ_PRIVILEGED_PHONE_STATE, CALL_PRIVILEGED; - Runtime permissions will be auto-granted on boot; ; - Reboot required to activate; - Setting permissions; - Done; gateway_module_install=accepted; su_shell_uid=2000; su_policy_persisted=false",
+      "name": "gateway_module_installed",
+      "status": "pass"
+    },
+    {
+      "detail": "before-emulator-stop-sync",
+      "name": "guest_filesystem_sync",
+      "status": "pass"
+    },
+    {
+      "detail": "API=34; ABI=x86_64; boot_id=f3240a2e-db59-4c92-8e8d-9e17dc37ddef",
+      "name": "android_boot_5",
+      "status": "pass"
+    },
+    {
+      "detail": "restarting adbd as root; privileged actions use Magisk su namespace",
+      "name": "root_access_fallback",
+      "status": "pass"
+    },
+    {
+      "detail": "probe_gateway ran via Magisk su -c",
+      "name": "magisk_su_action",
+      "status": "pass"
+    },
+    {
+      "detail": "module active; APK overlay visible; read-only control probe returned structured capabilities",
+      "name": "gateway_control_probe",
+      "status": "pass"
+    },
+    {
+      "detail": "post-fs-data created root-owned 0700 config dir and service.sh logged on boot",
+      "name": "gateway_module_boot_hooks",
+      "status": "pass"
+    },
+    {
+      "detail": "framework account query returned ok; rows may be empty without SIMs; no identifiers or voice acceptance",
+      "name": "gateway_broker_probe",
+      "status": "pass"
+    },
+    {
+      "detail": "post-fs-data and service markers matched two distinct boot IDs: 54da32f1-be89-485e-8709-7d9a32e1c069, f3240a2e-db59-4c92-8e8d-9e17dc37ddef",
+      "name": "repeat_boot_markers",
+      "status": "pass"
+    },
+    {
+      "detail": "before-emulator-stop-sync",
+      "name": "guest_filesystem_sync",
+      "status": "pass"
+    }
+  ],
+  "magisk_version": "30.7",
+  "magisk_version_code": 30700,
+  "probe_marker_boot_ids": [
+    "54da32f1-be89-485e-8709-7d9a32e1c069",
+    "f3240a2e-db59-4c92-8e8d-9e17dc37ddef"
+  ],
+  "root_access": "adbd root; privileged actions via Magisk su -c",
+  "rootavd_commit": "613caa44371f85e1a461bc030e07ddc2d71afe32",
+  "status": "passed",
+  "system_image": "system-images/android-34/google_apis/x86_64",
+  "source_commit": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+  "run_id": 37273307094,
+  "url": "https://github.com/KiriKira/gsm2sip/actions/runs/37273307094",
+  "artifact_id": 11329153558,
+  "archive_digest": "sha256:63dac14940bb11ee5e9e26d0592060c008e5502677d5ff7566797670b11d4e10",
+  "broker_probe": {
+    "status": "ok",
+    "count": 1,
+    "query_completed": true,
+    "voice_call_acceptance": "not_tested"
+  },
+  "latest_reviewed_head": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+  "changes_after_runtime": [],
+  "identical_runtime_source_trees": {
+    "app": "9ae60573dc84d53079dcbabf9eb950a0fdf1874e",
+    "magisk": "70566014250a77f2f9d8fc1bb67ee6080d39f350",
+    "build.gradle.kts": "531ee09232e8cf01fb816bf1a98b43a262620b86",
+    "settings.gradle.kts": "1215f321de6f815cccc0f61a03d41d7a9415540c",
+    "gradle.properties": "f0a2e55f89e383466d2c6b481c8c468a3aa0b13d",
+    "gradle": "d34239b5d18ab5dbf31b86df51e40c8ae9e59d51",
+    "gradlew": "1aa94a4269074199e6ed2c37e8db3e0826030965",
+    "build.sh": "727cc1330635731cd751f9c4d5e4ceb82c48d210",
+    "tools": "e2aa52e88b4e96abf343b9c4faef6f3f1fbb6083",
+    "scripts/magisk-avd-smoke.py": "af434b5c6c1c7d4792f58dbf2933153651e553b2",
+    "scripts/magisk-avd-smoke-root.sh": "57662ce2b32e7e0037051c94b88cd1d0d1a718c9",
+    "scripts/magisk-avd-smoke-module": "ed7f4077be4c13a1a97341cdced8c3fbfd9ed8b2",
+    ".github/workflows/magisk-avd-smoke.yml": "c85d6430c88d6f6a33b585cf9808b60b1626eb5d"
+  },
+  "runtime_kind": "magisk",
+  "unrelated_changed_paths": []
+}

@@ -1,0 +1,184 @@
+{
+  "overall": "pass",
+  "scenario": "host",
+  "scope": "unpaired host UI and shared SMS backup screen",
+  "device_profile": "7.6in Foldable",
+  "package": "com.callagent.host",
+  "serial": "emulator-5554",
+  "generated_at_utc": "2026-10-05T07:02:44.896255+00:00",
+  "results": [
+    {
+      "name": "emulator_boot",
+      "status": "pass",
+      "detail": "device emulator-5554 boot completed"
+    },
+    {
+      "name": "emulator_api_level",
+      "status": "pass",
+      "detail": "API 35 / 15; profile=7.6in Foldable"
+    },
+    {
+      "name": "apk_install",
+      "status": "pass",
+      "detail": "adb installed package; APK ABIs=['arm64-v8a']; primaryCpuAbi=arm64-v8a"
+    },
+    {
+      "name": "apk_native_abi",
+      "status": "pass",
+      "detail": "native ABI intersects emulator ABIs"
+    },
+    {
+      "name": "system_permission_prompts",
+      "status": "pass",
+      "detail": "no permission or default-role prompt was visible; none was accepted"
+    },
+    {
+      "name": "app_visible",
+      "status": "pass",
+      "detail": "target app owns the resumed window and appears in UIAutomator hierarchy after 1 attempt(s)"
+    },
+    {
+      "name": "settings_navigation",
+      "status": "pass",
+      "detail": "host pairing form is visible"
+    },
+    {
+      "name": "unpaired_scope",
+      "status": "pass",
+      "detail": "host HTTPS pairing form"
+    },
+    {
+      "name": "pairing_code_untouched",
+      "status": "pass",
+      "detail": "pairing code is empty and was never focused or changed"
+    },
+    {
+      "name": "synthetic_input",
+      "status": "pass",
+      "detail": "synthetic URL was read back after entry and device name after entry"
+    },
+    {
+      "name": "ime_visible_before_rotation",
+      "status": "pass",
+      "detail": "mInputShown=true"
+    },
+    {
+      "name": "input_before_rotation",
+      "status": "pass",
+      "detail": "server='https://ui-smoke.invalid', device='UI_Smoke_Fold_35'"
+    },
+    {
+      "name": "ime_restored_after_rotation",
+      "status": "pass",
+      "detail": "mInputShown=true"
+    },
+    {
+      "name": "after_landscape_rotation",
+      "status": "pass",
+      "detail": "server='https://ui-smoke.invalid', device='UI_Smoke_Fold_35'"
+    },
+    {
+      "name": "after_portrait_rotation",
+      "status": "pass",
+      "detail": "server='https://ui-smoke.invalid', device='UI_Smoke_Fold_35'"
+    },
+    {
+      "name": "rotation_display_change",
+      "status": "pass",
+      "detail": "actual screenshot dimensions: before=(1768, 2208), landscape=(2208, 1768), portrait=(1768, 2208)"
+    },
+    {
+      "name": "rotation_input_restore",
+      "status": "pass",
+      "detail": "both synthetic fields survived portrait/landscape; IME returned"
+    },
+    {
+      "name": "fold_device_state",
+      "status": "pass",
+      "detail": "observed display/device-state change: {'size': '1768x2208', 'state': \"mCommittedState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mBaseState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mOverrideState=Optional.empty\"} -> {'size': '1768x2208', 'state': \"mCommittedState=Optional[DeviceState{identifier=1, name='CLOSED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mBaseState=Optional[DeviceState{identifier=1, name='CLOSED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mOverrideState=Optional.empty\"}"
+    },
+    {
+      "name": "input_after_fold",
+      "status": "pass",
+      "detail": "server='https://ui-smoke.invalid', device='UI_Smoke_Fold_35'"
+    },
+    {
+      "name": "unfold_device_state",
+      "status": "pass",
+      "detail": "unfold restored observable display/device state: {'size': '1768x2208', 'state': \"mCommittedState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mBaseState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mOverrideState=Optional.empty\"}"
+    },
+    {
+      "name": "input_after_unfold",
+      "status": "pass",
+      "detail": "server='https://ui-smoke.invalid', device='UI_Smoke_Fold_35'"
+    },
+    {
+      "name": "punch_hole_cutout",
+      "status": "pass",
+      "detail": "live hole cutout rectangles=[(0, 0, 136, 136)]; visible button rectangles checked=5; intersections=[]"
+    },
+    {
+      "name": "backup_entry_visible",
+      "status": "pass",
+      "detail": "scenario=host, id=sms_backup_archive_entry, label='\u77ed\u4fe1\u5907\u4efd\u4e0e\u5f52\u6863', bounds=[52,1260][1716,1386]"
+    },
+    {
+      "name": "backup_screen_controls",
+      "status": "pass",
+      "detail": "overview title visible=True; visible controls={'\u52a0\u5bc6\u5907\u4efd': '[52,512][1716,659]', '\u5bfc\u51fa JSON': '[52,730][1716,877]', '\u5bfc\u51fa XML': '[52,898][1716,1045]', '\u9009\u62e9\u5907\u4efd\u6587\u4ef6\u5e76\u9884\u89c8': '[52,1244][1716,1391]', '\u67e5\u770b\u5f52\u6863': '[52,1718][1716,1865]', '\u5bfc\u5165\u5f52\u6863 heading': '[52,1498][1716,1574]'}; missing=[]; gateway-only retention switch not applicable"
+    },
+    {
+      "name": "backup_format_warnings",
+      "status": "pass",
+      "detail": "JSON: title/format/cancel/continue bounds visible=True; XML: title/format/cancel/continue bounds visible=True"
+    },
+    {
+      "name": "backup_password_dialog",
+      "status": "pass",
+      "detail": "title=[302,802][806,895]; empty password fields or known hints=2; cancel=[1108,1358][1276,1484]; continue=[1297,1358][1465,1484]; no password entered"
+    },
+    {
+      "name": "backup_rotation_safety",
+      "status": "pass",
+      "detail": "dimensions before=(1768, 2208), landscape=(2208, 1768), portrait=(1768, 2208); landscape=title_bounds=[188,115][2156,222]; \u52a0\u5bc6\u5907\u4efd=[188,439][2156,586]; \u5bfc\u51fa XML=[188,825][2156,972]; \u9009\u62e9\u5907\u4efd\u6587\u4ef6\u5e76\u9884\u89c8=[188,1171][2156,1318]; portrait=title_bounds=[52,188][1716,295]; \u52a0\u5bc6\u5907\u4efd=[52,512][1716,659]; \u5bfc\u51fa XML=[52,898][1716,1045]; \u9009\u62e9\u5907\u4efd\u6587\u4ef6\u5e76\u9884\u89c8=[52,1244][1716,1391]"
+    },
+    {
+      "name": "backup_fold_safety",
+      "status": "pass",
+      "detail": "folded=title_bounds=[52,188][801,295]; \u52a0\u5bc6\u5907\u4efd=[52,615][801,762]; \u5bfc\u51fa XML=[52,1049][801,1196]; \u9009\u62e9\u5907\u4efd\u6587\u4ef6\u5e76\u9884\u89c8=[52,1443][801,1590]; unfolded=title_bounds=[52,188][1716,295]; \u52a0\u5bc6\u5907\u4efd=[52,512][1716,659]; \u5bfc\u51fa XML=[52,898][1716,1045]; \u9009\u62e9\u5907\u4efd\u6587\u4ef6\u5e76\u9884\u89c8=[52,1244][1716,1391]"
+    },
+    {
+      "name": "backup_cutout_safety",
+      "status": "pass",
+      "detail": "live hole cutout rectangles=[(0, 0, 136, 136)]; visible button rectangles checked=5; intersections=[]"
+    },
+    {
+      "name": "backup_import_saf_preview",
+      "status": "pass",
+      "detail": "DocumentsUI selected gsm2sip-ui-smoke-host-1791183666330658347.xml; preview=2; source=sms-backup-restore+xml; visible title/count/source/confirm/cancel=True"
+    },
+    {
+      "name": "backup_import_confirm",
+      "status": "pass",
+      "detail": "completion=\u65b0\u589e 2\uff0c\u66f4\u65b0 0\uff0c\u91cd\u590d 0; count shows 2 imported rows=True; bounds=[52,1718][1716,1771]"
+    },
+    {
+      "name": "backup_import_history",
+      "status": "pass",
+      "detail": "read-only imported archive count and hide control visible=True; body bounds visible=[True, True]; body occurrences=[1, 1]"
+    },
+    {
+      "name": "backup_import_dedup",
+      "status": "pass",
+      "detail": "completion=\u65b0\u589e 0\uff0c\u66f4\u65b0 0\uff0c\u91cd\u590d 2; visible archive count=2=True; body bounds visible=[True, True]; body occurrences=[1, 1]"
+    },
+    {
+      "name": "backup_import_fixture_cleanup",
+      "status": "pass",
+      "detail": "remote fixture removed=True; pushed=True; path=/sdcard/Download/gsm2sip-ui-smoke-host-1791183666330658347.xml"
+    }
+  ],
+  "artifacts": {
+    "screenshot_manifest": "screenshot_manifest.json"
+  }
+}

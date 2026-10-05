@@ -1,0 +1,14 @@
+test_existing_backup_paths_are_never_replaced (test_db_backup.BackupPublicationTests.test_existing_backup_paths_are_never_replaced) ... ok
+test_manifest_publish_failure_removes_only_new_partial_pair (test_db_backup.BackupPublicationTests.test_manifest_publish_failure_removes_only_new_partial_pair) ... ok
+test_url_password_is_private_passfile_and_child_environment_is_sanitized (test_db_backup.LocalConnectionTests.test_url_password_is_private_passfile_and_child_environment_is_sanitized) ... ok
+test_01_backup_is_private_and_existing_destination_is_preserved (test_db_backup.PostgreSQLBackupIntegrationTests.test_01_backup_is_private_and_existing_destination_is_preserved) ... ok
+test_02_bad_sha_is_rejected_before_target_changes (test_db_backup.PostgreSQLBackupIntegrationTests.test_02_bad_sha_is_rejected_before_target_changes) ... ok
+test_03_nonempty_target_is_refused_without_removing_existing_table (test_db_backup.PostgreSQLBackupIntegrationTests.test_03_nonempty_target_is_refused_without_removing_existing_table) ... ok
+test_04_restore_preserves_history_and_quarantines_runtime_work (test_db_backup.PostgreSQLBackupIntegrationTests.test_04_restore_preserves_history_and_quarantines_runtime_work) ... ok
+test_05_sanitize_sql_failure_rolls_back_the_schema_restore (test_db_backup.PostgreSQLBackupIntegrationTests.test_05_sanitize_sql_failure_rolls_back_the_schema_restore) ... ok
+test_06_migration_0001_backup_restores_with_identity_quarantine (test_db_backup.PostgreSQLBackupIntegrationTests.test_06_migration_0001_backup_restores_with_identity_quarantine) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 22.167s
+
+OK

@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
+        env:
+          POSTGRES_DB: gsmtest
+          POSTGRES_USER: gsmtest
+          POSTGRES_PASSWORD: gsmtest-ci-only
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U gsmtest -d gsmtest"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgresql://gsmtest:gsmtest-ci-only@127.0.0.1:55432/gsmtest?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.27.1
+          cache: true
+          cache-dependency-path: go.sum
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PostgreSQL 17 client tools
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          curl --fail --silent --show-error --location https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor --yes --output /usr/share/keyrings/postgresql.gpg
+          . /etc/os-release
+          printf 'deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt %s-pgdg main\n' "$VERSION_CODENAME" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client-17
+          pg17_bin=/usr/lib/postgresql/17/bin
+          for tool in pg_dump pg_restore psql; do
+            test -x "$pg17_bin/$tool"
+          done
+          echo "$pg17_bin" >> "$GITHUB_PATH"
+          export PATH="$pg17_bin:$PATH"
+          for tool in pg_dump pg_restore psql; do
+            tool_path=$(command -v "$tool")
+            case "$tool_path" in
+              "$pg17_bin/"*) ;;
+              *) echo "$tool did not resolve to the PostgreSQL 17 client directory" >&2; exit 1 ;;
+            esac
+            client_version=$("$tool" --version)
+            case "$client_version" in
+              *"(PostgreSQL) 17."*) ;;
+              *) echo "$tool must be PostgreSQL 17: $client_version" >&2; exit 1 ;;
+            esac
+            echo "$client_version"
+          done
+      - name: Backup and restore integration tests
+        run: python -m unittest discover -s scripts -p 'test_db_backup.py'
+      - name: Go tests
+        run: go test -race ./...
+      - name: Go vet
+        run: go vet ./...
+      - name: Contract validation
+        run: |
+          python -m pip install -r requirements-contract.txt
+          python scripts/check_contract.py
+      - name: Container build
+        run: docker build --tag gsm2sip-server:ci .
+      - name: Asterisk runtime and safety probe
+        run: |
+          bash -n scripts/asterisk-local-cert.sh scripts/asterisk-local-probe.sh
+          sh -n deploy/asterisk/entrypoint.sh deploy/asterisk/healthcheck.sh
+          docker tag gsm2sip-server:ci gsm2sip-server:dev
+          docker build --file deploy/asterisk/Dockerfile --tag gsm2sip-asterisk:22.11.0-local .
+          SKIP_BUILD=1 scripts/asterisk-local-probe.sh
+      - name: Stop local probe containers
+        if: always()
+        run: |
+          if [[ -f .env ]] && grep -Eq '^SECRETS_ENCRYPTION_KEY=.+$' .env; then
+            docker compose down
+          else
+            echo 'Skipping Compose cleanup because the local probe did not initialize its Compose environment'
+          fi

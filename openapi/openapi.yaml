@@ -1,0 +1,1008 @@
+openapi: 3.1.0
+info:
+  title: gsm2sip server API
+  version: 1.0.0
+  description: >-
+    HTTP and WebSocket contract for gsm2sip protocol v1. See docs/protocol-v1.md
+    and docs/server-wire-addendum.md. /ws is a wake-only channel; call and SIP
+    capabilities require configured SIP TLS, credentials, and a connected ARI coordinator.
+servers:
+  - url: https://{apiHost}/v1
+    variables:
+      apiHost:
+        default: api.example.invalid
+security:
+  - bearerAuth: []
+paths:
+  /ws:
+    get:
+      servers:
+        - url: wss://api.example.invalid/v1
+          description: Production clients use WSS with normal CA and hostname verification.
+      operationId: wakeWebSocket
+      description: >-
+        Upgrade with the current Authorization Bearer access token. Query parameters
+        and request bodies are rejected. Both client and gateway roles are allowed.
+        After the 101 upgrade the server immediately sends WakeSyncRequired, then
+        sends it again only when the caller-scoped durable event or pending-command
+        marker changes. The frame requests an HTTPS sync and carries no IDs or data.
+        Server pings every 20 seconds; clients must answer pings. Any client data
+        frame closes with 1008, oversized data (>4 KiB) with 1009, and expired,
+        rotated, or revoked credentials with 1008. A per-device limit of two
+        connections applies. This channel does not represent call readiness.
+      responses:
+        '101':
+          description: WebSocket upgrade completed; messages follow the description above.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WakeSyncRequired'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+  /pairings/claim:
+    post:
+      security: []
+      operationId: claimPairing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PairingClaim'}
+      responses:
+        '200':
+          description: Pairing code consumed and device credentials issued.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PairingResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+  /auth/refresh:
+    post:
+      security: []
+      operationId: refreshSession
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Persist before refresh. With server encryption configured, retry the identical old token and key within the current refresh expiry to recover a lost response. A later rotation or revocation invalidates recovery.
+          schema: {type: string, minLength: 16, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RefreshRequest'}
+      responses:
+        '200':
+          description: Previous refresh and access tokens are revoked.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SessionTokens'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /auth/revoke:
+    post:
+      security: []
+      operationId: revokeSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RefreshRequest'}
+      responses:
+        '204': {description: Session revoked.}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /devices/self/sip-config:
+    get:
+      operationId: getSipConfig
+      responses:
+        '200':
+          description: Explicit SIP capability status.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SipConfiguration'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /devices/self/sip-credentials/rotate:
+    post:
+      operationId: rotateSipCredentials
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: false}
+      responses:
+        '200':
+          description: Provision or rotate this device's TLS/SRTP endpoint. Password is returned only here; an identical current key recovers the same response for five minutes. Old generation keys conflict. Rotation during a call is rejected.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SipCredentialResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '503':
+          description: SIP has not been configured; no credentials are issued.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+  /clients:
+    get:
+      operationId: listClients
+      description: >-
+        Client-role only. Lists paired client devices owned by the caller, including
+        revoked devices, and marks exactly the authenticated device with is_self.
+        Platform is open descriptive metadata; it does not grant OS capabilities.
+      responses:
+        '200':
+          description: Owner-scoped paired clients, with no credentials or SIP fields.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClientList'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '503':
+          description: Database unavailable.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+  /gateways:
+    get:
+      operationId: listGateways
+      responses:
+        '200':
+          description: Gateways visible to the caller's owner.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GatewayList'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /gateways/{gateway_id}/sims:
+    get:
+      operationId: listSims
+      parameters:
+        - {$ref: '#/components/parameters/GatewayId'}
+      responses:
+        '200':
+          description: SIM bindings issued to this gateway.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SimList'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /gateways/{gateway_id}/heartbeat:
+    post:
+      operationId: heartbeat
+      parameters:
+        - {$ref: '#/components/parameters/GatewayId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/HeartbeatRequest'}
+      responses:
+        '200':
+          description: Heartbeat committed.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/HeartbeatResult'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /gateways/{gateway_id}/sim-bindings:
+    post:
+      operationId: updateSimBindings
+      parameters:
+        - {$ref: '#/components/parameters/GatewayId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - {$ref: '#/components/schemas/SimProposalRequest'}
+                - {$ref: '#/components/schemas/SimConfirmationRequest'}
+      responses:
+        '200':
+          description: Proposal or confirmation result, including server SIM IDs.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SimBindingResult'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /messages:
+    get:
+      operationId: listMessages
+      parameters:
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: sim_id, in: query, schema: {type: string, format: uuid}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      responses:
+        '200':
+          description: Caller-scoped page of messages.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessagePage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      operationId: createMessage
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateMessage'}
+      responses:
+        '202':
+          description: Message and command committed atomically.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageAccepted'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+  /messages/{message_id}:
+    get:
+      operationId: getMessage
+      parameters:
+        - {name: message_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: Message and per-part execution state.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageDetail'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /gateways/{gateway_id}/commands:
+    get:
+      operationId: listCommands
+      parameters:
+        - {$ref: '#/components/parameters/GatewayId'}
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 100}}
+      responses:
+        '200':
+          description: Queued and unfinished commands owned by this gateway.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [commands, next_cursor]
+                properties:
+                  commands:
+                    type: array
+                    items: {$ref: '#/components/schemas/Command'}
+                  next_cursor: {type: [string, 'null']}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /gateways/{gateway_id}/commands/{command_id}/claim:
+    post:
+      operationId: claimCommand
+      parameters:
+        - {$ref: '#/components/parameters/GatewayId'}
+        - {name: command_id, in: path, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payload_sha256]
+              properties:
+                payload_sha256: {type: string, pattern: '^[a-f0-9]{64}$'}
+      responses:
+        '200':
+          description: Sticky idempotent claim; command is never transferred.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Command'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /gateways/{gateway_id}/events:batch:
+    post:
+      operationId: uploadEvents
+      parameters:
+        - {$ref: '#/components/parameters/GatewayId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [events]
+              properties:
+                events:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  items: {$ref: '#/components/schemas/GatewayEvent'}
+      responses:
+        '200':
+          description: Per-event ACK after the whole batch commits.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [acks]
+                properties:
+                  acks:
+                    type: array
+                    items:
+                      type: object
+                      required: [event_id, event_cursor, duplicate]
+                      properties:
+                        event_id: {type: string, format: uuid}
+                        event_cursor: {type: string}
+                        duplicate: {type: boolean}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+  /events:
+    get:
+      operationId: listEvents
+      parameters:
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      responses:
+        '200':
+          description: Durable owner-scoped events for client catch-up.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EventPage'}
+  /events/ack:
+    post:
+      operationId: acknowledgeClientEvents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [durable_cursor]
+              properties:
+                durable_cursor: {type: string, minLength: 1}
+      responses:
+        '200':
+          description: Monotonic per-device receipt after the client reports SQLite commit. Events remain retained. This does not acknowledge notification display or human reading.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClientEventReceipt'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /calls:
+    get:
+      operationId: listCalls
+      parameters:
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+      responses:
+        '200':
+          description: >-
+            Current call snapshots for this authenticated client. Incoming rows are
+            this client's participant projections, not a shared owner-level state.
+            Pagination is ordered by descending created_at and call_id; each row carries the
+            latest state_revision for this participant. After a wake hint, fetch
+            pages to reconcile the current view.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CallPage'}
+        '503': {$ref: '#/components/responses/CallingNotReady'}
+  /calls/{call_id}:
+    get:
+      operationId: getCall
+      parameters:
+        - {name: call_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: >-
+            This authenticated client's view of the business call. For incoming
+            calls client_id is the requesting client device. A pending participant
+            may receive only its own wake_nonce; SIP Call-ID is a separate identifier.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RemoteCall'}
+        '404': {description: Call is unavailable to this client.}
+        '503': {$ref: '#/components/responses/CallingNotReady'}
+  /call-intents:
+    post:
+      operationId: createCallIntent
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [gateway_id, sim_id, mapping_revision, to]
+              properties:
+                gateway_id: {type: string, format: uuid}
+                sim_id: {type: string, format: uuid}
+                mapping_revision: {type: integer, minimum: 1}
+                to: {type: string, minLength: 1, maxLength: 64}
+      responses:
+        '202':
+          description: Short-lived intent, including an identical idempotency replay. Cellular dialing is dispatched after an authenticated SIP INVITE consumes it once.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CallIntentResult'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '503': {$ref: '#/components/responses/CallingNotReady'}
+  /call-intents/{intent_id}:
+    delete:
+      operationId: cancelCallIntent
+      parameters:
+        - {name: intent_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '204': {description: Unconsumed intent cancelled. A consumed intent requires SIP hangup.}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /clients/{client_id}/ready:
+    post:
+      operationId: clientReady
+      parameters:
+        - {name: client_id, in: path, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [call_id, wake_nonce]
+              properties:
+                call_id: {type: string, format: uuid}
+                wake_nonce: {type: string, minLength: 16}
+      responses:
+        '200':
+          description: Authenticated registered host is ready within the 25-second incoming deadline.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RemoteCall'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '503': {$ref: '#/components/responses/CallingNotReady'}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+  parameters:
+    GatewayId:
+      name: gateway_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 16, maxLength: 128}
+  responses:
+    BadRequest:
+      description: Invalid request, query parameter, or missing WebSocket upgrade.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    Unauthorized:
+      description: Missing, invalid, expired, or revoked credentials.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    Forbidden:
+      description: Authenticated role or owner scope is insufficient.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    NotFound:
+      description: Resource does not exist or is outside caller scope.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    Conflict:
+      description: Idempotency, mapping revision, or state conflict.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    RateLimited:
+      description: SMS rate budget exceeded.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    PayloadTooLarge:
+      description: Batch exceeds event count or byte limits.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    CallingNotReady:
+      description: M3 SIP/ARI capability is not implemented or configured.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+  schemas:
+    WakeSyncRequired:
+      type: object
+      additionalProperties: false
+      required: [protocol_version, type]
+      properties:
+        protocol_version: {const: 1}
+        type: {const: sync_required}
+    UUID:
+      type: string
+      format: uuid
+    Timestamp:
+      type: string
+      format: date-time
+    PairingClaim:
+      type: object
+      additionalProperties: false
+      required: [pairing_code, device_name]
+      properties:
+        pairing_code: {type: string, minLength: 20, maxLength: 128}
+        device_name: {type: string, minLength: 1, maxLength: 100}
+        platform:
+          type: string
+          pattern: '^\s*(?:[a-z][a-z0-9_-]{0,31})?\s*$'
+          description: >-
+            Optional open platform label. The server trims surrounding whitespace;
+            an omitted or whitespace-only value becomes unknown. After trimming,
+            a non-empty value must match ^[a-z][a-z0-9_-]{0,31}$. Labels such as
+            android, windows, and magiskvm are descriptive only and do not assert
+            client UI, SIP media, or OS integration support.
+    ClientList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/ClientSummary'}
+    ClientSummary:
+      type: object
+      additionalProperties: false
+      required: [id, name, platform, state, is_self]
+      properties:
+        id: {$ref: '#/components/schemas/UUID'}
+        name: {type: string, minLength: 1, maxLength: 100}
+        platform:
+          type: string
+          pattern: '^[a-z][a-z0-9_-]{0,31}$'
+          description: Normalized descriptive label; unknown when no label was supplied.
+        state: {type: string, enum: [active, revoked]}
+        is_self: {type: boolean}
+    PairingResult:
+      allOf:
+        - {$ref: '#/components/schemas/SessionTokens'}
+        - type: object
+          required: [owner_id, device_id, role, sip]
+          properties:
+            owner_id: {$ref: '#/components/schemas/UUID'}
+            device_id: {$ref: '#/components/schemas/UUID'}
+            role: {type: string, enum: [gateway, client]}
+            sip: {$ref: '#/components/schemas/SipCapability'}
+    SessionTokens:
+      type: object
+      required: [access_token, access_expires_at, refresh_token, refresh_expires_at]
+      properties:
+        access_token: {type: string}
+        access_expires_at: {$ref: '#/components/schemas/Timestamp'}
+        refresh_token: {type: string}
+        refresh_expires_at: {$ref: '#/components/schemas/Timestamp'}
+    RefreshRequest:
+      type: object
+      additionalProperties: false
+      required: [refresh_token]
+      properties:
+        refresh_token: {type: string}
+    SipCapability:
+      type: object
+      required: [available]
+      properties:
+        available: {type: boolean}
+        reason: {type: string, enum: [sip_not_configured]}
+    SipConfiguration:
+      allOf:
+        - {$ref: '#/components/schemas/SipCapability'}
+        - type: object
+          properties:
+            endpoint_id: {type: string, pattern: '^dev_[0-9a-f]{32}$'}
+            auth_username: {type: string}
+            auth_realm: {type: string, const: gsm2sip}
+            aor: {type: string}
+            registrar_uri: {type: string, pattern: '^sips:'}
+            outbound_proxy_uri: {type: string, pattern: '^sips:'}
+            server_name: {type: string}
+            ca_pem: {type: string, description: Optional private CA from authenticated HTTPS. Otherwise Android trusted CAs are used.}
+    SipCredentialResult:
+      allOf:
+        - {$ref: '#/components/schemas/SipConfiguration'}
+        - type: object
+          required: [password]
+          properties:
+            password: {type: string, minLength: 32, readOnly: true}
+    ClientEventReceipt:
+      type: object
+      additionalProperties: false
+      required: [durable_cursor, confirmed_at, events_retained]
+      properties:
+        durable_cursor: {type: string}
+        confirmed_at: {type: string, format: date-time}
+        events_retained: {type: boolean, const: true}
+    CallIntentResult:
+      type: object
+      additionalProperties: false
+      required: [intent_id, call_id, sip_uri, expires_at]
+      properties:
+        intent_id: {type: string, format: uuid}
+        call_id: {type: string, format: uuid}
+        sip_uri: {type: string, pattern: '^sips:', description: Sensitive authorization-bearing URI. Never log or persist in call history.}
+        expires_at: {type: string, format: date-time}
+    RemoteCall:
+      description: >-
+        A client-scoped call projection. For incoming calls client_id is the
+        authenticated requesting device, and state/state_revision/reason describe
+        only its participant. Each participant has an independent nonce and
+        monotonic revision for the shared call_id. A losing participant ends with
+        reason answered_elsewhere after another authenticated client SIP channel
+        wins; readiness and local UI state do not select a winner.
+      type: object
+      required: [call_id, gateway_id, client_id, sim_id, mapping_revision, direction, state, state_revision, to, created_at]
+      properties:
+        call_id: {type: string, format: uuid}
+        gateway_id: {type: string, format: uuid}
+        client_id: {type: string, format: uuid}
+        sim_id: {type: string, format: uuid}
+        mapping_revision: {type: integer, minimum: 1}
+        direction: {type: string, enum: [incoming, outgoing]}
+        state: {type: string, enum: [reserved, pending_wakeup, ringing, dialing, connecting, active, ended, unknown]}
+        state_revision: {type: integer, minimum: 1, description: Monotonic revision for this client's participant view.}
+        from: {type: string}
+        to: {type: string}
+        reason:
+          type: string
+          description: >-
+            Terminal or failure reason. Incoming non-winners use answered_elsewhere;
+            rejecting one participant does not end the other participants.
+        created_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        answered_at: {type: string, format: date-time}
+        ended_at: {type: string, format: date-time}
+        wake_nonce: {type: string, description: Present only while this participant is pending_wakeup; never shared across clients.}
+    CallPage:
+      type: object
+      required: [items, next_cursor, resync_required]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/RemoteCall'}
+        next_cursor: {type: [string, 'null']}
+        resync_required: {type: boolean}
+    HeartbeatRequest:
+      type: object
+      required: [sequence, protocol_version, app_version, root, sip_registered, sim_states]
+      properties:
+        sequence: {type: integer, minimum: 1}
+        protocol_version: {type: integer, const: 1}
+        app_version: {type: string, maxLength: 64}
+        root: {type: boolean}
+        sip_registered: {type: boolean}
+        battery_percent: {type: [integer, 'null'], minimum: 0, maximum: 100}
+        charging: {type: [boolean, 'null']}
+        sim_states:
+          type: array
+          maxItems: 2
+          items:
+            type: object
+            required: [sim_id, mapping_revision, service_state, identity_verified]
+            properties:
+              sim_id: {$ref: '#/components/schemas/UUID'}
+              mapping_revision: {type: integer, minimum: 1}
+              service_state: {type: string, maxLength: 32}
+              identity_verified: {type: boolean}
+    HeartbeatResult:
+      type: object
+      required: [server_time, online, stale_after_seconds, mapping_revision, invalidated_sim_ids]
+      properties:
+        server_time: {$ref: '#/components/schemas/Timestamp'}
+        online: {type: boolean, const: true}
+        stale_after_seconds: {type: integer, const: 90}
+        mapping_revision: {type: integer, minimum: 0}
+        invalidated_sim_ids:
+          type: array
+          maxItems: 2
+          items: {$ref: '#/components/schemas/UUID'}
+    SimProposalRequest:
+      type: object
+      required: [operation_id, phase, mappings]
+      properties:
+        operation_id: {$ref: '#/components/schemas/UUID'}
+        phase: {type: string, const: propose}
+        mappings:
+          type: array
+          minItems: 1
+          maxItems: 2
+          items:
+            type: object
+            required: [slot_index, label]
+            properties:
+              slot_index: {type: integer, minimum: 0, maximum: 1}
+              label: {type: string, maxLength: 64}
+              carrier_name: {type: [string, 'null'], maxLength: 100}
+              phone_number: {type: [string, 'null'], maxLength: 64}
+              existing_sim_id: {type: string, format: uuid}
+              same_sim_verified: {type: boolean}
+    SimConfirmationRequest:
+      type: object
+      required: [operation_id, phase, confirmations]
+      properties:
+        operation_id: {$ref: '#/components/schemas/UUID'}
+        phase: {type: string, const: confirm}
+        confirmations:
+          type: array
+          minItems: 1
+          maxItems: 2
+          items:
+            type: object
+            required: [sim_id, slot_index, confirmed]
+            properties:
+              sim_id: {$ref: '#/components/schemas/UUID'}
+              slot_index: {type: integer, minimum: 0, maximum: 1}
+              confirmed: {type: boolean}
+    SimBindingResult:
+      type: object
+      required: [operation_id, phase, mapping_revision, mappings]
+      properties:
+        operation_id: {$ref: '#/components/schemas/UUID'}
+        phase: {type: string, enum: [proposed, confirmed]}
+        mapping_revision: {type: integer}
+        mappings:
+          type: array
+          items:
+            type: object
+            required: [sim_id, slot_index, state, mapping_revision]
+            properties:
+              sim_id: {$ref: '#/components/schemas/UUID'}
+              slot_index: {type: integer}
+              state: {type: string, enum: [pending_local_confirmation, active, unverified]}
+              mapping_revision: {type: integer}
+    CreateMessage:
+      type: object
+      additionalProperties: false
+      required: [gateway_id, sim_id, mapping_revision, to, text]
+      properties:
+        gateway_id: {$ref: '#/components/schemas/UUID'}
+        sim_id: {$ref: '#/components/schemas/UUID'}
+        mapping_revision: {type: integer, minimum: 1}
+        to: {type: string, minLength: 1, maxLength: 64}
+        text: {type: string, minLength: 1, maxLength: 16384}
+        ttl_seconds: {type: integer, minimum: 1, maximum: 3600, default: 300}
+    MessageAccepted:
+      type: object
+      required: [message_id, command_id, status, created_at, expires_at]
+      properties:
+        message_id: {$ref: '#/components/schemas/UUID'}
+        command_id: {$ref: '#/components/schemas/UUID'}
+        status: {type: string, const: queued}
+        created_at: {$ref: '#/components/schemas/Timestamp'}
+        expires_at: {$ref: '#/components/schemas/Timestamp'}
+    MessageDetail:
+      type: object
+      required: [message_id, command_id, gateway_id, sim_id, mapping_revision, direction, from, to, text, status, part_count, created_at, expires_at, parts]
+      properties:
+        message_id: {$ref: '#/components/schemas/UUID'}
+        gateway_id: {$ref: '#/components/schemas/UUID'}
+        command_id: {anyOf: [{$ref: '#/components/schemas/UUID'}, {type: 'null'}]}
+        sim_id: {anyOf: [{$ref: '#/components/schemas/UUID'}, {type: 'null'}]}
+        mapping_revision: {type: [integer, 'null']}
+        direction: {type: string, enum: [inbound, outbound]}
+        from: {type: [string, 'null']}
+        to: {type: [string, 'null']}
+        text: {type: string}
+        status: {type: string}
+        part_count: {type: [integer, 'null'], minimum: 1}
+        created_at: {$ref: '#/components/schemas/Timestamp'}
+        expires_at: {anyOf: [{$ref: '#/components/schemas/Timestamp'}, {type: 'null'}]}
+        parts:
+          type: array
+          items:
+            type: object
+            required: [part_index, state]
+            properties:
+              part_index: {type: integer, minimum: 0}
+              state: {type: string}
+              result_code: {type: [integer, 'null']}
+              error: {type: [string, 'null']}
+    MessagePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/MessageDetail'}}
+        next_cursor: {type: [string, 'null']}
+    Command:
+      type: object
+      required: [command_id, message_id, gateway_id, sim_id, mapping_revision, to, text, expires_at, payload_sha256, state]
+      properties:
+        command_id: {$ref: '#/components/schemas/UUID'}
+        message_id: {$ref: '#/components/schemas/UUID'}
+        gateway_id: {$ref: '#/components/schemas/UUID'}
+        sim_id: {$ref: '#/components/schemas/UUID'}
+        mapping_revision: {type: integer}
+        to: {type: string}
+        text: {type: string}
+        expires_at: {$ref: '#/components/schemas/Timestamp'}
+        payload_sha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+          description: SHA-256 of command_id, message_id, gateway_id, sim_id, decimal mapping_revision, to, text, and UTC RFC3339Nano expires_at joined by NUL bytes.
+        state: {type: string, enum: [queued, accepted_by_gateway, dispatching]}
+    GatewayEvent:
+      type: object
+      additionalProperties: false
+      required: [protocol_version, event_id, gateway_id, sequence, occurred_at, type, payload]
+      properties:
+        protocol_version: {type: integer, const: 1}
+        event_id: {$ref: '#/components/schemas/UUID'}
+        gateway_id: {$ref: '#/components/schemas/UUID'}
+        sequence: {type: integer, minimum: 1}
+        occurred_at: {$ref: '#/components/schemas/Timestamp'}
+        type: {type: string, enum: [sms.received, sms.dispatching, sms.command_state, sms.part_state]}
+        sim_id: {anyOf: [{$ref: '#/components/schemas/UUID'}, {type: 'null'}]}
+        mapping_revision: {type: [integer, 'null'], minimum: 1}
+        sim_resolution: {type: string, enum: [unknown]}
+        payload:
+          oneOf:
+            - {$ref: '#/components/schemas/SMSReceivedPayload'}
+            - {$ref: '#/components/schemas/SMSDispatchingPayload'}
+            - {$ref: '#/components/schemas/SMSCommandStatePayload'}
+            - {$ref: '#/components/schemas/SMSPartStatePayload'}
+      allOf:
+        - if:
+            properties: {type: {const: sms.received}}
+          then:
+            allOf:
+              - properties: {payload: {$ref: '#/components/schemas/SMSReceivedPayload'}}
+              - oneOf:
+                  - required: [sim_id, mapping_revision, sim_resolution]
+                    properties:
+                      sim_id: {type: 'null'}
+                      mapping_revision: {type: 'null'}
+                      sim_resolution: {type: string, const: unknown}
+                  - required: [sim_id, mapping_revision]
+                    properties:
+                      sim_id: {$ref: '#/components/schemas/UUID'}
+                      mapping_revision: {type: integer, minimum: 1}
+                    not: {required: [sim_resolution]}
+        - if:
+            properties: {type: {const: sms.dispatching}}
+          then:
+            required: [sim_id, mapping_revision]
+            properties:
+              sim_id: {$ref: '#/components/schemas/UUID'}
+              mapping_revision: {type: integer, minimum: 1}
+              payload: {$ref: '#/components/schemas/SMSDispatchingPayload'}
+            not: {required: [sim_resolution]}
+        - if:
+            properties: {type: {const: sms.command_state}}
+          then:
+            required: [sim_id, mapping_revision]
+            properties:
+              sim_id: {$ref: '#/components/schemas/UUID'}
+              mapping_revision: {type: integer, minimum: 1}
+              payload: {$ref: '#/components/schemas/SMSCommandStatePayload'}
+            not: {required: [sim_resolution]}
+        - if:
+            properties: {type: {const: sms.part_state}}
+          then:
+            required: [sim_id, mapping_revision]
+            properties:
+              sim_id: {$ref: '#/components/schemas/UUID'}
+              mapping_revision: {type: integer, minimum: 1}
+              payload: {$ref: '#/components/schemas/SMSPartStatePayload'}
+            not: {required: [sim_resolution]}
+    SMSReceivedPayload:
+      type: object
+      additionalProperties: false
+      required: [message_id, from, text, parts]
+      properties:
+        message_id: {$ref: '#/components/schemas/UUID'}
+        from: {type: string, minLength: 1, maxLength: 256}
+        text: {type: string, maxLength: 16384}
+        parts: {type: integer, minimum: 1, maximum: 255}
+    SMSDispatchingPayload:
+      type: object
+      additionalProperties: false
+      required: [message_id, command_id, part_count]
+      properties:
+        message_id: {$ref: '#/components/schemas/UUID'}
+        command_id: {$ref: '#/components/schemas/UUID'}
+        part_count: {type: integer, minimum: 1, maximum: 255}
+    SMSCommandStatePayload:
+      type: object
+      additionalProperties: false
+      required: [message_id, command_id, state]
+      properties:
+        message_id: {$ref: '#/components/schemas/UUID'}
+        command_id: {$ref: '#/components/schemas/UUID'}
+        state: {type: string, enum: [expired, failed, unknown]}
+        error: {type: string, maxLength: 512}
+    SMSPartStatePayload:
+      type: object
+      additionalProperties: false
+      required: [message_id, command_id, part_index, state]
+      properties:
+        message_id: {$ref: '#/components/schemas/UUID'}
+        command_id: {$ref: '#/components/schemas/UUID'}
+        part_index: {type: integer, minimum: 0, maximum: 254}
+        state: {type: string, enum: [submitted, delivered, failed, expired, unknown]}
+        result_code: {type: integer}
+        error: {type: string, maxLength: 512}
+    EventPage:
+      type: object
+      required: [items, next_cursor, resync_required]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [cursor, event_id, type, occurred_at, message]
+            properties:
+              cursor: {type: string}
+              event_id: {$ref: '#/components/schemas/UUID'}
+              type: {type: string, enum: [message.created, message.received, message.state_changed]}
+              occurred_at: {$ref: '#/components/schemas/Timestamp'}
+              message: {$ref: '#/components/schemas/MessageDetail'}
+        next_cursor: {type: [string, 'null']}
+        resync_required: {type: boolean}
+    GatewayList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [gateway_id, device_name, online, last_seen_at, mapping_revision, sequence, protocol_version, app_version, root, sip_registered, battery_percent, charging]
+            properties:
+              gateway_id: {$ref: '#/components/schemas/UUID'}
+              device_name: {type: string}
+              online: {type: boolean}
+              last_seen_at: {anyOf: [{$ref: '#/components/schemas/Timestamp'}, {type: 'null'}]}
+              mapping_revision: {type: integer}
+              sequence: {type: [integer, 'null']}
+              protocol_version: {type: [integer, 'null']}
+              app_version: {type: [string, 'null']}
+              root: {type: [boolean, 'null']}
+              sip_registered: {type: [boolean, 'null']}
+              battery_percent: {type: [integer, 'null']}
+              charging: {type: [boolean, 'null']}
+    SimList:
+      type: object
+      required: [mapping_revision, sims]
+      properties:
+        mapping_revision: {type: integer}
+        sims:
+          type: array
+          items:
+            type: object
+            required: [sim_id, slot_index, label, carrier_name, phone_number, state, mapping_revision, identity_verified, service_state]
+            properties:
+              sim_id: {$ref: '#/components/schemas/UUID'}
+              slot_index: {type: integer}
+              label: {type: string}
+              carrier_name: {type: [string, 'null']}
+              phone_number: {type: [string, 'null']}
+              state: {type: string, enum: [pending_local_confirmation, active, unverified, removed]}
+              mapping_revision: {type: integer}
+              identity_verified: {type: boolean}
+              service_state: {type: [string, 'null']}
+    ErrorResponse:
+      type: object
+      required: [error, request_id]
+      properties:
+        error:
+          type: object
+          required: [code, message, retryable]
+          properties:
+            code: {type: string}
+            message: {type: string}
+            retryable: {type: boolean}
+        request_id: {$ref: '#/components/schemas/UUID'}

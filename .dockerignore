@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+!.env.example
+*.log
+coverage.out
+tmp/
+.local/
+artifacts/
+__pycache__/
+*.pyc

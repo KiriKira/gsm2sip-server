@@ -1,0 +1,8 @@
+[general]
+hostname = ${POSTGRES_HOST}
+port = ${POSTGRES_PORT}
+dbname = ${POSTGRES_DB}
+user = ${POSTGRES_USER}
+password = ${POSTGRES_PASSWORD}
+appname = gsm2sip-asterisk
+requirements = warn

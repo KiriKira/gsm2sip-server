@@ -1,0 +1,122 @@
+services:
+  postgres:
+    image: postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
+    environment:
+      POSTGRES_DB: gsm2sip
+      POSTGRES_USER: gsm2sip
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-dev-change-me}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  asterisk:
+    image: gsm2sip-asterisk:22.11.0-local
+    build:
+      context: .
+      dockerfile: deploy/asterisk/Dockerfile
+      secrets:
+        - proxy_ca
+    environment:
+      ARI_USERNAME: ${ARI_USERNAME:-gsm2sip}
+      ARI_PASSWORD: ${ARI_PASSWORD:-local-dev-change-me}
+      ASTERISK_ARI_BIND_ADDR: 0.0.0.0
+      ASTERISK_EXTERNAL_MEDIA_ADDRESS: ${ASTERISK_EXTERNAL_MEDIA_ADDRESS:-127.0.0.1}
+      ASTERISK_EXTERNAL_SIGNALING_ADDRESS: ${ASTERISK_EXTERNAL_SIGNALING_ADDRESS:-127.0.0.1}
+      POSTGRES_DB: gsm2sip
+      POSTGRES_HOST: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-dev-change-me}
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: gsm2sip
+      RTP_START: ${RTP_START:-10000}
+      RTP_END: ${RTP_END:-10199}
+    ports:
+      - "${SIP_BIND_ADDR:-127.0.0.1}:${SIP_PORT:-5061}:5061/tcp"
+      - "${SIP_BIND_ADDR:-127.0.0.1}:${RTP_START:-10000}-${RTP_END:-10199}:${RTP_START:-10000}-${RTP_END:-10199}/udp"
+    secrets:
+      - source: sip_tls_cert
+        target: sip_tls_cert
+      - source: sip_tls_key
+        target: sip_tls_key
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/gsm2sip-asterisk-healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  api:
+    image: gsm2sip-server:dev
+    build:
+      context: .
+      secrets:
+        - proxy_ca
+    environment:
+      DATABASE_URL: postgresql://gsm2sip:${POSTGRES_PASSWORD:-local-dev-change-me}@postgres:5432/gsm2sip?sslmode=disable
+      HTTP_ADDR: :8080
+      MIGRATIONS_DIR: /app/migrations
+      ARI_URL: http://asterisk:8088/ari
+      ARI_USERNAME: ${ARI_USERNAME:-gsm2sip}
+      ARI_PASSWORD: ${ARI_PASSWORD:-local-dev-change-me}
+      ARI_APPLICATION: gsm2sip
+      SIP_SERVER_NAME: ${SIP_SERVER_NAME:-sip.localhost}
+      SIP_PORT: ${SIP_PORT:-5061}
+      SIP_CA_PEM_FILE: ${SIP_CA_PEM_FILE:-}
+      SIP_ENABLE_OPUS: ${SIP_ENABLE_OPUS:-false}
+      SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:?set a stable base64-encoded 32-byte key in .env}
+      NO_PROXY: "${NO_PROXY:-},asterisk,postgres,localhost,127.0.0.1"
+      no_proxy: "${no_proxy:-},asterisk,postgres,localhost,127.0.0.1"
+    secrets:
+      - source: sip_tls_cert
+        target: sip_tls_cert
+    depends_on:
+      postgres:
+        condition: service_healthy
+      asterisk:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    image: gsm2sip-server:dev
+    build:
+      context: .
+      secrets:
+        - proxy_ca
+    entrypoint: ["/usr/local/bin/gsm2sip-worker"]
+    environment:
+      DATABASE_URL: postgresql://gsm2sip:${POSTGRES_PASSWORD:-local-dev-change-me}@postgres:5432/gsm2sip?sslmode=disable
+      MIGRATIONS_DIR: /app/migrations
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.10.0-alpine
+    ports:
+      - "127.0.0.1:${HTTP_PORT:-8080}:8080"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+
+secrets:
+  proxy_ca:
+    file: ${CODEX_PROXY_CERT:-.docker/empty-proxy-ca}
+  sip_tls_cert:
+    file: ${ASTERISK_TLS_CERT_FILE:-.docker/empty-proxy-ca}
+  sip_tls_key:
+    file: ${ASTERISK_TLS_KEY_FILE:-.docker/empty-proxy-ca}

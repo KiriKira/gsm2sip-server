@@ -1,0 +1,19 @@
+[global]
+type = global
+endpoint_identifier_order = auth_username,username
+disable_multi_domain = yes
+
+[transport-tls]
+type = transport
+protocol = tls
+bind = 0.0.0.0:5061
+method = tlsv1_2
+cert_file = /run/asterisk/sip_tls_cert
+priv_key_file = /run/asterisk/sip_tls_key
+verify_client = no
+allow_reload = no
+external_signaling_address = ${ASTERISK_EXTERNAL_SIGNALING_ADDRESS}
+external_media_address = ${ASTERISK_EXTERNAL_MEDIA_ADDRESS}
+local_net = 10.0.0.0/8
+local_net = 172.16.0.0/12
+local_net = 192.168.0.0/16

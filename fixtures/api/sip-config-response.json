@@ -1,0 +1,10 @@
+{
+  "available": true,
+  "endpoint_id": "dev_11111111111141118111111111111111",
+  "auth_username": "dev_11111111111141118111111111111111",
+  "auth_realm": "gsm2sip",
+  "aor": "sips:dev_11111111111141118111111111111111@sip.example.net:5061",
+  "registrar_uri": "sips:sip.example.net:5061",
+  "outbound_proxy_uri": "sips:sip.example.net:5061;transport=tls;lr",
+  "server_name": "sip.example.net"
+}
