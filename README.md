@@ -16,6 +16,10 @@ SIP 凭据配置/加密恢复、一次性呼叫意图、Asterisk ARI/Stasis 编�
 - [功能缺口与弱网恢复审查](docs/network-and-feature-status.md)
 - [实施审查记录](docs/IMPLEMENTATION-REVIEW-2026-10-03.md)
 
+## 备份与恢复
+
+提供完整 PostgreSQL 快照与校验清单，支持恢复到新的空数据库。恢复和执行状态隔离在同一事务中完成，历史待发送短信不会因恢复自动重发。支持旧迁移版本的备份；使用方式见 [备份与恢复](docs/operations.md#postgresql-backup-and-isolated-restore)。
+
 ## 本地运行
 
 需要 Docker Compose v2。开发 Compose 将 PostgreSQL 仅放在内部网络，用 Caddy 把 API 映射到 `127.0.0.1:8080`。数据库密码仅用于本地演示；把 `.env.example` 复制为 `.env` 并换成自己的本地密码：
