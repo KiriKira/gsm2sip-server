@@ -1,0 +1,340 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a GitHub Release (only when run from main)
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      source_commit: ${{ steps.metadata.outputs.source_commit }}
+      prerelease: ${{ steps.metadata.outputs.prerelease }}
+      publish: ${{ steps.metadata.outputs.publish }}
+    steps:
+      - name: Select release metadata
+        id: metadata
+        shell: bash
+        env:
+          INPUT_PUBLISH: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+          source_commit="$GITHUB_SHA"
+          short_sha="${source_commit:0:7}"
+          build_version="build-${GITHUB_RUN_NUMBER}-${short_sha}"
+          version="$build_version"
+          prerelease=true
+          publish=false
+
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main" ]]; then
+            publish=true
+          elif [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" == v* ]]; then
+            if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9][A-Za-z0-9._-]*$ || "$GITHUB_REF_NAME" == *..* || "$GITHUB_REF_NAME" == *. || "$GITHUB_REF_NAME" == *.lock ]]; then
+              echo "Version tags must use a v-prefixed, safe release name" >&2
+              exit 1
+            fi
+            version="$GITHUB_REF_NAME"
+            prerelease=false
+            publish=true
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ "$INPUT_PUBLISH" == "true" && "$GITHUB_REF" == "refs/heads/main" ]]; then
+              publish=true
+            fi
+          fi
+
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'source_commit=%s\n' "$source_commit" >> "$GITHUB_OUTPUT"
+          printf 'prerelease=%s\n' "$prerelease" >> "$GITHUB_OUTPUT"
+          printf 'publish=%s\n' "$publish" >> "$GITHUB_OUTPUT"
+
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
+        env:
+          POSTGRES_DB: gsmtest
+          POSTGRES_USER: gsmtest
+          POSTGRES_PASSWORD: gsmtest-ci-only
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U gsmtest -d gsmtest"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgresql://gsmtest:gsmtest-ci-only@127.0.0.1:55432/gsmtest?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.27.1
+          cache: true
+          cache-dependency-path: go.sum
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install and verify PostgreSQL 17 client tools
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          curl --fail --silent --show-error --location https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor --yes --output /usr/share/keyrings/postgresql.gpg
+          . /etc/os-release
+          printf 'deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt %s-pgdg main\n' "$VERSION_CODENAME" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client-17
+          pg17_bin=/usr/lib/postgresql/17/bin
+          for tool in pg_dump pg_restore psql; do
+            test -x "$pg17_bin/$tool"
+          done
+          echo "$pg17_bin" >> "$GITHUB_PATH"
+          export PATH="$pg17_bin:$PATH"
+          for tool in pg_dump pg_restore psql; do
+            tool_path=$(command -v "$tool")
+            case "$tool_path" in
+              "$pg17_bin/"*) ;;
+              *) echo "$tool did not resolve to the PostgreSQL 17 client directory" >&2; exit 1 ;;
+            esac
+            client_version=$("$tool" --version)
+            case "$client_version" in
+              *"(PostgreSQL) 17."*) ;;
+              *) echo "$tool must be PostgreSQL 17: $client_version" >&2; exit 1 ;;
+            esac
+            echo "$client_version"
+          done
+      - name: Backup and restore integration tests
+        run: python -m unittest discover -s scripts -p 'test_db_backup.py'
+      - name: Release publisher tests
+        run: python3 -m unittest discover -s scripts -p 'test_*release*.py'
+      - name: Go tests with race detector
+        run: go test -race ./...
+      - name: Go vet
+        run: go vet ./...
+      - name: Contract validation
+        run: |
+          python -m pip install -r requirements-contract.txt
+          python scripts/check_contract.py
+
+  build:
+    needs:
+      - prepare
+      - validate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - amd64
+          - arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_commit }}
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.27.1
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Build static binaries and deployment bundle
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          bundle_name="gsm2sip-server-${RELEASE_VERSION}-linux-${TARGET_ARCH}"
+          stage_root="$RUNNER_TEMP/server-release-${TARGET_ARCH}"
+          bundle="$stage_root/$bundle_name"
+          dist="$RUNNER_TEMP/server-release-assets-${TARGET_ARCH}"
+          mkdir -p "$bundle" "$bundle/bin" "$dist"
+
+          git archive --format=tar "$SOURCE_COMMIT" -- . \
+            ':(exclude)docs/ui-verification/**' \
+            ':(exclude)artifacts/**' \
+            | tar -xf - -C "$bundle"
+
+          for target in api worker admin; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$TARGET_ARCH" \
+              go build -trimpath -buildvcs=true -ldflags='-s -w -buildid=' \
+              -o "$bundle/bin/gsm2sip-$target" "./cmd/$target"
+            chmod 0755 "$bundle/bin/gsm2sip-$target"
+          done
+
+          test -d "$bundle/migrations"
+          test -f "$bundle/scripts/db_backup.py"
+          test -f "$bundle/scripts/restore_quarantine.sql"
+          test -f "$bundle/compose.yaml"
+          test -f "$bundle/.env.example"
+          test -d "$bundle/deploy/asterisk"
+          test ! -e "$bundle/.git"
+          test ! -e "$bundle/docs/ui-verification"
+          if find "$bundle" \( -name .git -o -name .local -o -type f \( -name '.env' -o \( -name '.env.*' ! -name '.env.example' \) -o -name '*.dump' -o -name '*.backup' -o -name '*.pgdump' -o -name '*.sql.gz' -o -name '*.p12' -o -name '*.pfx' -o -name '*.key' -o -name '*.pem' \) \) -print -quit | grep -q .; then
+            echo 'Refusing to package an environment file, database dump, or private key file' >&2
+            exit 1
+          fi
+
+          SOURCE_DATE_EPOCH=$(git show -s --format=%ct "$SOURCE_COMMIT")
+          SOURCE_COMMIT_TIME=$(git show -s --format=%cI "$SOURCE_COMMIT")
+          GO_TOOLCHAIN=$(go version)
+          export RELEASE_VERSION SOURCE_COMMIT TARGET_ARCH SOURCE_COMMIT_TIME GO_TOOLCHAIN BUNDLE_PATH="$bundle"
+          python3 - <<'PY'
+          import datetime
+          import json
+          import os
+          from pathlib import Path
+
+          commit_time = datetime.datetime.fromisoformat(os.environ["SOURCE_COMMIT_TIME"])
+          manifest = {
+              "version": os.environ["RELEASE_VERSION"],
+              "source_commit": os.environ["SOURCE_COMMIT"],
+              "source_commit_time_utc": commit_time.astimezone(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+              "target": {"os": "linux", "arch": os.environ["TARGET_ARCH"]},
+              "go_toolchain": os.environ["GO_TOOLCHAIN"],
+              "cgo_enabled": False,
+          }
+          Path(os.environ["BUNDLE_PATH"], "manifest.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          PY
+
+          (
+            cd "$bundle"
+            find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+          )
+          archive="$dist/$bundle_name.tar.gz"
+          tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -C "$stage_root" -cf - "$bundle_name" \
+            | gzip -n > "$archive"
+          test -s "$archive"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-linux-${{ matrix.arch }}
+          path: ${{ runner.temp }}/server-release-assets-${{ matrix.arch }}/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  assemble:
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_commit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: server-linux-*
+          path: release-artifact/payload
+          merge-multiple: true
+      - name: Create release manifest and checksum list
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+        run: |
+          set -euo pipefail
+          test -f scripts/publish-github-release.py
+          install -D -m 0644 scripts/publish-github-release.py release-artifact/tools/publish-github-release.py
+          export RELEASE_VERSION SOURCE_COMMIT
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          payload = Path("release-artifact/payload")
+          archives = sorted(payload.glob("gsm2sip-server-*.tar.gz"))
+          if len(archives) != 2:
+              raise SystemExit(f"expected two architecture archives, found {len(archives)}")
+          expected = {
+              f"gsm2sip-server-{os.environ['RELEASE_VERSION']}-linux-amd64.tar.gz",
+              f"gsm2sip-server-{os.environ['RELEASE_VERSION']}-linux-arm64.tar.gz",
+          }
+          if {archive.name for archive in archives} != expected:
+              raise SystemExit("release archives do not match the expected version and architectures")
+
+          artifacts = []
+          for archive in archives:
+              digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+              artifacts.append({"name": archive.name, "sha256": digest, "size": archive.stat().st_size})
+          manifest = {
+              "version": os.environ["RELEASE_VERSION"],
+              "source_commit": os.environ["SOURCE_COMMIT"],
+              "artifacts": artifacts,
+          }
+          manifest_path = payload / "release-manifest.json"
+          manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+          checksummed = [*archives, manifest_path]
+          lines = []
+          for path in checksummed:
+              lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}")
+          (payload / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-release-payload
+          path: release-artifact/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs:
+      - prepare
+      - assemble
+    if: >-
+      needs.prepare.outputs.publish == 'true' &&
+      (
+        (github.event_name == 'push' &&
+          (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))) ||
+        (github.event_name == 'workflow_dispatch' && inputs.publish == true && github.ref == 'refs/heads/main')
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: server-release-payload
+          path: release-artifact
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          args=(
+            --directory release-artifact/payload
+            --tag "$TAG"
+            --commit "$SOURCE_COMMIT"
+            --name "$TAG"
+          )
+          if [[ "$PRERELEASE" == "true" ]]; then
+            args+=(--prerelease)
+          fi
+          python3 release-artifact/tools/publish-github-release.py "${args[@]}"
