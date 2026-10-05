@@ -1,5 +1,7 @@
 # gsm2sip-server
 
+[自动构建与 Release](docs/releases.md)：`main` 推送发布预览版，版本标签发布正式版，包含 Linux amd64/arm64 部署包。
+
 Go + PostgreSQL 转发服务，把主机的短信任务投递到旧手机网关，并把网关的持久化事件安全同步回主机。一个 owner 可配对多个独立 client；每台 host 有自己的 API 会话、SIP endpoint/AOR、事件 durable receipt 和短信写请求幂等范围。短信控制核心包括一次性配对码、短时 access 与轮换 refresh token、owner/device 隔离、SIM 两阶段绑定、heartbeat、短信 command claim、事件批量事务与 durable ACK、按 owner 分页的消息事件流。
 
 `GET /v1/clients` 让 client 查看同 owner 已配对设备及 `platform/state/is_self`。`POST /pairings/claim` 的平台标签是开放展示标识（如 `android`、`windows`、`linux`），不构成系统白名单或能力声明。`GET /v1/ws` 仍是 authenticated wake-only WebSocket，只发 `{"protocol_version":1,"type":"sync_required"}`；owner 的短信事件变化唤醒 owner clients，呼入 participant 变化只唤醒对应 client。客户端分别通过 HTTPS 恢复短信游标和读取自己的 `/calls` 视图。frame 不带事件、命令、来电数据或游标；FCM/APNs、呼入 push 与完整背压仍待实现。
