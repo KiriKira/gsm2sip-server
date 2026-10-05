@@ -1,0 +1,274 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "scenario": "synthetic_cached_offline_paired_ui",
+  "scope": "synthetic cached offline paired-dashboard UI only; no real pairing, SMS, SIP, or call",
+  "synthetic": true,
+  "secrets_excluded": true,
+  "device_profile": "7.6in Foldable",
+  "device_kind": "Android Emulator (ro.kernel.qemu=1)",
+  "package": "com.callagent.host",
+  "serial": "emulator-5554",
+  "generated_at_utc": "2026-10-05T07:07:48.336945+00:00",
+  "checks": {
+    "emulator_boot": {
+      "status": "pass",
+      "detail": "device emulator-5554 boot completed"
+    },
+    "emulator_device": {
+      "status": "pass",
+      "detail": "ro.kernel.qemu=1 confirms an Android Emulator target"
+    },
+    "emulator_api_level": {
+      "status": "pass",
+      "detail": "fixture requires Android API 35"
+    },
+    "apk_install": {
+      "status": "pass",
+      "detail": "adb installed package; APK ABIs=['arm64-v8a']; primaryCpuAbi=arm64-v8a"
+    },
+    "apk_native_abi": {
+      "status": "pass",
+      "detail": "native ABI intersects emulator ABIs"
+    },
+    "fixture_harness_install": {
+      "status": "pass",
+      "detail": "signed fixture instrumentation APK installed with matching host signer"
+    },
+    "network_disabled": {
+      "status": "pass",
+      "detail": "airplane_mode=1, wifi=0, mobile_data=0, active_default_network=none, no_active_validated_network=True; synthetic endpoint only"
+    },
+    "synthetic_fixture_seeded": {
+      "status": "pass",
+      "detail": "SessionStore.writeIfCurrent and production ClientDatabase APIs saved synthetic-only cache data"
+    },
+    "app_visible": {
+      "status": "pass",
+      "detail": "target app owns the resumed window and appears in UIAutomator hierarchy after 1 attempt(s)"
+    },
+    "fixture_dashboard": {
+      "status": "pass",
+      "detail": "Cached offline dashboard with a visibly synthetic gateway"
+    },
+    "fixture_paired_hosts": {
+      "status": "pass",
+      "detail": "Two synthetic cached host rows; visible cached-host label='显示上次读取的主机列表；刷新后更新。'"
+    },
+    "fixture_initial_unfold": {
+      "status": "pass",
+      "detail": "emu unfold exit=0; initial observable state={'size': '1768x2208', 'state': \"mCommittedState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mBaseState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mOverrideState=Optional.empty\"}"
+    },
+    "fixture_hosts_folded": {
+      "status": "pass",
+      "detail": "Synthetic cached host rows after emulator fold"
+    },
+    "fixture_fold_state_changed": {
+      "status": "pass",
+      "detail": "fold exit=0; before={'size': '1768x2208', 'state': \"mCommittedState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mBaseState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mOverrideState=Optional.empty\"}; folded={'size': '1768x2208', 'state': \"mCommittedState=Optional[DeviceState{identifier=1, name='CLOSED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mBaseState=Optional[DeviceState{identifier=1, name='CLOSED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mOverrideState=Optional.empty\"}"
+    },
+    "fixture_hosts_unfolded": {
+      "status": "pass",
+      "detail": "Synthetic cached host rows after emulator unfold"
+    },
+    "fixture_unfold_state_restored": {
+      "status": "pass",
+      "detail": "unfold exit=0; before={'size': '1768x2208', 'state': \"mCommittedState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mBaseState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mOverrideState=Optional.empty\"}; unfolded={'size': '1768x2208', 'state': \"mCommittedState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mBaseState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mOverrideState=Optional.empty\"}"
+    },
+    "fixture_sim_selection": {
+      "status": "pass",
+      "detail": "only synthetic SIM A is selected; no SMS action was activated"
+    },
+    "fixture_sms_inbox": {
+      "status": "pass",
+      "detail": "Synthetic cached inbound preview displayed; no SMS was received"
+    },
+    "fixture_sms_outbound_preview": {
+      "status": "pass",
+      "detail": "Synthetic cached queued preview displayed; no SMS was sent"
+    },
+    "fixture_sms_compose": {
+      "status": "pass",
+      "detail": "Compose fields are visible; send was not tapped"
+    },
+    "fixture_sms_compose_fields": {
+      "status": "pass",
+      "detail": "recipient and body fields are both visible"
+    },
+    "fixture_settings": {
+      "status": "pass",
+      "detail": "Dashboard background-receive settings; no service or permission was enabled"
+    },
+    "fixture_call_unavailable": {
+      "status": "pass",
+      "detail": "SIP service unavailable offline; gateway offline; both status messages have positive bounds; no call was made"
+    },
+    "fixture_call_controls_disabled": {
+      "status": "pass",
+      "detail": "exact android.widget.Button text='拨出此远程 SIM'; enabled=false; positive bounds=[52,2049][1716,2124]; no call was made"
+    },
+    "synthetic_fixture_cleanup": {
+      "status": "pass",
+      "detail": "synthetic encrypted session and account-scoped fixture database were removed"
+    },
+    "fixture_harness_uninstall": {
+      "status": "pass",
+      "detail": "CI-only fixture APK uninstalled"
+    },
+    "network_restored": {
+      "status": "pass",
+      "detail": "prior airplane/wifi/mobile=0/1/1; restored=0/1/1"
+    }
+  },
+  "results": [
+    {
+      "name": "emulator_boot",
+      "status": "pass",
+      "detail": "device emulator-5554 boot completed"
+    },
+    {
+      "name": "emulator_device",
+      "status": "pass",
+      "detail": "ro.kernel.qemu=1 confirms an Android Emulator target"
+    },
+    {
+      "name": "emulator_api_level",
+      "status": "pass",
+      "detail": "fixture requires Android API 35"
+    },
+    {
+      "name": "apk_install",
+      "status": "pass",
+      "detail": "adb installed package; APK ABIs=['arm64-v8a']; primaryCpuAbi=arm64-v8a"
+    },
+    {
+      "name": "apk_native_abi",
+      "status": "pass",
+      "detail": "native ABI intersects emulator ABIs"
+    },
+    {
+      "name": "fixture_harness_install",
+      "status": "pass",
+      "detail": "signed fixture instrumentation APK installed with matching host signer"
+    },
+    {
+      "name": "network_disabled",
+      "status": "pass",
+      "detail": "airplane_mode=1, wifi=0, mobile_data=0, active_default_network=none, no_active_validated_network=True; synthetic endpoint only"
+    },
+    {
+      "name": "synthetic_fixture_seeded",
+      "status": "pass",
+      "detail": "SessionStore.writeIfCurrent and production ClientDatabase APIs saved synthetic-only cache data"
+    },
+    {
+      "name": "app_visible",
+      "status": "pass",
+      "detail": "target app owns the resumed window and appears in UIAutomator hierarchy after 1 attempt(s)"
+    },
+    {
+      "name": "fixture_dashboard",
+      "status": "pass",
+      "detail": "Cached offline dashboard with a visibly synthetic gateway"
+    },
+    {
+      "name": "fixture_paired_hosts",
+      "status": "pass",
+      "detail": "Two synthetic cached host rows; visible cached-host label='显示上次读取的主机列表；刷新后更新。'"
+    },
+    {
+      "name": "fixture_initial_unfold",
+      "status": "pass",
+      "detail": "emu unfold exit=0; initial observable state={'size': '1768x2208', 'state': \"mCommittedState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mBaseState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mOverrideState=Optional.empty\"}"
+    },
+    {
+      "name": "fixture_hosts_folded",
+      "status": "pass",
+      "detail": "Synthetic cached host rows after emulator fold"
+    },
+    {
+      "name": "fixture_fold_state_changed",
+      "status": "pass",
+      "detail": "fold exit=0; before={'size': '1768x2208', 'state': \"mCommittedState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mBaseState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mOverrideState=Optional.empty\"}; folded={'size': '1768x2208', 'state': \"mCommittedState=Optional[DeviceState{identifier=1, name='CLOSED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mBaseState=Optional[DeviceState{identifier=1, name='CLOSED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mOverrideState=Optional.empty\"}"
+    },
+    {
+      "name": "fixture_hosts_unfolded",
+      "status": "pass",
+      "detail": "Synthetic cached host rows after emulator unfold"
+    },
+    {
+      "name": "fixture_unfold_state_restored",
+      "status": "pass",
+      "detail": "unfold exit=0; before={'size': '1768x2208', 'state': \"mCommittedState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mBaseState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mOverrideState=Optional.empty\"}; unfolded={'size': '1768x2208', 'state': \"mCommittedState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mBaseState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mOverrideState=Optional.empty\"}"
+    },
+    {
+      "name": "fixture_sim_selection",
+      "status": "pass",
+      "detail": "only synthetic SIM A is selected; no SMS action was activated"
+    },
+    {
+      "name": "fixture_sms_inbox",
+      "status": "pass",
+      "detail": "Synthetic cached inbound preview displayed; no SMS was received"
+    },
+    {
+      "name": "fixture_sms_outbound_preview",
+      "status": "pass",
+      "detail": "Synthetic cached queued preview displayed; no SMS was sent"
+    },
+    {
+      "name": "fixture_sms_compose",
+      "status": "pass",
+      "detail": "Compose fields are visible; send was not tapped"
+    },
+    {
+      "name": "fixture_sms_compose_fields",
+      "status": "pass",
+      "detail": "recipient and body fields are both visible"
+    },
+    {
+      "name": "fixture_settings",
+      "status": "pass",
+      "detail": "Dashboard background-receive settings; no service or permission was enabled"
+    },
+    {
+      "name": "fixture_call_unavailable",
+      "status": "pass",
+      "detail": "SIP service unavailable offline; gateway offline; both status messages have positive bounds; no call was made"
+    },
+    {
+      "name": "fixture_call_controls_disabled",
+      "status": "pass",
+      "detail": "exact android.widget.Button text='拨出此远程 SIM'; enabled=false; positive bounds=[52,2049][1716,2124]; no call was made"
+    },
+    {
+      "name": "synthetic_fixture_cleanup",
+      "status": "pass",
+      "detail": "synthetic encrypted session and account-scoped fixture database were removed"
+    },
+    {
+      "name": "fixture_harness_uninstall",
+      "status": "pass",
+      "detail": "CI-only fixture APK uninstalled"
+    },
+    {
+      "name": "network_restored",
+      "status": "pass",
+      "detail": "prior airplane/wifi/mobile=0/1/1; restored=0/1/1"
+    }
+  ],
+  "artifacts": {
+    "fixture_manifest": "fixture_manifest.json",
+    "dashboard": "paired_dashboard_top.png",
+    "paired_hosts": "paired_hosts_cached.png",
+    "paired_hosts_folded": "paired_hosts_folded.png",
+    "paired_hosts_unfolded": "paired_hosts_unfolded.png",
+    "sms_inbox": "sms_inbox.png",
+    "sms_outbound_preview": "sms_outbound_preview.png",
+    "sms_compose": "sms_compose.png",
+    "settings": "background_receive_settings.png",
+    "call_unavailable": "call_panel_unavailable.png",
+    "call_controls_disabled": "call_controls_disabled.png",
+    "logcat": "logcat.txt"
+  }
+}

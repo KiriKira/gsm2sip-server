@@ -1,0 +1,131 @@
+{
+  "artifacts": {
+    "build_log": "artifacts/android-ui-smoke/native/build.log",
+    "host_apk": "app/build/outputs/apk/debug/app-debug.apk",
+    "host_signature_report": "artifacts/android-ui-smoke/native/host-apksigner-verify.txt",
+    "instrumentation_log": "artifacts/android-ui-smoke/native/instrumentation.txt",
+    "logcat": "artifacts/android-ui-smoke/native/logcat.txt",
+    "run_log": "artifacts/android-ui-smoke/native/run.log",
+    "signing_keystore": "/home/runner/work/_temp/gsm2sip-host-debug.keystore",
+    "smoke_apk": "artifacts/android-ui-smoke/native/pjsua2-native-smoke.apk",
+    "smoke_signature_report": "artifacts/android-ui-smoke/native/native-smoke-apksigner-verify.txt"
+  },
+  "checks": {
+    "adb_device": {
+      "detail": "selected device emulator-5554",
+      "status": "PASS"
+    },
+    "codec_g722": {
+      "detail": "codec reported: g722",
+      "status": "PASS"
+    },
+    "codec_opus": {
+      "detail": "codec reported: opus",
+      "status": "PASS"
+    },
+    "codec_pcma": {
+      "detail": "codec reported: pcma",
+      "status": "PASS"
+    },
+    "codec_pcmu": {
+      "detail": "codec reported: pcmu",
+      "status": "PASS"
+    },
+    "harness_build": {
+      "detail": "javac, D8, AAPT, top-level instrumentation XML tree check, dex packaging, and zipalign succeeded",
+      "status": "PASS"
+    },
+    "harness_install": {
+      "detail": "instrumentation package installed with matching signer",
+      "status": "PASS"
+    },
+    "host_apk": {
+      "detail": "found /home/runner/work/gsm2sip-client-android/gsm2sip-client-android/app/build/outputs/apk/debug/app-debug.apk; signing key /home/runner/work/_temp/gsm2sip-host-debug.keystore is available",
+      "status": "PASS"
+    },
+    "host_apk_package": {
+      "detail": "aapt reports package=com.callagent.host",
+      "status": "PASS"
+    },
+    "host_install": {
+      "detail": "host package installed from /home/runner/work/gsm2sip-client-android/gsm2sip-client-android/app/build/outputs/apk/debug/app-debug.apk",
+      "status": "PASS"
+    },
+    "instrumentation_command": {
+      "detail": "adb shell am instrument completed",
+      "status": "PASS"
+    },
+    "instrumentation_failure": {
+      "detail": "no failure status or PJSUA2 failure log was observed",
+      "status": "PASS"
+    },
+    "instrumentation_result_code": {
+      "detail": "observed INSTRUMENTATION_CODE: -1",
+      "status": "PASS"
+    },
+    "microphone_capture": {
+      "detail": "observed microphone_capture=not requested",
+      "status": "PASS"
+    },
+    "native_library": {
+      "detail": "observed native_library=pjsua2",
+      "status": "PASS"
+    },
+    "null_audio": {
+      "detail": "observed audio_device=null",
+      "status": "PASS"
+    },
+    "signer_match": {
+      "detail": "host and harness SHA-256 certificate match: 933d5c0289e08b1de76212a496d5eb5fe27818da69698a6e8c7362a04e589dca",
+      "status": "PASS"
+    },
+    "sip_call": {
+      "detail": "observed sip_call=not attempted",
+      "status": "PASS"
+    },
+    "toolchain": {
+      "detail": "SDK build-tools 35.0.0 and android-35; java=/opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.20-1/x64/bin/java; javac=/opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.20-1/x64/bin/javac; adb=/usr/local/lib/android/sdk/platform-tools/adb",
+      "status": "PASS"
+    }
+  },
+  "device_serial": "emulator-5554",
+  "error": null,
+  "exit_code": 0,
+  "finished_at_utc": "2026-10-05T07:03:09+00:00",
+  "instrumentation": "com.callagent.host.pjsua2smoke/com.callagent.host.smoke.PjsuaSmokeInstrumentation",
+  "observed": {
+    "adb_instrumentation_exit_code": 0,
+    "audio_device": "null",
+    "codecs": [
+      "speex/16000/1",
+      "speex/8000/1",
+      "speex/32000/1",
+      "AMR/8000/1",
+      "AMR-WB/16000/1",
+      "iLBC/8000/1",
+      "GSM/8000/1",
+      "PCMU/8000/1",
+      "PCMA/8000/1",
+      "G722/16000/1",
+      "opus/48000/2",
+      "L16/44100/2",
+      "L16/44100/1"
+    ],
+    "failure": null,
+    "instrumentation_result_code": -1,
+    "microphone_capture": "not requested",
+    "native_library": "pjsua2",
+    "required_codecs": {
+      "g722": true,
+      "opus": true,
+      "pcma": true,
+      "pcmu": true
+    },
+    "sip_call": "not attempted"
+  },
+  "phase": "complete",
+  "schema_version": 1,
+  "started_at_utc": "2026-10-05T07:02:44Z",
+  "status": "PASS",
+  "target_package": "com.callagent.host"
+}

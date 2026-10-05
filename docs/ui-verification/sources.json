@@ -1,0 +1,762 @@
+{
+  "format": 1,
+  "image_references": 63,
+  "images": {
+    "images/host-0b54b5b7676f-app_foreground.png": {
+      "sha256": "0b54b5b7676fc8da9f49fbd5f7175367f050007a1ae5177b7ebab1ff3ff2d8b6",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-43719d91dd96-gateway_control_pairing_form_1791182493.png": {
+      "sha256": "43719d91dd96b51e31293bec1f1e38d81a32ad8a3f1241ffcb4bbbaddd66013f",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/gateway-4256885d1348-permission_prompt_0.png": {
+      "sha256": "4256885d1348266f0f316183239198a44586613f24b86f0899dd14b911d6e2f3",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/gateway-5e02c6f4e47d-after_permission_refusal.png": {
+      "sha256": "5e02c6f4e47df11a4dc86da668fa75e0fb1a953c5884cdd846a3106b0547244b",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-197cff7cccc8-input_before_rotation.png": {
+      "sha256": "197cff7cccc8dad459cb0e5fbebee0a88c0e913ed496996ea8b1757c0baa297d",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-cafe011b84a3-server_entered.png": {
+      "sha256": "cafe011b84a308d2969209dedad4234c44807f8d2a5776d12ed069adc5c3c808",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-540af4852db8-landscape_after_rotation.png": {
+      "sha256": "540af4852db89bdbde7529c489b53866b320f1a1e324e4dd0496ed80880a370c",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-f93451258f9c-landscape_after_rotation.png": {
+      "sha256": "f93451258f9c7dde2cb8476ea439834af6fe38e51cccde0028f6f8f7b6322d16",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-51d6fea8e053-after_portrait_rotation.png": {
+      "sha256": "51d6fea8e053085f3134c0ecbda4f1ca9998380919046d78aa385b86c39ca628",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-1ad1de70085a-after_portrait_rotation.png": {
+      "sha256": "1ad1de70085a85463bad5852d6aeaba9a5ff07ecf49950fca2b445cf84fdc82a",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-809e7c08512c-folded_ui.png": {
+      "sha256": "809e7c08512c8de6551f24d791267703bd6e49db4947a1ad2230c3440336b52e",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-5211552dfcab-folded_ui.png": {
+      "sha256": "5211552dfcab489ff6f6e6013fb8f7ad9ba4e4f7d8a458f17532ac8e96181ff7",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-5f57701821b7-unfolded_ui.png": {
+      "sha256": "5f57701821b7a53ee5f1d40d926d3f367b2c32df3157d9ff604e3c04b20f8eba",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-331acae1dc59-unfolded_ui.png": {
+      "sha256": "331acae1dc597779435060ffe2fdf3568a6e0cf9fd7b4bf5f6d1c7a747b890b3",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-0b5dad9cdb74-hole_cutout_enabled.png": {
+      "sha256": "0b5dad9cdb74103e6599a2fd259c8426013f035374b0de9de22e5c3cf5fb9984",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-258fcb7a5a5b-hole_cutout_enabled.png": {
+      "sha256": "258fcb7a5a5b287da117da71ba67ea5a252845aff672086286d9a2ff164991af",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-18c3a2eb838c-paired_dashboard_top.png": {
+      "sha256": "18c3a2eb838cb4a5c76d646d725984270da71fc29078bebfd52aeb89699c3d88",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/host-18c3a2eb838c-paired_hosts_cached.png": {
+      "sha256": "18c3a2eb838cb4a5c76d646d725984270da71fc29078bebfd52aeb89699c3d88",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/host-091cd05bc617-sms_inbox.png": {
+      "sha256": "091cd05bc617fccafdea779cd266eeabdb71aad632e82d11ab060d87fe6fe6e9",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/host-70f7bb08ba6d-sms_compose.png": {
+      "sha256": "70f7bb08ba6d4659a510ca0c2d4a380651fba8c9e652ff212df041358670b4dd",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/host-f3f05118eb96-paired_hosts_folded.png": {
+      "sha256": "f3f05118eb96d9008124380e384425fa8fe173c3d62e04cf43265bdc7e2c907b",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/host-50d3f371359a-paired_hosts_unfolded.png": {
+      "sha256": "50d3f371359a556675a37618173503b200a0b60b93840a453f6197951f17af1b",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/host-3a9902a6e5fa-background_receive_settings.png": {
+      "sha256": "3a9902a6e5faf4d018286ad2862b5c7dd1559c2ef36fd6e7b9ee39b69151961c",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/host-92b3622cc235-call_panel_unavailable.png": {
+      "sha256": "92b3622cc235213105a0aa5e5e4b88d22c897fe9aeed2d04c698c7fca3332202",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/host-92b3622cc235-call_controls_disabled.png": {
+      "sha256": "92b3622cc235213105a0aa5e5e4b88d22c897fe9aeed2d04c698c7fca3332202",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/host-0ad502c83b12-sms_outbound_preview.png": {
+      "sha256": "0ad502c83b124345e2f24bf4478b1c8639a433ba5bf025b61a3f15fd5268d5c3",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/host-6dfa770544b4-main-backup-entry-host.png": {
+      "sha256": "6dfa770544b43933f86cf273d3ca0b842be87dcdd30a4b2473211e41e4939881",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-ae4f050ca09a-main-backup-entry-gateway.png": {
+      "sha256": "ae4f050ca09a2ddef9090e7b969a56af1b2dd90ead73088bb5a6ff156340245c",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-68c4b2ada7ba-backup-overview.png": {
+      "sha256": "68c4b2ada7bae8299f3d4890d017f9e2008c2fba21b9129903e462cf31f28d25",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-c268a5b7261c-backup-overview.png": {
+      "sha256": "c268a5b7261c86acda30267e0a52e4e0f0a6a18333527373b1b60838a0fadbbf",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-016f3a0fa5c7-backup-password.png": {
+      "sha256": "016f3a0fa5c77fc182705f7d7c17fe5e0e38972580ee82cee7684cc71a1693c6",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-5fcf29470f0c-backup-password.png": {
+      "sha256": "5fcf29470f0cb3ba20eb5e0df155e11fe096f02e162abb80433ea8983b06e180",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-0259312028ff-backup-json-warning.png": {
+      "sha256": "0259312028ff5bd316a263578a55dfbe49eb9abd4bd518d94edf49623215ea74",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-ba454d29f5ad-backup-json-warning.png": {
+      "sha256": "ba454d29f5ad4ede8c996b809475d5654731154dc0df623e1109b2615c1278dc",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-bab5750ec0c9-backup-xml-warning.png": {
+      "sha256": "bab5750ec0c93523d4af8705ba695a99e41035a6ef61f1f64241336d8fab584d",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-61bc8a8c2efc-backup-xml-warning.png": {
+      "sha256": "61bc8a8c2efc96195d96daa945f42bf3ae355414a11efc7c62dd6c9d9058ce39",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-8c04b3ba0e64-backup-import-preview.png": {
+      "sha256": "8c04b3ba0e6411ac6e1af2b488b23a0422b13dbfca6c33c7a24f34c470aa421d",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-9e1be30640e5-backup-import-preview.png": {
+      "sha256": "9e1be30640e5ccac42232a010459ba0a9442c85df10aeb574c53e1202e6c8dce",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-90bc81ba4364-backup-imported-history.png": {
+      "sha256": "90bc81ba4364ccd7010a7f95c726c55666fb384416e213bc2ecc7d7a56f5f08e",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-1e724f4753f2-backup-imported-history.png": {
+      "sha256": "1e724f4753f2ca225f228acc06092cb15fa5df584c94339e096023c123afd3f6",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-725e2211e3c4-backup-imported-history-count.png": {
+      "sha256": "725e2211e3c4c5b7b3920f609210d624812ecb6a2dd6b58f6fabb42199ca1adb",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-2d8a788020f4-backup-imported-history-count.png": {
+      "sha256": "2d8a788020f4e3ab7f98b2a40c98d66a962c466b88ca304dd7d463ba3c8fb0e2",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-35bdf16e042d-backup-imported-history-inbound.png": {
+      "sha256": "35bdf16e042d79317f9989c795e9b0b27e239b9d2f2d54d9f865212a4767105f",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-1e724f4753f2-backup-imported-history-inbound.png": {
+      "sha256": "1e724f4753f2ca225f228acc06092cb15fa5df584c94339e096023c123afd3f6",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-35bdf16e042d-backup-imported-history-outbound.png": {
+      "sha256": "35bdf16e042d79317f9989c795e9b0b27e239b9d2f2d54d9f865212a4767105f",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-1e724f4753f2-backup-imported-history-outbound.png": {
+      "sha256": "1e724f4753f2ca225f228acc06092cb15fa5df584c94339e096023c123afd3f6",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-46a318261943-backup-reimported-history-inbound.png": {
+      "sha256": "46a318261943377353f9d26c15c71d4ca7ec457ddaf0211bc2f33f62bd6f07cd",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-fcb3284be0ff-backup-reimported-history-inbound.png": {
+      "sha256": "fcb3284be0ff60f08f9b9ba7828e3e4724effebc14cc2cbed0eb3463b0e42865",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-46a318261943-backup-reimported-history-outbound.png": {
+      "sha256": "46a318261943377353f9d26c15c71d4ca7ec457ddaf0211bc2f33f62bd6f07cd",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-fcb3284be0ff-backup-reimported-history-outbound.png": {
+      "sha256": "fcb3284be0ff60f08f9b9ba7828e3e4724effebc14cc2cbed0eb3463b0e42865",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-f456237ef848-backup-import-repeat-preview.png": {
+      "sha256": "f456237ef848ae0b95872e52b2557c21233af7948e4c28b26bf32bd0dac53a2c",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-2bd4688bd375-backup-import-repeat-preview.png": {
+      "sha256": "2bd4688bd375d7c61074e07c19adb43931bd256f990cfa06713d5730a1e37a29",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-149df2f6b369-backup-rotation-landscape.png": {
+      "sha256": "149df2f6b369a22ebb4a8e06d918da89302e4fd0faf1899d3ae4c48f31fae720",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-00ac978aa3cf-backup-rotation-landscape.png": {
+      "sha256": "00ac978aa3cf9ac8a0a4a5aa56fc734fa741104cfe49e58c86cc4de85088a6f9",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-60f457ffd5a1-backup-rotation-portrait.png": {
+      "sha256": "60f457ffd5a15ab696fca4c9c4912474658ee3d923276388b97ce5c76ec106d4",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-f528e062e086-backup-rotation-portrait.png": {
+      "sha256": "f528e062e086997a619f62889af95d8954328def4f4b790aff9b81b5eac5b3dd",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-f045450f28a3-backup-cutout.png": {
+      "sha256": "f045450f28a3d776b06a3abdf1691b2d3b754227330a5ddfd7db50610cb1b38d",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-047edd0740b7-backup-cutout.png": {
+      "sha256": "047edd0740b7755ac3a5b3283dfa72c3ea0a839038914cf6a1e2cd062974ed84",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-cb84cb2cf571-backup-folded.png": {
+      "sha256": "cb84cb2cf571fa5e19efd1295f084144f199c89bc818a3a2a262053c81bf04d7",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-36363fa238ba-backup-folded.png": {
+      "sha256": "36363fa238badcd37d9f03d1424b00f4208f52c53ca78880afe9d64b086c857e",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/host-60f457ffd5a1-backup-unfolded.png": {
+      "sha256": "60f457ffd5a15ab696fca4c9c4912474658ee3d923276388b97ce5c76ec106d4",
+      "repo": "KiriKira/gsm2sip-client-android",
+      "artifact_id": 11330710254,
+      "workflow_run": {
+        "head_branch": "codex/android-client-foundation",
+        "head_repository_id": 1402227926,
+        "head_sha": "1dbf91a27b415244feb823a553f6fbd5687b6949",
+        "id": 37274365186,
+        "repository_id": 1402227926
+      }
+    },
+    "images/gateway-047edd0740b7-backup-unfolded.png": {
+      "sha256": "047edd0740b7755ac3a5b3283dfa72c3ea0a839038914cf6a1e2cd062974ed84",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    },
+    "images/gateway-c268a5b7261c-backup-retention.png": {
+      "sha256": "c268a5b7261c86acda30267e0a52e4e0f0a6a18333527373b1b60838a0fadbbf",
+      "repo": "KiriKira/gsm2sip",
+      "artifact_id": 11328944215,
+      "workflow_run": {
+        "head_branch": "codex/dual-sim-foundation",
+        "head_repository_id": 1392145538,
+        "head_sha": "2d6f1565e91f71c9c9cb7d882def2ec33a4cef00",
+        "id": 37273298410,
+        "repository_id": 1392145538
+      }
+    }
+  }
+}
