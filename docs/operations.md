@@ -197,7 +197,12 @@ The local PostgreSQL integration test exercises a real PostgreSQL 17 server,
 including Unicode history on two SIMs, receipts, pending SMS quarantine,
 corrupt-hash rejection, nonempty-target refusal, and transaction rollback when
 quarantine SQL fails. Run it with `TEST_DATABASE_URL` set to an expendable
-PostgreSQL 17 database and PostgreSQL 17 client tools installed:
+PostgreSQL 17 database and PostgreSQL 17 client tools installed. For direct
+client mode, use `pg_dump`, `pg_restore`, and `psql` from the same major version
+as the server. On Debian or Ubuntu, `pg_wrapper` may select an older installed
+client even after installing `postgresql-client-17`; put
+`/usr/lib/postgresql/17/bin` before `/usr/bin` in `PATH` when the server is
+PostgreSQL 17, or use Compose mode:
 
 ```sh
 python3 -m unittest discover -s scripts -p 'test_db_backup.py'

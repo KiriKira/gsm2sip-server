@@ -81,6 +81,42 @@ class BackupPublicationTests(unittest.TestCase):
             self.assertEqual(old_manifest.read_bytes(), b"known good manifest")
 
 
+class LocalConnectionTests(unittest.TestCase):
+    def test_url_password_is_private_passfile_and_child_environment_is_sanitized(self) -> None:
+        url = "postgresql://backup_user:p%3Ass%5Cword@db.example:5432/backup_db?sslmode=disable"
+        environment = {
+            "DATABASE_URL": url,
+            "TEST_DATABASE_URL": "postgresql://test-only:never-inherit@db.example/test_db",
+            "PGPASSWORD": "legacy-password",
+            "POSTGRES_PASSWORD": "compose-password",
+            "SECRETS_ENCRYPTION_KEY": "private-encryption-key",
+        }
+        with mock.patch.dict(os.environ, environment, clear=True):
+            connection = db_backup.LocalConnection()
+            passfile = Path(connection.temp_passfile or "")
+            try:
+                args = connection.database_args()
+                self.assertNotIn("p%3Ass%5Cword", " ".join(args))
+                self.assertNotIn("DATABASE_URL", " ".join(args))
+                self.assertEqual(
+                    passfile.read_text(encoding="utf-8"),
+                    "db.example:5432:backup_db:backup_user:p\\:ss\\\\word\n",
+                )
+                self.assertEqual(stat.S_IMODE(passfile.stat().st_mode), 0o600)
+                for key in (
+                    "DATABASE_URL",
+                    "TEST_DATABASE_URL",
+                    "PGPASSWORD",
+                    "POSTGRES_PASSWORD",
+                    "SECRETS_ENCRYPTION_KEY",
+                ):
+                    self.assertNotIn(key, connection.env)
+                self.assertEqual(connection.env["PGPASSFILE"], str(passfile))
+            finally:
+                connection.__exit__()
+            self.assertFalse(passfile.exists())
+
+
 class PostgreSQLBackupIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

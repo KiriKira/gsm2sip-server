@@ -44,7 +44,25 @@ jobs:
           printf 'deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt %s-pgdg main\n' "$VERSION_CODENAME" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
           sudo apt-get update
           sudo apt-get install --yes postgresql-client-17
-          pg_dump --version
+          pg17_bin=/usr/lib/postgresql/17/bin
+          for tool in pg_dump pg_restore psql; do
+            test -x "$pg17_bin/$tool"
+          done
+          echo "$pg17_bin" >> "$GITHUB_PATH"
+          export PATH="$pg17_bin:$PATH"
+          for tool in pg_dump pg_restore psql; do
+            tool_path=$(command -v "$tool")
+            case "$tool_path" in
+              "$pg17_bin/"*) ;;
+              *) echo "$tool did not resolve to the PostgreSQL 17 client directory" >&2; exit 1 ;;
+            esac
+            client_version=$("$tool" --version)
+            case "$client_version" in
+              *"(PostgreSQL) 17."*) ;;
+              *) echo "$tool must be PostgreSQL 17: $client_version" >&2; exit 1 ;;
+            esac
+            echo "$client_version"
+          done
       - name: Backup and restore integration tests
         run: python -m unittest discover -s scripts -p 'test_db_backup.py'
       - name: Go tests
@@ -66,4 +84,9 @@ jobs:
           SKIP_BUILD=1 scripts/asterisk-local-probe.sh
       - name: Stop local probe containers
         if: always()
-        run: docker compose down
+        run: |
+          if [[ -f .env ]] && grep -Eq '^SECRETS_ENCRYPTION_KEY=.+$' .env; then
+            docker compose down
+          else
+            echo 'Skipping Compose cleanup because the local probe did not initialize its Compose environment'
+          fi
