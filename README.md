@@ -17,6 +17,7 @@ SIP 凭据配置/加密恢复、一次性呼叫意图、Asterisk ARI/Stasis 编�
 - [跨端路线图](docs/roadmap.md)
 - [功能缺口与弱网恢复审查](docs/network-and-feature-status.md)
 - [两端 KVM 界面截图与原始验证结果](docs/ui-verification/README.md)
+- [Android 虚拟机使用指南：启动、停止、截图与 Magisk 验证](https://github.com/KiriKira/gsm2sip/blob/main/docs/android-virtual-machine.md)
 - [实施审查记录](docs/IMPLEMENTATION-REVIEW-2026-10-03.md)
 
 ## 备份与恢复
