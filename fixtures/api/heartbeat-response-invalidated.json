@@ -5,5 +5,8 @@
   "mapping_revision": 5,
   "invalidated_sim_ids": [
     "e3000000-0000-4000-8000-000000000001"
+  ],
+  "extensions": [
+    "sim_radio"
   ]
 }

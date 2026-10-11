@@ -11,7 +11,13 @@
       "sim_id": "e3000000-0000-4000-8000-000000000001",
       "mapping_revision": 3,
       "service_state": "in_service",
-      "identity_verified": true
+      "identity_verified": true,
+      "radio": {
+        "signal_level": 3,
+        "network_type": "LTE",
+        "network_operator": "Carrier A",
+        "roaming": false
+      }
     }
   ]
 }

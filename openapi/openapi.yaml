@@ -698,6 +698,30 @@ components:
               mapping_revision: {type: integer, minimum: 1}
               service_state: {type: string, maxLength: 32}
               identity_verified: {type: boolean}
+              radio:
+                description: >-
+                  Optional display telemetry. Send only after a heartbeat
+                  response lists `sim_radio` in `extensions`; it never
+                  activates, verifies or routes a SIM.
+                allOf: [{$ref: '#/components/schemas/SimRadio'}]
+    SimRadio:
+      type: object
+      additionalProperties: false
+      properties:
+        signal_level: {type: [integer, 'null'], minimum: 0, maximum: 4}
+        network_type: {type: [string, 'null'], pattern: '^[A-Za-z0-9_+ -]{1,16}$'}
+        network_operator: {type: [string, 'null'], minLength: 1, maxLength: 64}
+        roaming: {type: [boolean, 'null']}
+    SimRadioObservation:
+      type: object
+      additionalProperties: false
+      required: [signal_level, network_type, network_operator, roaming, updated_at]
+      properties:
+        signal_level: {type: [integer, 'null'], minimum: 0, maximum: 4}
+        network_type: {type: [string, 'null']}
+        network_operator: {type: [string, 'null']}
+        roaming: {type: [boolean, 'null']}
+        updated_at: {$ref: '#/components/schemas/Timestamp'}
     HeartbeatResult:
       type: object
       required: [server_time, online, stale_after_seconds, mapping_revision, invalidated_sim_ids]
@@ -710,6 +734,10 @@ components:
           type: array
           maxItems: 2
           items: {$ref: '#/components/schemas/UUID'}
+        extensions:
+          description: Optional heartbeat fields this server accepts, such as `sim_radio`.
+          type: array
+          items: {type: string}
     SimProposalRequest:
       type: object
       required: [operation_id, phase, mappings]
@@ -994,6 +1022,11 @@ components:
               mapping_revision: {type: integer}
               identity_verified: {type: boolean}
               service_state: {type: [string, 'null']}
+              radio:
+                description: Latest gateway radio observation, or null before one is reported or after the SIM disappears.
+                oneOf:
+                  - type: 'null'
+                  - {$ref: '#/components/schemas/SimRadioObservation'}
     ErrorResponse:
       type: object
       required: [error, request_id]

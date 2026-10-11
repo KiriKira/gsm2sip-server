@@ -58,6 +58,20 @@ type SIMState struct {
 	MappingRevision  int64  `json:"mapping_revision"`
 	ServiceState     string `json:"service_state"`
 	IdentityVerified bool   `json:"identity_verified"`
+	// Radio is optional display telemetry. Gateways send it only after a
+	// heartbeat response lists HeartbeatExtensionSIMRadio.
+	Radio *SIMRadio `json:"radio,omitempty"`
+}
+
+// HeartbeatExtensionSIMRadio is advertised in heartbeat responses so a newer
+// gateway never sends fields that an older server would reject as unknown.
+const HeartbeatExtensionSIMRadio = "sim_radio"
+
+type SIMRadio struct {
+	SignalLevel     *int    `json:"signal_level"`
+	NetworkType     *string `json:"network_type"`
+	NetworkOperator *string `json:"network_operator"`
+	Roaming         *bool   `json:"roaming"`
 }
 
 type HeartbeatResponse struct {
@@ -66,6 +80,7 @@ type HeartbeatResponse struct {
 	StaleAfterSeconds int       `json:"stale_after_seconds"`
 	MappingRevision   int64     `json:"mapping_revision"`
 	InvalidatedSIMIDs []string  `json:"invalidated_sim_ids"`
+	Extensions        []string  `json:"extensions"`
 }
 
 type SIMProposalRequest struct {
