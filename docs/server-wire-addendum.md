@@ -133,7 +133,8 @@ incoming-call push, call-ready state, SIP, or ARI.
 ```
 
 The response is `200 {"server_time":"RFC3339","online":true,
-"stale_after_seconds":90,"mapping_revision":4,"invalidated_sim_ids":[]}`.
+"stale_after_seconds":90,"mapping_revision":4,"invalidated_sim_ids":[],
+"extensions":["sim_radio"]}`.
 Send about every 30 seconds. `sim_id` values must already have been issued by
 this server. Server online state is based on `last_seen_at`; SIP registration
 is an independent field. The request is a full snapshot of every known SIM;
@@ -145,6 +146,28 @@ processing commands. Replaying the same sequence and body returns the stored
 response if the HTTP response was lost. A later heartbeat with an old revision
 returns `409 SIM_MAPPING_CHANGED`; fetch `/gateways/{id}/sims` and resync.
 Heartbeat cannot reactivate a SIM; only local confirmation can.
+
+### Optional SIM radio telemetry (`sim_radio`)
+
+The heartbeat response also carries `"extensions":["sim_radio"]` on servers
+that accept per-SIM radio telemetry. A gateway must not send the field until it
+has seen that value in a heartbeat response from the current server, because
+older servers reject unknown JSON fields. After that, each `sim_states` item may
+include:
+
+```json
+"radio":{"signal_level":3,"network_type":"LTE",
+  "network_operator":"Carrier A","roaming":false}
+```
+
+Every member is nullable. `signal_level` is Android's 0–4 bar level,
+`network_type` matches `^[A-Za-z0-9_+ -]{1,16}$`, and `network_operator` is
+1–64 printable characters. The values are display telemetry for clients: they
+never activate, verify or route a SIM, and the gateway must not include
+ICCID, IMSI, cell IDs or location. `GET /gateways/{id}/sims` returns the last
+observation as `radio` with `updated_at`, or `null` before one is reported and
+after the SIM disappears from a heartbeat snapshot. Clients treat telemetry as
+stale when the gateway is offline.
 
 The same `POST /gateways/{gateway_id}/sim-bindings` path has two phases. A
 proposal request is:

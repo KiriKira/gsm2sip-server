@@ -78,6 +78,13 @@ type SIMSummary struct {
 	MappingRevision  int64   `json:"mapping_revision"`
 	IdentityVerified bool    `json:"identity_verified"`
 	ServiceState     *string `json:"service_state"`
+	// Radio is the latest gateway observation; null until a gateway reports it.
+	Radio *SIMRadioSummary `json:"radio"`
+}
+
+type SIMRadioSummary struct {
+	SIMRadio
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func (s *Server) listGateways(w http.ResponseWriter, r *http.Request, principal Principal) {
@@ -172,7 +179,8 @@ func (s *Server) listSIMs(w http.ResponseWriter, r *http.Request, principal Prin
 	}
 	rows, err := s.db.QueryContext(r.Context(), `
 		SELECT sim_id::text, slot_index, label, carrier_name, phone_number, state,
-		mapping_revision, identity_verified, service_state
+		mapping_revision, identity_verified, service_state,
+		signal_level, network_type, network_operator, roaming, radio_updated_at
 		FROM sim_bindings WHERE gateway_id=$1 AND owner_id=$2
 		ORDER BY slot_index, created_at`, gatewayID, principal.OwnerID)
 	if err != nil {
@@ -183,11 +191,29 @@ func (s *Server) listSIMs(w http.ResponseWriter, r *http.Request, principal Prin
 	sims := make([]SIMSummary, 0, 2)
 	for rows.Next() {
 		var item SIMSummary
-		var carrier, number, service sql.NullString
+		var carrier, number, service, networkType, networkOperator sql.NullString
+		var signal sql.NullInt64
+		var roaming sql.NullBool
+		var radioUpdated sql.NullTime
 		if err := rows.Scan(&item.SIMID, &item.SlotIndex, &item.Label, &carrier, &number,
-			&item.State, &item.MappingRevision, &item.IdentityVerified, &service); err != nil {
+			&item.State, &item.MappingRevision, &item.IdentityVerified, &service,
+			&signal, &networkType, &networkOperator, &roaming, &radioUpdated); err != nil {
 			writeDBUnavailable(w)
 			return
+		}
+		if radioUpdated.Valid {
+			radio := &SIMRadioSummary{UpdatedAt: radioUpdated.Time.UTC()}
+			if signal.Valid {
+				value := int(signal.Int64)
+				radio.SignalLevel = &value
+			}
+			radio.NetworkType = nullableString(networkType)
+			radio.NetworkOperator = nullableString(networkOperator)
+			if roaming.Valid {
+				value := roaming.Bool
+				radio.Roaming = &value
+			}
+			item.Radio = radio
 		}
 		item.CarrierName = nullableString(carrier)
 		item.PhoneNumber = nullableString(number)
@@ -242,7 +268,7 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request, principal Pri
 	seen := map[string]bool{}
 	for _, state := range request.SIMStates {
 		state.SIMID = strings.ToLower(state.SIMID)
-		if !validUUID(state.SIMID) || seen[state.SIMID] || state.MappingRevision < 1 || state.ServiceState == "" || len(state.ServiceState) > 32 {
+		if !validUUID(state.SIMID) || seen[state.SIMID] || state.MappingRevision < 1 || state.ServiceState == "" || len(state.ServiceState) > 32 || !validSIMRadio(state.Radio) {
 			writeError(w, http.StatusBadRequest, "INVALID_HEARTBEAT", "SIM heartbeat fields are invalid.", false)
 			return
 		}
@@ -354,6 +380,10 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request, principal Pri
 				return
 			}
 		}
+		if err := storeSIMRadio(r.Context(), tx, simID, state.Radio, present); err != nil {
+			writeDBUnavailable(w)
+			return
+		}
 	}
 	newRevision := currentRevision
 	if len(invalidated) > 0 {
@@ -369,7 +399,8 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request, principal Pri
 			return
 		}
 	}
-	response := HeartbeatResponse{ServerTime: s.now().UTC(), Online: true, StaleAfterSeconds: 90, MappingRevision: newRevision, InvalidatedSIMIDs: invalidated}
+	response := HeartbeatResponse{ServerTime: s.now().UTC(), Online: true, StaleAfterSeconds: 90, MappingRevision: newRevision, InvalidatedSIMIDs: invalidated,
+		Extensions: []string{HeartbeatExtensionSIMRadio}}
 	responseJSON, err := json.Marshal(response)
 	if err != nil {
 		writeDBUnavailable(w)

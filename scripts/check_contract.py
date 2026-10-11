@@ -96,7 +96,22 @@ for invalid_client in (
     {**base_client, 'access_token': 'must-not-be-listed'},
 ):
     assert not client_validator.is_valid(invalid_client), f'Unsafe client row accepted: {invalid_client}'
+heartbeat_validator = Draft202012Validator(
+    {'$ref': 'urn:gsm2sip:openapi#/components/schemas/HeartbeatRequest'},
+    registry=registry, format_checker=FormatChecker())
+heartbeat = json.loads((ROOT / 'fixtures/api/heartbeat-request.json').read_text())
+radio_mutations = [
+    lambda r: r.update(signal_level=5),
+    lambda r: r.update(network_type='LTE<script>'),
+    lambda r: r.update(network_operator=''),
+    lambda r: r.update(iccid='must-not-be-sent'),
+]
+for mutate in radio_mutations:
+    invalid_heartbeat = copy.deepcopy(heartbeat)
+    mutate(invalid_heartbeat['sim_states'][0]['radio'])
+    assert not heartbeat_validator.is_valid(invalid_heartbeat), f'Unsafe radio accepted: {invalid_heartbeat}'
 print(
     f'OpenAPI and {len(fixtures) + 1} fixture files passed; '
-    f'{len(mutations)} invalid events, 3 invalid platform labels, and 3 unsafe client rows rejected'
+    f'{len(mutations)} invalid events, 3 invalid platform labels, 3 unsafe client rows and '
+    f'{len(radio_mutations)} unsafe SIM radio reports rejected'
 )

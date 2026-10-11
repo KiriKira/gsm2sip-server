@@ -10,6 +10,7 @@ SIP 凭据配置/加密恢复、一次性呼叫意图、Asterisk ARI/Stasis 编�
 
 平台标签不会授予 host root、短信或蜂窝控制权限。Windows 的 host UI 与媒体验证尚未实现；`windows` 可用于未来版本配对识别，但不能当作 Windows 客户端已交付。MagiskVM 或其他 Android 运行环境也必须单独验证 SIM/Telecom 账户与实际媒体路径；当前契约不承诺 raw PCM、特定 root 接口或短信必达。
 
+- [三端架构与远程控制链路（总览、数据流、协议演进、后续优先级）](docs/architecture.md)
 - [服务端计划](PLAN.md)
 - [原始协议](docs/protocol-v1.md)
 - [服务端 wire addendum](docs/server-wire-addendum.md)
