@@ -69,6 +69,11 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("GET /readyz", s.ready)
+	mux.HandleFunc("GET /v1/capabilities", func(w http.ResponseWriter, _ *http.Request) {
+		// Public and secret-free: clients probe it to measure a node and to learn
+		// which optional request fields it accepts before sending them.
+		writeJSON(w, http.StatusOK, map[string]any{"protocol_version": 1, "extensions": SupportedExtensions})
+	})
 	mux.HandleFunc("POST /v1/pairings/claim", s.claimPairing)
 	mux.HandleFunc("POST /v1/auth/refresh", s.refreshSession)
 	mux.HandleFunc("POST /v1/auth/revoke", s.revokeSession)

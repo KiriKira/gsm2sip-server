@@ -66,6 +66,8 @@ type GatewaySummary struct {
 	SIPRegistered   *bool      `json:"sip_registered"`
 	BatteryPercent  *int       `json:"battery_percent"`
 	Charging        *bool      `json:"charging"`
+	// InstallID is null until a mesh-capable gateway reports it.
+	InstallID *string `json:"install_id"`
 }
 
 type SIMSummary struct {
@@ -95,7 +97,7 @@ func (s *Server) listGateways(w http.ResponseWriter, r *http.Request, principal 
 	query := `
 		SELECT g.device_id::text, d.name, g.last_seen_at, g.mapping_revision,
 		g.heartbeat_sequence, g.protocol_version, g.app_version, g.rooted,
-		g.sip_registered, g.battery_percent, g.charging,
+		g.sip_registered, g.battery_percent, g.charging, g.install_id::text,
 		(g.last_seen_at IS NOT NULL AND g.last_seen_at > now() - interval '90 seconds')
 		FROM gateways g JOIN devices d ON d.id=g.device_id
 		WHERE d.owner_id=$1 AND d.state='active'`
@@ -120,8 +122,9 @@ func (s *Server) listGateways(w http.ResponseWriter, r *http.Request, principal 
 		var appVersion sql.NullString
 		var battery sql.NullInt64
 		var rooted, sipRegistered, charging sql.NullBool
+		var installID sql.NullString
 		if err := rows.Scan(&item.GatewayID, &item.DeviceName, &lastSeen, &item.MappingRevision,
-			&sequence, &protocol, &appVersion, &rooted, &sipRegistered, &battery, &charging, &item.Online); err != nil {
+			&sequence, &protocol, &appVersion, &rooted, &sipRegistered, &battery, &charging, &installID, &item.Online); err != nil {
 			writeDBUnavailable(w)
 			return
 		}
@@ -135,6 +138,7 @@ func (s *Server) listGateways(w http.ResponseWriter, r *http.Request, principal 
 			item.ProtocolVersion = &value
 		}
 		item.AppVersion = nullableString(appVersion)
+		item.InstallID = nullableString(installID)
 		if rooted.Valid {
 			value := rooted.Bool
 			item.Root = &value
@@ -260,6 +264,14 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request, principal Pri
 	if request.Sequence < 1 || request.ProtocolVersion != 1 || strings.TrimSpace(request.AppVersion) == "" || len(request.AppVersion) > 64 || len(request.SIMStates) > 2 {
 		writeError(w, http.StatusBadRequest, "INVALID_HEARTBEAT", "Heartbeat fields are invalid.", false)
 		return
+	}
+	if request.InstallID != nil {
+		lowered := strings.ToLower(*request.InstallID)
+		request.InstallID = &lowered
+		if !validUUID(lowered) {
+			writeError(w, http.StatusBadRequest, "INVALID_HEARTBEAT", "install_id must be a UUID.", false)
+			return
+		}
 	}
 	if request.BatteryPercent != nil && (*request.BatteryPercent < 0 || *request.BatteryPercent > 100) {
 		writeError(w, http.StatusBadRequest, "INVALID_HEARTBEAT", "Battery percentage must be between 0 and 100.", false)
@@ -400,7 +412,7 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request, principal Pri
 		}
 	}
 	response := HeartbeatResponse{ServerTime: s.now().UTC(), Online: true, StaleAfterSeconds: 90, MappingRevision: newRevision, InvalidatedSIMIDs: invalidated,
-		Extensions: []string{HeartbeatExtensionSIMRadio}}
+		Extensions: SupportedExtensions}
 	responseJSON, err := json.Marshal(response)
 	if err != nil {
 		writeDBUnavailable(w)
@@ -409,9 +421,9 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request, principal Pri
 	if _, err := tx.ExecContext(r.Context(), `
 		UPDATE gateways SET heartbeat_sequence=$1, heartbeat_hash=$2, heartbeat_result=$3, last_seen_at=now(),
 		protocol_version=$4, app_version=$5, rooted=$6, sip_registered=$7,
-		battery_percent=$8, charging=$9 WHERE device_id=$10`, request.Sequence, hash, string(responseJSON),
+		battery_percent=$8, charging=$9, install_id=COALESCE($11::uuid, install_id) WHERE device_id=$10`, request.Sequence, hash, string(responseJSON),
 		request.ProtocolVersion, request.AppVersion, request.Root, request.SIPRegistered,
-		request.BatteryPercent, request.Charging, gatewayID); err != nil {
+		request.BatteryPercent, request.Charging, gatewayID, request.InstallID); err != nil {
 		writeDBUnavailable(w)
 		return
 	}

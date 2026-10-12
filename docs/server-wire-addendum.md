@@ -360,3 +360,22 @@ eligible device/SIM state. Missing configuration returns 503. Database `/readyz`
 and SIP registration alone do not certify media capability. FCM and ICE/TURN
 are not implemented. The host implements bounded IP-change/session recovery;
 media resumption across real networks still requires interoperability testing.
+
+## Multi-node (`mesh`) extension
+
+See [mesh.md](mesh.md) for the design. Servers advertising `mesh` (in heartbeat
+`extensions` and the public `GET /v1/capabilities`) accept:
+
+- `POST /messages` body field `message_id` (UUID, client-minted). The server keeps
+  it as the message ID; reusing an ID under a different `Idempotency-Key` returns
+  `409 MESSAGE_ID_CONFLICT`. An exact retry replays the stored response as before.
+- SIM proposal mapping field `proposed_sim_id` (UUID, gateway-minted), exclusive
+  with `existing_sim_id`. A new ID is created as given; an ID this gateway
+  already owns is reused; an ID owned by another gateway or owner returns
+  `409 SIM_ID_CONFLICT`.
+- Heartbeat field `install_id` (UUID). Stored on the gateway and listed by
+  `GET /gateways` as `install_id` (null until reported). Omitting it keeps the
+  recorded value.
+
+Gateway event sequences only need to increase within a batch and stay unique
+per node, so one gateway-wide counter can feed several nodes with gaps.
