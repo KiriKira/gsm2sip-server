@@ -30,7 +30,8 @@ func (m *Manager) CreateIntent(ctx context.Context, ownerID, clientID string, re
 		return Intent{}, ErrNotConfigured
 	}
 	if !validUUID(ownerID) || !validUUID(clientID) || !validUUID(request.GatewayID) || !validUUID(request.SIMID) ||
-		request.MappingRevision < 1 || !validDialAddress(request.To) || len(idempotencyKey) < 1 || len(idempotencyKey) > 200 {
+		request.MappingRevision < 1 || !validDialAddress(request.To) || len(idempotencyKey) < 1 || len(idempotencyKey) > 200 ||
+		(request.CallID != "" && !validUUID(request.CallID)) {
 		return Intent{}, ErrInvalid
 	}
 	payloadHash, err := hashPayload(request)
@@ -103,9 +104,21 @@ func (m *Manager) CreateIntent(ctx context.Context, ownerID, clientID string, re
 	if err != nil {
 		return Intent{}, err
 	}
-	callID, err := randomUUID()
-	if err != nil {
-		return Intent{}, err
+	callID := request.CallID
+	if callID == "" {
+		if callID, err = randomUUID(); err != nil {
+			return Intent{}, err
+		}
+	} else {
+		// A retry of the same client-minted call under a new idempotency key
+		// must not create a second session for the same business call.
+		var used bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM call_sessions WHERE call_id=$1)`, callID).Scan(&used); err != nil {
+			return Intent{}, err
+		}
+		if used {
+			return Intent{}, ErrCallIDConflict
+		}
 	}
 	token := m.tokenFor(intentID)
 	intent := Intent{IntentID: intentID, CallID: callID, SIPURI: m.sipURI(token), ExpiresAt: time.Now().UTC().Add(intentLifetime)}

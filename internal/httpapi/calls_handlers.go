@@ -13,6 +13,8 @@ type createCallIntentBody struct {
 	SIMID           string `json:"sim_id"`
 	MappingRevision int64  `json:"mapping_revision"`
 	To              string `json:"to"`
+	// Mesh extension: a client-minted call_id kept across server nodes.
+	CallID *string `json:"call_id,omitempty"`
 }
 
 type callReadyBody struct {
@@ -39,13 +41,21 @@ func (s *Server) createCallIntent(w http.ResponseWriter, r *http.Request, princi
 		writeError(w, http.StatusBadRequest, "INVALID_CALL_INTENT", "Gateway, SIM, mapping revision, or destination is invalid.", false)
 		return
 	}
+	callID := ""
+	if body.CallID != nil {
+		callID = strings.ToLower(*body.CallID)
+		if !validUUID(callID) {
+			writeError(w, http.StatusBadRequest, "INVALID_CALL_INTENT", "call_id must be a UUID.", false)
+			return
+		}
+	}
 	key := r.Header.Get("Idempotency-Key")
 	if !visibleIdempotencyKey(key) {
 		writeError(w, http.StatusBadRequest, "IDEMPOTENCY_KEY_REQUIRED", "Idempotency-Key must contain 16 to 128 visible characters.", false)
 		return
 	}
 	intent, err := s.calls.CreateIntent(r.Context(), principal.OwnerID, principal.DeviceID, callsvc.CreateIntentRequest{
-		GatewayID: body.GatewayID, SIMID: body.SIMID, MappingRevision: body.MappingRevision, To: body.To,
+		GatewayID: body.GatewayID, SIMID: body.SIMID, MappingRevision: body.MappingRevision, To: body.To, CallID: callID,
 	}, key)
 	if err != nil {
 		writeCallError(w, err)
@@ -156,6 +166,8 @@ func writeCallError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusServiceUnavailable, "GATEWAY_UNAVAILABLE", "The gateway SIP endpoint is unavailable.", true)
 	case errors.Is(err, callsvc.ErrSIMUnavailable):
 		writeError(w, http.StatusConflict, "SIM_MAPPING_CHANGED", "The selected SIM mapping is unavailable or changed.", false)
+	case errors.Is(err, callsvc.ErrCallIDConflict):
+		writeError(w, http.StatusConflict, "CALL_ID_CONFLICT", "This call_id was already used for another call.", false)
 	case errors.Is(err, callsvc.ErrBusy):
 		writeError(w, http.StatusConflict, "GATEWAY_BUSY", "The gateway already has a call in progress.", false)
 	default:

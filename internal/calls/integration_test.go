@@ -789,3 +789,32 @@ func testUUID(t *testing.T) string {
 }
 
 func endpointForUUID(value string) string { return "dev_" + strings.ReplaceAll(value, "-", "") }
+
+func TestCreateIntentKeepsAClientMintedCallIDOnce(t *testing.T) {
+	database := openCallsDatabase(t)
+	f := seedCallFixture(t, database)
+	manager, cleanup := readyCallManager(t, database, newFakeARI())
+	defer cleanup()
+	ctx := context.Background()
+	callID, err := randomUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := CreateIntentRequest{GatewayID: f.gatewayID, SIMID: f.simID, MappingRevision: 1, To: "+15551234567", CallID: callID}
+	intent, err := manager.CreateIntent(ctx, f.ownerID, f.clientID, request, "mesh-call-key-000000001")
+	if err != nil || intent.CallID != callID {
+		t.Fatalf("client-minted call_id was not kept: intent=%+v err=%v", intent, err)
+	}
+	replay, err := manager.CreateIntent(ctx, f.ownerID, f.clientID, request, "mesh-call-key-000000001")
+	if err != nil || replay.IntentID != intent.IntentID {
+		t.Fatalf("same key did not replay: %+v %v", replay, err)
+	}
+	if _, err := manager.CreateIntent(ctx, f.ownerID, f.clientID, request, "mesh-call-key-000000002"); !errors.Is(err, ErrCallIDConflict) && !errors.Is(err, ErrBusy) {
+		t.Fatalf("a second intent for the same call_id returned %v, want a conflict", err)
+	}
+	bad := request
+	bad.CallID = "not-a-uuid"
+	if _, err := manager.CreateIntent(ctx, f.ownerID, f.clientID, bad, "mesh-call-key-000000003"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("invalid call_id returned %v, want ErrInvalid", err)
+	}
+}

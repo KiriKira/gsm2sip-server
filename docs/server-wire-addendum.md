@@ -376,6 +376,11 @@ See [mesh.md](mesh.md) for the design. Servers advertising `mesh` (in heartbeat
 - Heartbeat field `install_id` (UUID). Stored on the gateway and listed by
   `GET /gateways` as `install_id` (null until reported). Omitting it keeps the
   recorded value.
+- `POST /call-intents` body field `call_id` (UUID, client-minted). The server
+  uses it as the call's business ID and passes it to the gateway like a
+  server-minted one, so the gateway's call ledger dials one `call_id` at most
+  once across nodes. A `call_id` already used on this server under another
+  `Idempotency-Key` returns `409 CALL_ID_CONFLICT`.
 
 Gateway event sequences only need to increase within a batch and stay unique
 per node, so one gateway-wide counter can feed several nodes with gaps.
