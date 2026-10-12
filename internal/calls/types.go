@@ -15,6 +15,7 @@ var (
 	ErrGatewayUnavailable = errors.New("gateway is not available for calls")
 	ErrSIMUnavailable     = errors.New("SIM mapping is unavailable or changed")
 	ErrBusy               = errors.New("gateway already has a call in progress")
+	ErrCallIDConflict     = errors.New("call_id is already used by another call")
 )
 
 type Config struct {
@@ -31,6 +32,10 @@ type CreateIntentRequest struct {
 	SIMID           string `json:"sim_id"`
 	MappingRevision int64  `json:"mapping_revision"`
 	To              string `json:"to"`
+	// CallID is minted by the client under the mesh extension so that one
+	// call attempted through several server nodes keeps one business ID and
+	// the gateway's call ledger dials it at most once. Empty: the server mints.
+	CallID string `json:"call_id,omitempty"`
 }
 
 type Intent struct {

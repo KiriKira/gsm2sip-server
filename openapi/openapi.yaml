@@ -431,6 +431,10 @@ paths:
                 sim_id: {type: string, format: uuid}
                 mapping_revision: {type: integer, minimum: 1}
                 to: {type: string, minLength: 1, maxLength: 64}
+                call_id:
+                  type: string
+                  format: uuid
+                  description: Mesh extension. A client-minted call_id kept when the same call is retried through another server node; the gateway dials one call_id at most once. A call_id already used on this server returns 409 CALL_ID_CONFLICT.
       responses:
         '202':
           description: Short-lived intent, including an identical idempotency replay. Cellular dialing is dispatched after an authenticated SIP INVITE consumes it once.
