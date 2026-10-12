@@ -51,6 +51,9 @@ type HeartbeatRequest struct {
 	BatteryPercent  *int       `json:"battery_percent"`
 	Charging        *bool      `json:"charging"`
 	SIMStates       []SIMState `json:"sim_states"`
+	// InstallID identifies the physical gateway install across independent
+	// nodes; sent only after a heartbeat response lists HeartbeatExtensionMesh.
+	InstallID *string `json:"install_id,omitempty"`
 }
 
 type SIMState struct {
@@ -66,6 +69,13 @@ type SIMState struct {
 // HeartbeatExtensionSIMRadio is advertised in heartbeat responses so a newer
 // gateway never sends fields that an older server would reject as unknown.
 const HeartbeatExtensionSIMRadio = "sim_radio"
+
+// HeartbeatExtensionMesh marks support for multi-node operation: client-minted
+// message IDs, gateway-proposed SIM IDs and the gateway install ID.
+const HeartbeatExtensionMesh = "mesh"
+
+// SupportedExtensions is advertised by heartbeats and GET /v1/capabilities.
+var SupportedExtensions = []string{HeartbeatExtensionSIMRadio, HeartbeatExtensionMesh}
 
 type SIMRadio struct {
 	SignalLevel     *int    `json:"signal_level"`
@@ -96,6 +106,8 @@ type SIMProposal struct {
 	PhoneNumber     *string `json:"phone_number"`
 	ExistingSIMID   *string `json:"existing_sim_id"`
 	SameSIMVerified bool    `json:"same_sim_verified"`
+	// ProposedSIMID lets a multi-node gateway keep one SIM ID on every node.
+	ProposedSIMID *string `json:"proposed_sim_id,omitempty"`
 }
 
 type SIMConfirmationRequest struct {
@@ -125,12 +137,16 @@ type SIMBindingSummary struct {
 }
 
 type CreateMessageRequest struct {
-	GatewayID       string `json:"gateway_id"`
-	SIMID           string `json:"sim_id"`
-	MappingRevision int64  `json:"mapping_revision"`
-	To              string `json:"to"`
-	Text            string `json:"text"`
-	TTLSeconds      int    `json:"ttl_seconds"`
+	// MessageID is minted by the client when the server advertises the "mesh"
+	// extension, so a retry through another node keeps one identity and the
+	// gateway's ledger can refuse a second execution.
+	MessageID       *string `json:"message_id,omitempty"`
+	GatewayID       string  `json:"gateway_id"`
+	SIMID           string  `json:"sim_id"`
+	MappingRevision int64   `json:"mapping_revision"`
+	To              string  `json:"to"`
+	Text            string  `json:"text"`
+	TTLSeconds      int     `json:"ttl_seconds"`
 }
 
 type MessageAccepted struct {

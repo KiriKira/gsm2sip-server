@@ -95,7 +95,11 @@ func TestPostgresHeartbeatRadioIsAdvertisedStoredAndCleared(t *testing.T) {
 	if err := json.Unmarshal(legacyResponse.Body.Bytes(), &legacyResult); err != nil {
 		t.Fatal("decode heartbeat")
 	}
-	if len(legacyResult.Extensions) != 1 || legacyResult.Extensions[0] != HeartbeatExtensionSIMRadio {
+	advertised := false
+	for _, name := range legacyResult.Extensions {
+		advertised = advertised || name == HeartbeatExtensionSIMRadio
+	}
+	if !advertised {
 		t.Fatalf("heartbeat did not advertise radio telemetry: %+v", legacyResult)
 	}
 

@@ -71,6 +71,14 @@ func (s *Server) proposeSIMBindings(w http.ResponseWriter, r *http.Request, prin
 			writeError(w, http.StatusBadRequest, "INVALID_SIM_MAPPINGS", "same_sim_verified requires an existing_sim_id.", false)
 			return
 		}
+		if mapping.ProposedSIMID != nil {
+			*mapping.ProposedSIMID = strings.ToLower(*mapping.ProposedSIMID)
+			if mapping.ExistingSIMID != nil || !validUUID(*mapping.ProposedSIMID) || seenSIMs[*mapping.ProposedSIMID] {
+				writeError(w, http.StatusBadRequest, "INVALID_SIM_MAPPINGS", "proposed_sim_id must be a unique UUID and cannot be combined with existing_sim_id.", false)
+				return
+			}
+			seenSIMs[*mapping.ProposedSIMID] = true
+		}
 	}
 	hash, err := hashJSON(request)
 	if err != nil {
@@ -116,6 +124,29 @@ func (s *Server) proposeSIMBindings(w http.ResponseWriter, r *http.Request, prin
 		writeDBUnavailable(w)
 		return
 	}
+	// A gateway-proposed ID is reused only if this gateway already owns it;
+	// an ID held by another gateway or owner is never taken over.
+	ownedProposed := map[string]bool{}
+	for _, mapping := range request.Mappings {
+		if mapping.ProposedSIMID == nil {
+			continue
+		}
+		var bindingGateway, bindingOwner string
+		err := tx.QueryRowContext(r.Context(), `SELECT gateway_id::text, owner_id::text FROM sim_bindings WHERE sim_id=$1`,
+			*mapping.ProposedSIMID).Scan(&bindingGateway, &bindingOwner)
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			writeDBUnavailable(w)
+			return
+		}
+		if bindingGateway != gatewayID || bindingOwner != principal.OwnerID {
+			writeError(w, http.StatusConflict, "SIM_ID_CONFLICT", "The proposed SIM ID belongs to another gateway.", false)
+			return
+		}
+		ownedProposed[*mapping.ProposedSIMID] = true
+	}
 	for _, mapping := range request.Mappings {
 		if mapping.ExistingSIMID == nil {
 			continue
@@ -146,8 +177,14 @@ func (s *Server) proposeSIMBindings(w http.ResponseWriter, r *http.Request, prin
 	result := SIMBindingResult{OperationID: request.OperationID, Phase: "proposed", MappingRevision: newRevision, Mappings: make([]SIMBindingSummary, 0, len(request.Mappings))}
 	for _, mapping := range request.Mappings {
 		simID := newUUID()
+		reuse := mapping.ExistingSIMID != nil
 		if mapping.ExistingSIMID != nil {
 			simID = *mapping.ExistingSIMID
+		} else if mapping.ProposedSIMID != nil {
+			simID = *mapping.ProposedSIMID
+			reuse = ownedProposed[simID]
+		}
+		if reuse {
 			_, err = tx.ExecContext(r.Context(), `
 				UPDATE sim_bindings SET slot_index=$1, label=$2, carrier_name=$3,
 				phone_number=$4, state='pending_local_confirmation', identity_verified=false,

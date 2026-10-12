@@ -25,6 +25,14 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request, principal
 	if request.TTLSeconds == 0 {
 		request.TTLSeconds = 300
 	}
+	if request.MessageID != nil {
+		lowered := strings.ToLower(*request.MessageID)
+		request.MessageID = &lowered
+		if !validUUID(lowered) {
+			writeError(w, http.StatusBadRequest, "INVALID_MESSAGE", "message_id must be a UUID.", false)
+			return
+		}
+	}
 	if !validUUID(request.GatewayID) || !validUUID(request.SIMID) || request.MappingRevision < 1 ||
 		!validAddress(request.To) || !validText(request.Text) || request.TTLSeconds < 1 || request.TTLSeconds > 3600 {
 		writeError(w, http.StatusBadRequest, "INVALID_MESSAGE", "Message recipient, text, SIM, revision, or TTL is invalid.", false)
@@ -104,6 +112,20 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request, principal
 		return
 	}
 	messageID, commandID := newUUID(), newUUID()
+	if request.MessageID != nil {
+		// A client-minted ID already used here belongs to another task (an
+		// exact retry was answered from the idempotency record above).
+		messageID = *request.MessageID
+		var taken bool
+		if err := tx.QueryRowContext(r.Context(), `SELECT EXISTS(SELECT 1 FROM messages WHERE id=$1)`, messageID).Scan(&taken); err != nil {
+			writeDBUnavailable(w)
+			return
+		}
+		if taken {
+			writeError(w, http.StatusConflict, "MESSAGE_ID_CONFLICT", "message_id is already used by another task.", false)
+			return
+		}
+	}
 	if limited, err := consumeSMSBudget(r.Context(), tx, request.SIMID, messageID); err != nil {
 		writeDBUnavailable(w)
 		return
