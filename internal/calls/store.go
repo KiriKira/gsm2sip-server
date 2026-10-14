@@ -217,6 +217,9 @@ func (m *Manager) findIdempotent(ctx context.Context, q queryer, ownerID, client
 }
 
 func (m *Manager) sipURI(token string) string {
+	if m.config.SIPInsecure {
+		return "sip:call." + token + "@" + m.config.SIPRealm + ";transport=udp"
+	}
 	return "sips:call." + token + "@" + m.config.SIPRealm + ";transport=tls"
 }
 

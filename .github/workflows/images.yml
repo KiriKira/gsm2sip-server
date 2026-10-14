@@ -171,6 +171,29 @@ jobs:
           docker logs aio 2>&1 | grep -c 'generated secrets_encryption_key' | grep -qx 1
           docker rm -f aio
           docker volume rm aio-data
+
+      - name: Smoke-test the all-in-one image with plain SIP over UDP
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'docker logs --tail 200 aio-udp || true' ERR
+          docker run -d --name aio-udp -e SIP_TRANSPORT=udp -e SIP_SERVER_NAME=192.0.2.10 \
+            -e PUBLIC_IP=192.0.2.10 -p 127.0.0.1:18081:8080 "$ALLINONE_IMAGE:ci-smoke"
+          for _ in $(seq 1 90); do
+            curl --fail --silent --max-time 2 http://127.0.0.1:18081/readyz >/dev/null && break
+            sleep 2
+          done
+          curl --fail --silent --show-error http://127.0.0.1:18081/readyz
+          for _ in $(seq 1 40); do
+            [ "$(docker inspect --format '{{.State.Health.Status}}' aio-udp)" = healthy ] && break
+            sleep 5
+          done
+          test "$(docker inspect --format '{{.State.Health.Status}}' aio-udp)" = healthy
+          # Asterisk listens on UDP 5060 (0x13C4) and no certificate was generated.
+          docker exec aio-udp sh -c 'grep -qi ":13C4 " /proc/net/udp /proc/net/udp6'
+          docker exec aio-udp test ! -e /data/tls/sip.crt
+          docker logs aio-udp 2>&1 | grep -q 'SIP over UDP without TLS'
+          docker rm -f -v aio-udp
           docker image ls --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep ci-smoke
 
       - name: Log in to GHCR

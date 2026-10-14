@@ -48,7 +48,18 @@ func main() {
 			logger.Error("secret cipher configuration invalid")
 			os.Exit(2)
 		}
+		transport := strings.ToLower(strings.TrimSpace(os.Getenv("SIP_TRANSPORT")))
+		if transport == "" {
+			transport = httpapi.SIPTransportTLS
+		}
+		if transport != httpapi.SIPTransportTLS && transport != httpapi.SIPTransportUDP {
+			logger.Error("SIP_TRANSPORT must be tls or udp")
+			os.Exit(2)
+		}
 		port := 5061
+		if transport == httpapi.SIPTransportUDP {
+			port = 5060
+		}
 		if value := strings.TrimSpace(os.Getenv("SIP_PORT")); value != "" {
 			port, err = strconv.Atoi(value)
 			if err != nil {
@@ -56,7 +67,7 @@ func main() {
 				os.Exit(2)
 			}
 		}
-		options.SIP = httpapi.SIPSettings{ServerName: strings.TrimSpace(os.Getenv("SIP_SERVER_NAME")), Port: port}
+		options.SIP = httpapi.SIPSettings{ServerName: strings.TrimSpace(os.Getenv("SIP_SERVER_NAME")), Port: port, Transport: transport}
 		if value := strings.TrimSpace(os.Getenv("SIP_ENABLE_OPUS")); value != "" {
 			var parseErr error
 			options.SIP.EnableOpus, parseErr = strconv.ParseBool(value)
@@ -78,7 +89,7 @@ func main() {
 			options.SIP.CAPEM = string(pem)
 		}
 		if options.SIP.ServerName != "" && !options.SIP.Valid() {
-			logger.Error("SIP public TLS address is invalid")
+			logger.Error("SIP public address is invalid")
 			os.Exit(2)
 		}
 		if ariURL := strings.TrimSpace(os.Getenv("ARI_URL")); ariURL != "" {
@@ -92,7 +103,7 @@ func main() {
 			if application == "" {
 				application = "gsm2sip"
 			}
-			options.Calls, err = calls.NewManager(database, calls.Config{ARIURL: ariURL, ARIUsername: os.Getenv("ARI_USERNAME"), ARIPassword: os.Getenv("ARI_PASSWORD"), ARIApplication: application, SIPRealm: "gsm2sip", TokenKey: tokenKey[:]})
+			options.Calls, err = calls.NewManager(database, calls.Config{ARIURL: ariURL, ARIUsername: os.Getenv("ARI_USERNAME"), ARIPassword: os.Getenv("ARI_PASSWORD"), ARIApplication: application, SIPRealm: "gsm2sip", TokenKey: tokenKey[:], SIPInsecure: !options.SIP.Secure()})
 			if err != nil {
 				logger.Error("ARI coordinator configuration is invalid")
 				os.Exit(2)

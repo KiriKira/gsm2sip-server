@@ -623,10 +623,18 @@ components:
             auth_username: {type: string}
             auth_realm: {type: string, const: gsm2sip}
             aor: {type: string}
-            registrar_uri: {type: string, pattern: '^sips:'}
-            outbound_proxy_uri: {type: string, pattern: '^sips:'}
+            registrar_uri: {type: string, pattern: '^sips?:', description: 'sips: for transport tls, sip: for transport udp.'}
+            outbound_proxy_uri: {type: string, pattern: '^sips?:'}
             server_name: {type: string}
-            ca_pem: {type: string, description: Optional private CA from authenticated HTTPS. Otherwise Android trusted CAs are used.}
+            ca_pem: {type: string, description: Optional private CA from authenticated HTTPS. Otherwise Android trusted CAs are used. Absent for transport udp.}
+            transport:
+              type: string
+              enum: [tls, udp]
+              description: SIP transport. Absent from older servers, meaning tls. udp is plain SIP for a trusted LAN or VPN.
+            media_encryption:
+              type: string
+              enum: [sdes, none]
+              description: sdes (SRTP) with tls; none (plain RTP) with udp. Absent means sdes.
     SipCredentialResult:
       allOf:
         - {$ref: '#/components/schemas/SipConfiguration'}
@@ -649,7 +657,7 @@ components:
       properties:
         intent_id: {type: string, format: uuid}
         call_id: {type: string, format: uuid}
-        sip_uri: {type: string, pattern: '^sips:', description: Sensitive authorization-bearing URI. Never log or persist in call history.}
+        sip_uri: {type: string, pattern: '^sips?:', description: Sensitive authorization-bearing URI (sips:...;transport=tls, or sip:...;transport=udp on a UDP server). Never log or persist in call history.}
         expires_at: {type: string, format: date-time}
     RemoteCall:
       description: >-

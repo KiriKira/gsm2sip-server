@@ -5,8 +5,9 @@
 #   # fill in .env, then:
 #   docker compose up -d
 #
-# The API listens on 127.0.0.1:${HTTP_PORT}; put your own HTTPS reverse proxy
-# (or cloudflared) in front of it. See docs/deploy-images.md.
+# The API listens on ${HTTP_BIND_ADDR:-127.0.0.1}:${HTTP_PORT}; put a reverse
+# proxy or cloudflared in front of it, or bind it to a LAN/Tailscale address
+# and let the phones use http:// directly. See docs/deploy-images.md.
 name: gsm2sip
 
 services:
@@ -41,8 +42,11 @@ services:
       POSTGRES_USER: gsm2sip
       RTP_START: ${RTP_START:-10000}
       RTP_END: ${RTP_END:-10199}
+      SIP_TRANSPORT: ${SIP_TRANSPORT:-tls}
+      SIP_PORT: ${SIP_PORT:-5061}
     ports:
-      - "${SIP_BIND_ADDR:-127.0.0.1}:${SIP_PORT:-5061}:5061/tcp"
+      - "${SIP_BIND_ADDR:-127.0.0.1}:${SIP_PORT:-5061}:${SIP_PORT:-5061}/tcp"
+      - "${SIP_BIND_ADDR:-127.0.0.1}:${SIP_PORT:-5061}:${SIP_PORT:-5061}/udp"
       - "${SIP_BIND_ADDR:-127.0.0.1}:${RTP_START:-10000}-${RTP_END:-10199}:${RTP_START:-10000}-${RTP_END:-10199}/udp"
     secrets:
       - source: sip_tls_cert
@@ -65,11 +69,12 @@ services:
       ARI_APPLICATION: gsm2sip
       SIP_SERVER_NAME: ${SIP_SERVER_NAME:?set SIP_SERVER_NAME in .env}
       SIP_PORT: ${SIP_PORT:-5061}
+      SIP_TRANSPORT: ${SIP_TRANSPORT:-tls}
       SIP_CA_PEM_FILE: ${SIP_CA_PEM_FILE:-}
       SIP_ENABLE_OPUS: ${SIP_ENABLE_OPUS:-false}
       SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:?set a stable base64-encoded 32-byte key in .env}
     ports:
-      - "127.0.0.1:${HTTP_PORT:-8080}:8080"
+      - "${HTTP_BIND_ADDR:-127.0.0.1}:${HTTP_PORT:-8080}:8080"
     secrets:
       - source: sip_tls_cert
         target: sip_tls_cert

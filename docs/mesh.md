@@ -56,6 +56,8 @@ Cloudflare Tunnel 只承载 HTTP/WebSocket。家里节点经 cloudflared 对外�
 的 VPS 节点。主手机在家时通过局域网地址直连家里节点，可以通话。节点的"可通话"按节点
 单独判断（该节点上旧手机的 `sip_registered`）。
 旧手机在主节点启用语音后会自动为每个节点开通 SIP 端点，所以每个能承载 SIP 的节点都可以打电话。
+家里节点也可以不经 cloudflared：在局域网或 Tailscale 内以 `SIP_TRANSPORT=udp` 运行并让手机用 `http://`
+直连（见 [用预构建镜像部署](deploy-images.md)），这样它也能承载通话；主手机离开该网络时探测失败，自动切到其他节点。
 
 ## 分阶段
 

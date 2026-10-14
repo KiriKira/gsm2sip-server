@@ -40,12 +40,11 @@ RUN chmod 0755 /usr/local/bin/gsm2sip-allinone /usr/local/bin/gsm2sip-admin \
 
 ENV MIGRATIONS_DIR=/app/migrations \
     HTTP_ADDR=:8080 \
-    SIP_PORT=5061 \
     RTP_START=10000 \
     RTP_END=10199
 
 VOLUME ["/data"]
-EXPOSE 8080/tcp 5061/tcp 10000-10199/udp
+EXPOSE 8080/tcp 5061/tcp 5060/udp 10000-10199/udp
 ENTRYPOINT ["/usr/local/bin/gsm2sip-allinone"]
 CMD []
 HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=4 \
