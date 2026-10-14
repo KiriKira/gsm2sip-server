@@ -8,6 +8,7 @@
   ],
   "extensions": [
     "sim_radio",
+    "sim_country",
     "mesh"
   ]
 }

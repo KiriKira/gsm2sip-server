@@ -16,7 +16,8 @@
         "signal_level": 3,
         "network_type": "LTE",
         "network_operator": "Carrier A",
-        "roaming": false
+        "roaming": false,
+        "country_iso": "CN"
       }
     }
   ],

@@ -106,6 +106,7 @@ radio_mutations = [
     lambda r: r.update(network_type='LTE<script>'),
     lambda r: r.update(network_operator=''),
     lambda r: r.update(iccid='must-not-be-sent'),
+    lambda r: r.update(country_iso='cn'),
 ]
 for mutate in radio_mutations:
     invalid_heartbeat = copy.deepcopy(heartbeat)
