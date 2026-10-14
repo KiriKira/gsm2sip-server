@@ -70,18 +70,24 @@ type SIMState struct {
 // gateway never sends fields that an older server would reject as unknown.
 const HeartbeatExtensionSIMRadio = "sim_radio"
 
+// HeartbeatExtensionSIMCountry marks support for SIMRadio.CountryISO, which
+// a gateway sends only when the heartbeat response lists it.
+const HeartbeatExtensionSIMCountry = "sim_country"
+
 // HeartbeatExtensionMesh marks support for multi-node operation: client-minted
 // message IDs, gateway-proposed SIM IDs and the gateway install ID.
 const HeartbeatExtensionMesh = "mesh"
 
 // SupportedExtensions is advertised by heartbeats and GET /v1/capabilities.
-var SupportedExtensions = []string{HeartbeatExtensionSIMRadio, HeartbeatExtensionMesh}
+var SupportedExtensions = []string{HeartbeatExtensionSIMRadio, HeartbeatExtensionSIMCountry, HeartbeatExtensionMesh}
 
 type SIMRadio struct {
 	SignalLevel     *int    `json:"signal_level"`
 	NetworkType     *string `json:"network_type"`
 	NetworkOperator *string `json:"network_operator"`
 	Roaming         *bool   `json:"roaming"`
+	// CountryISO is the SIM's home country, ISO 3166-1 alpha-2 in upper case.
+	CountryISO *string `json:"country_iso"`
 }
 
 type HeartbeatResponse struct {

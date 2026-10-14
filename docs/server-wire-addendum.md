@@ -169,6 +169,17 @@ observation as `radio` with `updated_at`, or `null` before one is reported and
 after the SIM disappears from a heartbeat snapshot. Clients treat telemetry as
 stale when the gateway is offline.
 
+### Optional SIM home country (`sim_country`)
+
+Servers that also list `"sim_country"` in `extensions` accept one more nullable
+member in that `radio` object: `"country_iso":"CN"`, the SIM's home country as
+an upper-case ISO 3166-1 alpha-2 code (`^[A-Z]{2}$`). Gateways read it from the
+SIM (falling back to the serving network's country) and send it only after
+seeing `sim_country` from the current server. `GET /gateways/{id}/sims`
+returns it in `radio.country_iso`. Clients use it to treat a national-format
+number on that SIM (`13800138000`) and its international form
+(`+8613800138000`) as one conversation; it never routes a SIM.
+
 The same `POST /gateways/{gateway_id}/sim-bindings` path has two phases. A
 proposal request is:
 

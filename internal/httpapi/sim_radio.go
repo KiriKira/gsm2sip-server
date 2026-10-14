@@ -9,7 +9,10 @@ import (
 	"unicode/utf8"
 )
 
-var networkTypePattern = regexp.MustCompile(`^[A-Za-z0-9_+ -]{1,16}$`)
+var (
+	networkTypePattern = regexp.MustCompile(`^[A-Za-z0-9_+ -]{1,16}$`)
+	countryISOPattern  = regexp.MustCompile(`^[A-Z]{2}$`)
+)
 
 // validSIMRadio checks optional per-SIM display telemetry. Missing fields are
 // allowed because Android may withhold any of them; present fields must be
@@ -22,6 +25,9 @@ func validSIMRadio(radio *SIMRadio) bool {
 		return false
 	}
 	if radio.NetworkType != nil && !networkTypePattern.MatchString(*radio.NetworkType) {
+		return false
+	}
+	if radio.CountryISO != nil && !countryISOPattern.MatchString(*radio.CountryISO) {
 		return false
 	}
 	if radio.NetworkOperator != nil {
@@ -46,7 +52,7 @@ func storeSIMRadio(ctx context.Context, tx *sql.Tx, simID string, radio *SIMRadi
 	if !present {
 		_, err := tx.ExecContext(ctx, `
 			UPDATE sim_bindings SET signal_level=NULL,network_type=NULL,network_operator=NULL,
-			roaming=NULL,radio_updated_at=NULL WHERE sim_id=$1 AND radio_updated_at IS NOT NULL`, simID)
+			roaming=NULL,country_iso=NULL,radio_updated_at=NULL WHERE sim_id=$1 AND radio_updated_at IS NOT NULL`, simID)
 		return err
 	}
 	if radio == nil {
@@ -59,7 +65,7 @@ func storeSIMRadio(ctx context.Context, tx *sql.Tx, simID string, radio *SIMRadi
 	}
 	_, err := tx.ExecContext(ctx, `
 		UPDATE sim_bindings SET signal_level=$1,network_type=$2,network_operator=$3,
-		roaming=$4,radio_updated_at=now() WHERE sim_id=$5`,
-		radio.SignalLevel, radio.NetworkType, operator, radio.Roaming, simID)
+		roaming=$4,country_iso=$5,radio_updated_at=now() WHERE sim_id=$6`,
+		radio.SignalLevel, radio.NetworkType, operator, radio.Roaming, radio.CountryISO, simID)
 	return err
 }
