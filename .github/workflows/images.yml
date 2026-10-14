@@ -1,0 +1,189 @@
+name: Container images
+
+# Prebuilt images so a server only pulls and runs (deploy/compose.yaml):
+#   ghcr.io/kirikira/gsm2sip-server    API, worker and admin CLI
+#   ghcr.io/kirikira/gsm2sip-asterisk  pinned Asterisk with the gsm2sip config
+# Each architecture builds natively, then deploy/compose.yaml is started from
+# the freshly built images and checked before anything is pushed.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - deploy/**
+      - cmd/**
+      - internal/**
+      - migrations/**
+      - go.mod
+      - go.sum
+      - .github/workflows/images.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  SERVER_IMAGE: ghcr.io/kirikira/gsm2sip-server
+  ASTERISK_IMAGE: ghcr.io/kirikira/gsm2sip-asterisk
+
+jobs:
+  build:
+    name: Build and smoke-test (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    env:
+      PUSH: ${{ github.event_name != 'pull_request' }}
+      ARCH_TAG: build-${{ github.sha }}-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Image labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.SERVER_IMAGE }}
+
+      - name: Build server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          labels: ${{ steps.meta.outputs.labels }}
+          load: true
+          tags: ${{ env.SERVER_IMAGE }}:ci-smoke
+          cache-from: type=gha,scope=server-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=server-${{ matrix.arch }}
+
+      - name: Build Asterisk image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/asterisk/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          labels: ${{ steps.meta.outputs.labels }}
+          load: true
+          tags: ${{ env.ASTERISK_IMAGE }}:ci-smoke
+          cache-from: type=gha,scope=asterisk-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=asterisk-${{ matrix.arch }}
+
+      - name: Smoke-test deploy/compose.yaml with the built images
+        shell: bash
+        run: |
+          set -euo pipefail
+          smoke="$RUNNER_TEMP/smoke"
+          mkdir -p "$smoke"
+          cp deploy/compose.yaml "$smoke/compose.yaml"
+          cd "$smoke"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
+            -keyout sip.key -out sip.crt -subj /CN=sip.localhost \
+            -addext subjectAltName=DNS:sip.localhost 2>/dev/null
+          {
+            echo "GSM2SIP_VERSION=ci-smoke"
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
+            echo "ARI_PASSWORD=$(openssl rand -hex 16)"
+            echo "SECRETS_ENCRYPTION_KEY=$(openssl rand -base64 32)"
+            echo "SIP_SERVER_NAME=sip.localhost"
+            echo "SIP_CA_PEM_FILE=/run/secrets/sip_tls_cert"
+          } > .env
+          chmod 600 .env
+          dump() { docker compose ps -a || true; docker compose logs --no-color --tail 200 || true; }
+          trap dump ERR
+          docker compose up -d --pull missing
+          for _ in $(seq 1 90); do
+            curl --fail --silent --max-time 2 http://127.0.0.1:8080/readyz >/dev/null && break
+            sleep 2
+          done
+          curl --fail --silent --show-error http://127.0.0.1:8080/readyz
+          echo
+          curl --fail --silent --show-error http://127.0.0.1:8080/v1/capabilities | tee capabilities.json
+          echo
+          grep -q '"mesh"' capabilities.json
+          test "$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps -q asterisk)")" = healthy
+          test "$(docker inspect --format '{{.State.Status}}' "$(docker compose ps -q worker)")" = running
+          docker compose run --rm --no-deps --entrypoint /usr/local/bin/gsm2sip-admin api \
+            owner create --name ci-smoke >/dev/null
+          docker compose down -v
+          docker image ls --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep ci-smoke
+
+      - name: Log in to GHCR
+        if: env.PUSH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the tested images under a per-architecture tag
+        if: env.PUSH == 'true'
+        run: |
+          set -euo pipefail
+          for image in "$SERVER_IMAGE" "$ASTERISK_IMAGE"; do
+            docker tag "$image:ci-smoke" "$image:$ARCH_TAG"
+            docker push "$image:$ARCH_TAG"
+          done
+
+  publish:
+    name: Publish multi-arch tags
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: placeholder
+          tags: |
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,format=short
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Combine the tested per-architecture images
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          ARCH_PREFIX: build-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          for image in "$SERVER_IMAGE" "$ASTERISK_IMAGE"; do
+            args=()
+            while read -r tag; do
+              [ -n "$tag" ] && args+=(--tag "$image:${tag#placeholder:}")
+            done <<< "$TAGS"
+            docker buildx imagetools create "${args[@]}" \
+              "$image:$ARCH_PREFIX-amd64" "$image:$ARCH_PREFIX-arm64"
+            docker buildx imagetools inspect "$image:sha-${GITHUB_SHA::7}"
+          done
