@@ -39,7 +39,6 @@ RUN chmod 0755 /usr/local/bin/gsm2sip-allinone /usr/local/bin/gsm2sip-admin \
       /usr/local/bin/gsm2sip-allinone-healthcheck
 
 ENV MIGRATIONS_DIR=/app/migrations \
-    HTTP_ADDR=:8080 \
     RTP_START=10000 \
     RTP_END=10199
 

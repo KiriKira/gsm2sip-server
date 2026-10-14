@@ -7,7 +7,13 @@ set -euo pipefail
 log() { printf '[gsm2sip] %s\n' "$*" >&2; }
 die() { log "$*"; exit 1; }
 
-: "${SIP_SERVER_NAME:?SIP_SERVER_NAME is required (the SIP host name; any name for an SMS-only node)}"
+# Empty SIP_SERVER_NAME: each phone gets the host it used to reach the API.
+SIP_SERVER_NAME="${SIP_SERVER_NAME:-}"
+# Loopback-only internal ports, chosen to stay clear of host services when the
+# container runs with --network host.
+PG_PORT="${PG_PORT:-55432}"
+ARI_PORT="${ARI_PORT:-58088}"
+HTTP_ADDR="${HTTP_ADDR:-:${HTTP_PORT:-8080}}"
 PG_BIN=/usr/lib/postgresql/17/bin
 DATA=/data
 PGDATA="$DATA/postgres"
@@ -32,7 +38,8 @@ fi
 # ARI never leaves the container; a fresh password per start is enough.
 ARI_PASSWORD="$(openssl rand -hex 24)"
 (umask 077; printf '%s' "$ARI_PASSWORD" > "$RUN_DIR/ari_password")
-DATABASE_URL="postgresql://gsm2sip:${DB_PASSWORD}@127.0.0.1:5432/gsm2sip?sslmode=disable"
+printf 'PG_PORT=%s\nARI_PORT=%s\nHTTP_ADDR=%s\n' "$PG_PORT" "$ARI_PORT" "$HTTP_ADDR" > "$RUN_DIR/ports"
+DATABASE_URL="postgresql://gsm2sip:${DB_PASSWORD}@127.0.0.1:${PG_PORT}/gsm2sip?sslmode=disable"
 
 # SIP_TRANSPORT=udp: plain SIP and RTP for a trusted LAN or VPN, no certificate.
 SIP_TRANSPORT="$(printf '%s' "${SIP_TRANSPORT:-tls}" | tr '[:upper:]' '[:lower:]')"
@@ -51,6 +58,7 @@ elif [ -s /run/secrets/sip_tls_cert ] && [ -s /run/secrets/sip_tls_key ]; then
     log "using the mounted SIP certificate"
     SIP_CA_PEM_FILE="${SIP_CA_PEM_FILE:-}"
 else
+    [ -n "$SIP_SERVER_NAME" ] || die "SIP over TLS needs a mounted certificate or SIP_SERVER_NAME for a self-signed one (or use SIP_TRANSPORT=udp)"
     tls="$DATA/tls"
     install -d -m 0755 "$tls"
     if [ ! -s "$tls/sip.crt" ] || [ "$(cat "$tls/name" 2>/dev/null)" != "$SIP_SERVER_NAME" ]; then
@@ -67,7 +75,10 @@ else
     SIP_CA_PEM_FILE="$tls/sip.crt"
 fi
 
-PUBLIC_IP="${PUBLIC_IP:-127.0.0.1}"
+# Without PUBLIC_IP Asterisk advertises, per phone, the local address that
+# reaches that phone; this needs --network host. Behind NAT or Docker port
+# mapping set PUBLIC_IP to the address phones use.
+PUBLIC_IP="${PUBLIC_IP:-}"
 ASTERISK_EXTERNAL_SIGNALING_ADDRESS="${ASTERISK_EXTERNAL_SIGNALING_ADDRESS:-$PUBLIC_IP}"
 ASTERISK_EXTERNAL_MEDIA_ADDRESS="${ASTERISK_EXTERNAL_MEDIA_ADDRESS:-$PUBLIC_IP}"
 
@@ -86,7 +97,7 @@ if [ ! -s "$PGDATA/PG_VERSION" ]; then
 fi
 chown -R postgres:postgres "$PGDATA"
 as_user postgres "$PG_BIN/postgres" -D "$PGDATA" \
-    -c listen_addresses=127.0.0.1 -c unix_socket_directories=/run/postgresql &
+    -c listen_addresses=127.0.0.1 -c port="$PG_PORT" -c unix_socket_directories=/run/postgresql &
 PG_PID=$!
 
 pids=("$PG_PID")
@@ -101,26 +112,26 @@ stop_all() {
 trap 'stop_all; exit 0' TERM INT
 
 for _ in $(seq 1 60); do
-    PGPASSWORD="$DB_PASSWORD" "$PG_BIN/pg_isready" -q -h 127.0.0.1 -U gsm2sip -d postgres && break
+    PGPASSWORD="$DB_PASSWORD" "$PG_BIN/pg_isready" -q -h 127.0.0.1 -p "$PG_PORT" -U gsm2sip -d postgres && break
     kill -0 "$PG_PID" 2>/dev/null || die "PostgreSQL exited during startup"
     sleep 1
 done
-if [ "$(PGPASSWORD="$DB_PASSWORD" "$PG_BIN/psql" -h 127.0.0.1 -U gsm2sip -d postgres -tAc \
+if [ "$(PGPASSWORD="$DB_PASSWORD" "$PG_BIN/psql" -h 127.0.0.1 -p "$PG_PORT" -U gsm2sip -d postgres -tAc \
         "SELECT 1 FROM pg_database WHERE datname = 'gsm2sip'")" != 1 ]; then
-    PGPASSWORD="$DB_PASSWORD" "$PG_BIN/psql" -h 127.0.0.1 -U gsm2sip -d postgres -qc 'CREATE DATABASE gsm2sip'
+    PGPASSWORD="$DB_PASSWORD" "$PG_BIN/psql" -h 127.0.0.1 -p "$PG_PORT" -U gsm2sip -d postgres -qc 'CREATE DATABASE gsm2sip'
 fi
 
 # Asterisk (its entrypoint renders config, then drops to the asterisk user).
-env ARI_USERNAME=gsm2sip ARI_PASSWORD="$ARI_PASSWORD" ASTERISK_ARI_BIND_ADDR=127.0.0.1 \
+env ARI_USERNAME=gsm2sip ARI_PASSWORD="$ARI_PASSWORD" ASTERISK_ARI_BIND_ADDR=127.0.0.1 ASTERISK_ARI_PORT="$ARI_PORT" \
     ASTERISK_EXTERNAL_SIGNALING_ADDRESS="$ASTERISK_EXTERNAL_SIGNALING_ADDRESS" \
     ASTERISK_EXTERNAL_MEDIA_ADDRESS="$ASTERISK_EXTERNAL_MEDIA_ADDRESS" \
-    POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5432 POSTGRES_DB=gsm2sip POSTGRES_USER=gsm2sip \
+    POSTGRES_HOST=127.0.0.1 POSTGRES_PORT="$PG_PORT" POSTGRES_DB=gsm2sip POSTGRES_USER=gsm2sip \
     POSTGRES_PASSWORD="$DB_PASSWORD" RTP_START="$RTP_START" RTP_END="$RTP_END" \
     SIP_TRANSPORT="$SIP_TRANSPORT" SIP_PORT="$SIP_PORT" \
     /usr/local/bin/gsm2sip-asterisk-entrypoint &
 pids+=("$!")
 for _ in $(seq 1 60); do
-    ARI_USERNAME=gsm2sip ARI_PASSWORD="$ARI_PASSWORD" /usr/local/bin/gsm2sip-asterisk-healthcheck 2>/dev/null && break
+    ARI_USERNAME=gsm2sip ARI_PASSWORD="$ARI_PASSWORD" ASTERISK_ARI_PORT="$ARI_PORT" /usr/local/bin/gsm2sip-asterisk-healthcheck 2>/dev/null && break
     kill -0 "${pids[1]}" 2>/dev/null || die "Asterisk exited during startup"
     sleep 1
 done
@@ -128,7 +139,7 @@ done
 # API and worker
 app_env=(
     DATABASE_URL="$DATABASE_URL" MIGRATIONS_DIR="$MIGRATIONS_DIR"
-    ARI_URL=http://127.0.0.1:8088/ari ARI_USERNAME=gsm2sip ARI_PASSWORD="$ARI_PASSWORD"
+    ARI_URL="http://127.0.0.1:${ARI_PORT}/ari" ARI_USERNAME=gsm2sip ARI_PASSWORD="$ARI_PASSWORD"
     ARI_APPLICATION=gsm2sip SIP_SERVER_NAME="$SIP_SERVER_NAME" SIP_PORT="$SIP_PORT" SIP_TRANSPORT="$SIP_TRANSPORT"
     SIP_CA_PEM_FILE="$SIP_CA_PEM_FILE" SIP_ENABLE_OPUS="${SIP_ENABLE_OPUS:-false}"
     SECRETS_ENCRYPTION_KEY="$SECRETS_ENCRYPTION_KEY" HTTP_ADDR="$HTTP_ADDR"

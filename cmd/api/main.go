@@ -94,7 +94,7 @@ func main() {
 		}
 		if ariURL := strings.TrimSpace(os.Getenv("ARI_URL")); ariURL != "" {
 			if !options.SIP.Valid() {
-				logger.Error("SIP_SERVER_NAME is required when ARI is enabled")
+				logger.Error("SIP settings are invalid")
 				os.Exit(2)
 			}
 			// Domain separation avoids reusing the AES encryption key as a MAC key.

@@ -6,6 +6,6 @@ set -eu
 
 curl --fail --silent --show-error --max-time 2 --config - \
     >/dev/null <<EOF
-url = "http://127.0.0.1:8088/ari/asterisk/ping"
+url = "http://127.0.0.1:${ASTERISK_ARI_PORT:-8088}/ari/asterisk/ping"
 user = "${ARI_USERNAME}:${ARI_PASSWORD}"
 EOF

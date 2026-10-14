@@ -5,5 +5,3 @@ type = transport
 protocol = udp
 bind = 0.0.0.0:${SIP_PORT}
 allow_reload = no
-external_signaling_address = ${ASTERISK_EXTERNAL_SIGNALING_ADDRESS}
-external_media_address = ${ASTERISK_EXTERNAL_MEDIA_ADDRESS}

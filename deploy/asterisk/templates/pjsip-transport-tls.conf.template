@@ -8,5 +8,3 @@ cert_file = /run/asterisk/sip_tls_cert
 priv_key_file = /run/asterisk/sip_tls_key
 verify_client = no
 allow_reload = no
-external_signaling_address = ${ASTERISK_EXTERNAL_SIGNALING_ADDRESS}
-external_media_address = ${ASTERISK_EXTERNAL_MEDIA_ADDRESS}

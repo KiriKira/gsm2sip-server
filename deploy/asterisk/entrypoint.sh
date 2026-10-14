@@ -4,8 +4,12 @@ set -eu
 : "${ARI_USERNAME:?ARI_USERNAME is required}"
 : "${ARI_PASSWORD:?ARI_PASSWORD is required}"
 : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
-: "${ASTERISK_EXTERNAL_MEDIA_ADDRESS:?ASTERISK_EXTERNAL_MEDIA_ADDRESS is required}"
-: "${ASTERISK_EXTERNAL_SIGNALING_ADDRESS:?ASTERISK_EXTERNAL_SIGNALING_ADDRESS is required}"
+# Optional: with neither external address set, Asterisk advertises the local
+# address of the interface that reaches each peer (host networking).
+ASTERISK_EXTERNAL_MEDIA_ADDRESS="${ASTERISK_EXTERNAL_MEDIA_ADDRESS:-}"
+ASTERISK_EXTERNAL_SIGNALING_ADDRESS="${ASTERISK_EXTERNAL_SIGNALING_ADDRESS:-}"
+ASTERISK_ARI_PORT="${ASTERISK_ARI_PORT:-8088}"
+export ASTERISK_ARI_PORT
 
 SIP_TRANSPORT="$(printf '%s' "${SIP_TRANSPORT:-tls}" | tr '[:upper:]' '[:lower:]')"
 case "$SIP_TRANSPORT" in
@@ -46,11 +50,17 @@ render() {
 
 render asterisk.conf '${ASTERISK_CONFIG_DIR}'
 render ari.conf '${ARI_USERNAME} ${ARI_PASSWORD}'
-render http.conf '${ASTERISK_ARI_BIND_ADDR}'
+render http.conf '${ASTERISK_ARI_BIND_ADDR} ${ASTERISK_ARI_PORT}'
 render pjsip.conf ''
-envsubst '${ASTERISK_EXTERNAL_MEDIA_ADDRESS} ${ASTERISK_EXTERNAL_SIGNALING_ADDRESS} ${SIP_PORT}' \
+envsubst '${SIP_PORT}' \
     < "/opt/gsm2sip/asterisk/templates/pjsip-transport-${SIP_TRANSPORT}.conf.template" \
     >> "${ASTERISK_CONFIG_DIR}/pjsip.conf"
+if [ -n "$ASTERISK_EXTERNAL_SIGNALING_ADDRESS" ]; then
+    printf 'external_signaling_address = %s\n' "$ASTERISK_EXTERNAL_SIGNALING_ADDRESS" >> "${ASTERISK_CONFIG_DIR}/pjsip.conf"
+fi
+if [ -n "$ASTERISK_EXTERNAL_MEDIA_ADDRESS" ]; then
+    printf 'external_media_address = %s\n' "$ASTERISK_EXTERNAL_MEDIA_ADDRESS" >> "${ASTERISK_CONFIG_DIR}/pjsip.conf"
+fi
 render res_pgsql.conf '${POSTGRES_DB} ${POSTGRES_HOST} ${POSTGRES_PORT} ${POSTGRES_USER} ${POSTGRES_PASSWORD}'
 render rtp.conf '${RTP_END} ${RTP_START}'
 cp /opt/gsm2sip/asterisk/templates/extensions.conf "$ASTERISK_CONFIG_DIR/extensions.conf"
