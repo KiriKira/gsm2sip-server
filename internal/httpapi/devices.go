@@ -184,7 +184,7 @@ func (s *Server) listSIMs(w http.ResponseWriter, r *http.Request, principal Prin
 	rows, err := s.db.QueryContext(r.Context(), `
 		SELECT sim_id::text, slot_index, label, carrier_name, phone_number, state,
 		mapping_revision, identity_verified, service_state,
-		signal_level, network_type, network_operator, roaming, radio_updated_at
+		signal_level, network_type, network_operator, roaming, country_iso, radio_updated_at
 		FROM sim_bindings WHERE gateway_id=$1 AND owner_id=$2
 		ORDER BY slot_index, created_at`, gatewayID, principal.OwnerID)
 	if err != nil {
@@ -195,13 +195,13 @@ func (s *Server) listSIMs(w http.ResponseWriter, r *http.Request, principal Prin
 	sims := make([]SIMSummary, 0, 2)
 	for rows.Next() {
 		var item SIMSummary
-		var carrier, number, service, networkType, networkOperator sql.NullString
+		var carrier, number, service, networkType, networkOperator, countryISO sql.NullString
 		var signal sql.NullInt64
 		var roaming sql.NullBool
 		var radioUpdated sql.NullTime
 		if err := rows.Scan(&item.SIMID, &item.SlotIndex, &item.Label, &carrier, &number,
 			&item.State, &item.MappingRevision, &item.IdentityVerified, &service,
-			&signal, &networkType, &networkOperator, &roaming, &radioUpdated); err != nil {
+			&signal, &networkType, &networkOperator, &roaming, &countryISO, &radioUpdated); err != nil {
 			writeDBUnavailable(w)
 			return
 		}
@@ -213,6 +213,7 @@ func (s *Server) listSIMs(w http.ResponseWriter, r *http.Request, principal Prin
 			}
 			radio.NetworkType = nullableString(networkType)
 			radio.NetworkOperator = nullableString(networkOperator)
+			radio.CountryISO = nullableString(countryISO)
 			if roaming.Valid {
 				value := roaming.Bool
 				radio.Roaming = &value

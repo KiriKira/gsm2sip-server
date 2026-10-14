@@ -738,15 +738,22 @@ components:
         network_type: {type: [string, 'null'], pattern: '^[A-Za-z0-9_+ -]{1,16}$'}
         network_operator: {type: [string, 'null'], minLength: 1, maxLength: 64}
         roaming: {type: [boolean, 'null']}
+        country_iso:
+          description: >-
+            SIM home country, ISO 3166-1 alpha-2 in upper case. Send only
+            after a heartbeat response lists `sim_country` in `extensions`.
+          type: [string, 'null']
+          pattern: '^[A-Z]{2}$'
     SimRadioObservation:
       type: object
       additionalProperties: false
-      required: [signal_level, network_type, network_operator, roaming, updated_at]
+      required: [signal_level, network_type, network_operator, roaming, country_iso, updated_at]
       properties:
         signal_level: {type: [integer, 'null'], minimum: 0, maximum: 4}
         network_type: {type: [string, 'null']}
         network_operator: {type: [string, 'null']}
         roaming: {type: [boolean, 'null']}
+        country_iso: {type: [string, 'null'], pattern: '^[A-Z]{2}$'}
         updated_at: {$ref: '#/components/schemas/Timestamp'}
     HeartbeatResult:
       type: object
@@ -761,7 +768,7 @@ components:
           maxItems: 2
           items: {$ref: '#/components/schemas/UUID'}
         extensions:
-          description: Optional heartbeat fields this server accepts, such as `sim_radio`.
+          description: Optional heartbeat fields this server accepts, such as `sim_radio` and `sim_country`.
           type: array
           items: {type: string}
     SimProposalRequest:

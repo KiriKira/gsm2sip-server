@@ -353,7 +353,7 @@ class PostgreSQLBackupIntegrationTests(unittest.TestCase):
         cls.run_sql_url(
             url,
             "CREATE TABLE public.schema_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); "
-            "INSERT INTO public.schema_migrations(name) VALUES ('0012_mesh_identity.sql'); "
+            "INSERT INTO public.schema_migrations(name) VALUES ('0013_sim_country.sql'); "
             "CREATE TABLE public.commands (status TEXT NOT NULL CHECK (status <> 'unknown'), updated_at TIMESTAMPTZ NOT NULL); "
             "INSERT INTO public.commands(status,updated_at) VALUES ('queued',clock_timestamp())",
         )
@@ -479,7 +479,7 @@ INSERT INTO public.gateway_call_slots(gateway_id,call_id) VALUES
         original_archive = self.archive.read_bytes()
         original_manifest = manifest_path.read_bytes()
         manifest = json.loads(original_manifest)
-        self.assertEqual(manifest["schema_revision"], "0012_mesh_identity.sql")
+        self.assertEqual(manifest["schema_revision"], "0013_sim_country.sql")
         password = urlsplit(TEST_DATABASE_URL).password or "" if self.backend == "local" else "backup-test-only"
         self.assertNotIn(password, original_manifest.decode("utf-8"))
         self.assertNotIn(b"backup-test-env-secret-never-export-6ac47d", original_archive)

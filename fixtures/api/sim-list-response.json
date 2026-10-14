@@ -16,6 +16,7 @@
         "network_type": "LTE",
         "network_operator": "Carrier A",
         "roaming": false,
+        "country_iso": "CN",
         "updated_at": "2026-10-03T12:00:00Z"
       }
     },

@@ -15,6 +15,7 @@ func TestValidSIMRadioBoundsDisplayTelemetry(t *testing.T) {
 		{},
 		{SignalLevel: level(0), NetworkType: text("LTE"), NetworkOperator: text("中国移动")},
 		{SignalLevel: level(4), NetworkType: text("NR NSA"), NetworkOperator: text("Carrier B")},
+		{CountryISO: text("CN")},
 	}
 	for _, radio := range valid {
 		if !validSIMRadio(radio) {
@@ -30,6 +31,9 @@ func TestValidSIMRadioBoundsDisplayTelemetry(t *testing.T) {
 		{NetworkOperator: text("   ")},
 		{NetworkOperator: text("bad\nname")},
 		{NetworkOperator: text(strings.Repeat("运", 65))},
+		{CountryISO: text("cn")},
+		{CountryISO: text("CHN")},
+		{CountryISO: text("")},
 	}
 	for _, radio := range invalid {
 		if validSIMRadio(radio) {
@@ -95,20 +99,21 @@ func TestPostgresHeartbeatRadioIsAdvertisedStoredAndCleared(t *testing.T) {
 	if err := json.Unmarshal(legacyResponse.Body.Bytes(), &legacyResult); err != nil {
 		t.Fatal("decode heartbeat")
 	}
-	advertised := false
+	advertised, countryAdvertised := false, false
 	for _, name := range legacyResult.Extensions {
 		advertised = advertised || name == HeartbeatExtensionSIMRadio
+		countryAdvertised = countryAdvertised || name == HeartbeatExtensionSIMCountry
 	}
-	if !advertised {
+	if !advertised || !countryAdvertised {
 		t.Fatalf("heartbeat did not advertise radio telemetry: %+v", legacyResult)
 	}
 
-	level, networkType, operator, roaming := 3, "LTE", "  Carrier A  ", false
+	level, networkType, operator, roaming, country := 3, "LTE", "  Carrier A  ", false, "CN"
 	withRadio := legacy
 	withRadio.Sequence = 2
 	withRadio.SIMStates = []SIMState{
 		{SIMID: simA, MappingRevision: revision, ServiceState: "in_service", IdentityVerified: true,
-			Radio: &SIMRadio{SignalLevel: &level, NetworkType: &networkType, NetworkOperator: &operator, Roaming: &roaming}},
+			Radio: &SIMRadio{SignalLevel: &level, NetworkType: &networkType, NetworkOperator: &operator, Roaming: &roaming, CountryISO: &country}},
 		{SIMID: simB, MappingRevision: revision, ServiceState: "out_of_service", IdentityVerified: true,
 			Radio: &SIMRadio{}},
 	}
@@ -130,10 +135,11 @@ func TestPostgresHeartbeatRadioIsAdvertisedStoredAndCleared(t *testing.T) {
 	first := sims[0].Radio
 	if first.SignalLevel == nil || *first.SignalLevel != 3 || first.NetworkType == nil || *first.NetworkType != "LTE" ||
 		first.NetworkOperator == nil || *first.NetworkOperator != "Carrier A" || first.Roaming == nil || *first.Roaming ||
-		first.UpdatedAt.IsZero() {
+		first.CountryISO == nil || *first.CountryISO != "CN" || first.UpdatedAt.IsZero() {
 		t.Fatalf("radio telemetry was not stored verbatim and trimmed: %+v", first)
 	}
-	if second := sims[1].Radio; second.SignalLevel != nil || second.NetworkType != nil || second.NetworkOperator != nil || second.Roaming != nil {
+	if second := sims[1].Radio; second.SignalLevel != nil || second.NetworkType != nil || second.NetworkOperator != nil ||
+		second.Roaming != nil || second.CountryISO != nil {
 		t.Fatalf("empty radio observation should keep unknown fields null: %+v", second)
 	}
 
