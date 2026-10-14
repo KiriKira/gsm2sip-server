@@ -108,9 +108,8 @@ RUN --mount=type=bind,from=build,source=/usr/sbin,target=/mnt/build/sbin,ro \
     set -eu; \
     DEBIAN_FRONTEND=noninteractive apt-get update; \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      ca-certificates curl gettext-base libcurl4 libedit2 libjansson4 libncurses6 \
-      libnewt0.52 libopus0 libpq5 libspeexdsp1 libsqlite3-0 libssl3 libxml2 libxslt1.1 \
-      libsrtp2-1 libuuid1 util-linux; \
+      ca-certificates curl gettext-base libedit2 libjansson4 libopus0 libpq5 \
+      libsqlite3-0 libssl3 libxml2 libxslt1.1 libsrtp2-1 libuuid1 util-linux; \
     rm -rf /var/lib/apt/lists/*; \
     groupadd --system --gid 10001 asterisk; \
     useradd --system --uid 10001 --gid 10001 --home-dir /var/lib/asterisk \
@@ -121,8 +120,16 @@ RUN --mount=type=bind,from=build,source=/usr/sbin,target=/mnt/build/sbin,ro \
       /opt/gsm2sip/asterisk/templates /usr/local/bin; \
     install -m 0755 /mnt/build/sbin/asterisk /usr/sbin/asterisk; \
     cp -a /mnt/build/lib/libasteriskssl.so* /usr/lib/; \
-    cp -a /mnt/build/modules /usr/lib/asterisk/; \
+    # Ship only the modules modules.conf loads (autoload = no), not all ~300.
+    install -d /usr/lib/asterisk/modules; \
+    for module in $(sed -n 's/^\(require\|load\) *=> *\([a-z0-9_]*\.so\).*/\2/p' \
+        /mnt/asterisk-source/templates/modules.conf); do \
+      install -m 0755 "/mnt/build/modules/$module" /usr/lib/asterisk/modules/; \
+    done; \
     cp -a /mnt/build/varlib/. /var/lib/asterisk/; \
+    # Music on hold, phone provisioning, firmware and static web pages are unused.
+    rm -rf /var/lib/asterisk/moh /var/lib/asterisk/phoneprov /var/lib/asterisk/firmware \
+      /var/lib/asterisk/images /var/lib/asterisk/static-http; \
     cp -a /mnt/build/local/lib/*.so* /usr/local/lib/; \
     install -m 0644 /mnt/build/local/lib/pkgconfig/libpjproject.pc \
       /usr/local/lib/pkgconfig/libpjproject.pc; \

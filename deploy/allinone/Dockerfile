@@ -22,7 +22,17 @@ RUN set -eu; \
     echo 'create_main_cluster = false' > /etc/postgresql-common/createcluster.conf; \
     DEBIAN_FRONTEND=noninteractive apt-get update; \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends postgresql-17; \
-    rm -rf /var/lib/apt/lists/* /var/lib/postgresql/17; \
+    # The packages pull in LLVM for JIT (~150 MB) and Perl for the cluster
+    # wrapper scripts; this image runs the server binaries directly with JIT
+    # off, so drop both and fail the build if a binary loses a library.
+    rm -rf /usr/lib/postgresql/17/lib/llvmjit* /usr/lib/postgresql/17/lib/bitcode \
+      /var/lib/apt/lists/* /var/lib/postgresql/17; \
+    dpkg --purge --force-depends $(dpkg-query -W -f '${Package}\n' \
+      'libllvm*' 'libz3-*' perl perl-modules-5.36 'libperl5*' locales 2>/dev/null); \
+    for binary in postgres initdb pg_isready psql; do \
+      if ldd "/usr/lib/postgresql/17/bin/$binary" | grep 'not found'; then exit 1; fi; \
+    done; \
+    rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/locale/*; \
     groupadd --system --gid 10002 gsm2sip; \
     useradd --system --uid 10002 --gid 10002 --home-dir /nonexistent \
       --no-create-home --shell /usr/sbin/nologin gsm2sip; \
