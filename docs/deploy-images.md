@@ -23,21 +23,28 @@ docker run -d --name gsm2sip --restart unless-stopped \
   ghcr.io/kirikira/gsm2sip:main
 ```
 
-家里或 Tailscale 内的节点可以不用证书：`SIP_TRANSPORT=udp` 用明文 SIP/RTP，API 直接用 `http://`。
-`SIP_SERVER_NAME` 与 `PUBLIC_IP` 填两部手机都能访问到的地址（局域网 IP，或常开 Tailscale 时的 100.x 地址）：
+家里或 Tailscale 内的节点不用证书，也不用填任何地址：
 
 ```sh
-docker run -d --name gsm2sip --restart unless-stopped \
-  -v gsm2sip-data:/data \
-  -p 8080:8080 -p 5060:5060/udp -p 10000-10199:10000-10199/udp \
-  -e SIP_TRANSPORT=udp -e SIP_SERVER_NAME=192.168.1.10 -e PUBLIC_IP=192.168.1.10 \
+docker run -d --name gsm2sip --restart unless-stopped --network host \
+  -v gsm2sip-data:/data -e SIP_TRANSPORT=udp \
   ghcr.io/kirikira/gsm2sip:main
 ```
 
-两部手机里的服务器地址填 `http://192.168.1.10:8080`。明文模式下短信、令牌和通话音频都不加密，
-只在你信任的网络里使用。切换 `SIP_TRANSPORT` 后，需要在两部手机上重新获取 SIP 配置（旧手机移除再添加该节点）。
+两部手机里填 `http://<这台机器的局域网 IP、Tailscale IP 或主机名>:8080`，用哪个地址都行，可以各不相同：
 
-对外提供通话的节点，再加公网 IP、SIP/RTP 端口和证书（证书的 SAN 必须包含 `SIP_SERVER_NAME`）：
+- 服务端把手机连接 API 时用的主机名/IP 作为它的 SIP 服务器地址下发（未设置 `SIP_SERVER_NAME` 时）。
+- Asterisk 在 `--network host` 下按每台手机的路由选择本机网卡地址写进 SIP 和 SDP，局域网手机拿到局域网 IP，
+  Tailscale 手机拿到 100.x 地址。
+- 端口用环境变量改：`HTTP_PORT`（默认 8080）、`SIP_PORT`（UDP 默认 5060）、`RTP_START`/`RTP_END`（默认 10000–10199）。
+  内部使用的 PostgreSQL（`PG_PORT`，默认 55432）与 ARI（`ARI_PORT`，默认 58088）只监听 127.0.0.1。
+
+明文模式下短信、令牌和通话音频都不加密，只在你信任的网络里使用。切换 `SIP_TRANSPORT` 后，需要在两部手机上
+重新获取 SIP 配置（旧手机移除再添加该节点）。不用 `--network host`（例如 `-p` 端口映射）时，容器看不到宿主机的
+网卡，需要设置 `PUBLIC_IP` 为手机访问的地址，且 SIP/RTP 端口映射两侧必须相同。
+
+对外提供通话的 TLS 节点，再加 SIP/RTP 端口和证书（证书的 SAN 必须包含 `SIP_SERVER_NAME`）。
+这里用 `-p` 端口映射，所以要设 `PUBLIC_IP`：
 
 ```sh
 docker run -d --name gsm2sip --restart unless-stopped \

@@ -91,7 +91,7 @@ func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 		writeDBUnavailable(w)
 		return
 	}
-	sip := s.sipConfig(Principal{DeviceID: deviceID})
+	sip := s.sipConfig(Principal{DeviceID: deviceID}, r)
 	writeJSON(w, http.StatusOK, PairingClaimResponse{
 		OwnerID: ownerID, DeviceID: deviceID, Role: role,
 		SessionTokens: SessionTokens{

@@ -194,6 +194,28 @@ jobs:
           docker exec aio-udp test ! -e /data/tls/sip.crt
           docker logs aio-udp 2>&1 | grep 'SIP over UDP without TLS' >/dev/null
           docker rm -f -v aio-udp
+
+      - name: Smoke-test the all-in-one image with no address configured (host network)
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'docker logs --tail 200 aio-auto || true' ERR
+          docker run -d --name aio-auto --network host -e SIP_TRANSPORT=udp -e HTTP_PORT=18082 \
+            "$ALLINONE_IMAGE:ci-smoke"
+          for _ in $(seq 1 90); do
+            curl --fail --silent --max-time 2 http://127.0.0.1:18082/readyz >/dev/null && break
+            sleep 2
+          done
+          curl --fail --silent --show-error http://127.0.0.1:18082/readyz
+          for _ in $(seq 1 40); do
+            [ "$(docker inspect --format '{{.State.Health.Status}}' aio-auto)" = healthy ] && break
+            sleep 5
+          done
+          test "$(docker inspect --format '{{.State.Health.Status}}' aio-auto)" = healthy
+          # No fixed external address: Asterisk picks the interface per phone.
+          docker exec aio-auto sh -c 'f=$(ls /tmp/gsm2sip-asterisk.*/pjsip.conf) && grep -q transport-udp "$f" && ! grep -q external_ "$f"'
+          docker exec aio-auto gsm2sip-admin owner create --name ci-auto >/dev/null
+          docker rm -f -v aio-auto
           docker image ls --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep ci-smoke
 
       - name: Log in to GHCR

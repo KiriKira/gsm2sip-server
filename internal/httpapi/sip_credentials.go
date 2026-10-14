@@ -15,6 +15,9 @@ import (
 
 // SIPSettings identifies the public SIP listener, never the private ARI service.
 type SIPSettings struct {
+	// ServerName is the SIP host given to devices. Empty means each device is
+	// told the host it used to reach this API, so one node can serve phones on
+	// different networks (LAN, Tailscale) without a configured address.
 	ServerName string
 	Port       int
 	CAPEM      string
@@ -66,13 +69,37 @@ func (c SIPSettings) Valid() bool {
 	if c.Transport != "" && c.Transport != SIPTransportTLS && c.Transport != SIPTransportUDP {
 		return false
 	}
-	if c.Port < 1 || c.Port > 65535 || len(c.ServerName) == 0 || len(c.ServerName) > 253 {
+	if c.Port < 1 || c.Port > 65535 {
 		return false
 	}
-	if net.ParseIP(c.ServerName) != nil {
+	return c.ServerName == "" || validSIPHost(c.ServerName)
+}
+
+// requestSIPHost is the host part of the request's Host header, or "" when it
+// cannot serve as a SIP host.
+func requestSIPHost(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	host := strings.TrimSpace(r.Host)
+	if split, _, err := net.SplitHostPort(host); err == nil {
+		host = split
+	}
+	host = strings.ToLower(strings.TrimSuffix(strings.Trim(host, "[]"), "."))
+	if !validSIPHost(host) {
+		return ""
+	}
+	return host
+}
+
+func validSIPHost(name string) bool {
+	if len(name) == 0 || len(name) > 253 {
+		return false
+	}
+	if net.ParseIP(name) != nil {
 		return true
 	}
-	for _, label := range strings.Split(c.ServerName, ".") {
+	for _, label := range strings.Split(name, ".") {
 		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
 			return false
 		}
@@ -85,24 +112,30 @@ func (c SIPSettings) Valid() bool {
 	return true
 }
 
-func (s *Server) sipConfig(p Principal) sipConfiguration {
+func (s *Server) sipConfig(p Principal, r *http.Request) sipConfiguration {
 	if s.secretCipher == nil || !s.sip.Valid() {
 		return sipConfiguration{Reason: "sip_not_configured"}
 	}
+	serverName := s.sip.ServerName
+	if serverName == "" {
+		if serverName = requestSIPHost(r); serverName == "" {
+			return sipConfiguration{Reason: "sip_not_configured"}
+		}
+	}
 	id := "dev_" + strings.ReplaceAll(p.DeviceID, "-", "")
-	host := net.JoinHostPort(s.sip.ServerName, strconv.Itoa(s.sip.Port))
+	host := net.JoinHostPort(serverName, strconv.Itoa(s.sip.Port))
 	scheme, caPEM := "sips:", s.sip.CAPEM
 	if !s.sip.Secure() {
 		scheme, caPEM = "sip:", ""
 	}
 	return sipConfiguration{Available: true, EndpointID: id, Username: id, Realm: "gsm2sip",
 		AOR: scheme + id + "@" + host, RegistrarURI: scheme + host,
-		OutboundProxyURI: scheme + host + ";transport=" + s.sip.transportName() + ";lr", ServerName: s.sip.ServerName,
+		OutboundProxyURI: scheme + host + ";transport=" + s.sip.transportName() + ";lr", ServerName: serverName,
 		CAPEM: caPEM, Transport: s.sip.transportName(), MediaEncryption: s.sip.mediaEncryption()}
 }
 
-func (s *Server) getSIPConfig(w http.ResponseWriter, _ *http.Request, p Principal) {
-	writeJSON(w, http.StatusOK, s.sipConfig(p))
+func (s *Server) getSIPConfig(w http.ResponseWriter, r *http.Request, p Principal) {
+	writeJSON(w, http.StatusOK, s.sipConfig(p, r))
 }
 
 func sipCredentialAAD(deviceID string, keyHash []byte) []byte {
@@ -110,7 +143,7 @@ func sipCredentialAAD(deviceID string, keyHash []byte) []byte {
 }
 
 func (s *Server) rotateSIPCredentials(w http.ResponseWriter, r *http.Request, p Principal) {
-	config := s.sipConfig(p)
+	config := s.sipConfig(p, r)
 	if !config.Available {
 		writeError(w, 503, "SIP_NOT_CONFIGURED", "SIP credentials are not configured.", false)
 		return

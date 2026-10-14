@@ -317,6 +317,9 @@ intents return `sip:call.<token>@gsm2sip;transport=udp`. The configuration
 always includes `transport` (`tls`/`udp`) and `media_encryption`
 (`sdes`/`none`); clients treat their absence (older servers) as `tls`/`sdes`.
 Changing the mode requires each device to fetch its SIP configuration again.
+When `SIP_SERVER_NAME` is unset, the SIP host in the configuration is the host
+of the request (the `Host` header without its port), so each device is told the
+address it already uses to reach the API; a configured name always wins.
 
 `POST /call-intents` returns HTTP 202, reserves the owner's sole gateway call
 slot for 30 seconds, and does not dial a carrier call. The slot is unique to the

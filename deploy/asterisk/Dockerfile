@@ -154,8 +154,6 @@ RUN --mount=type=bind,from=build,source=/usr/sbin,target=/mnt/build/sbin,ro \
 
 ENV ARI_USERNAME=gsm2sip \
     ASTERISK_ARI_BIND_ADDR=0.0.0.0 \
-    ASTERISK_EXTERNAL_MEDIA_ADDRESS=127.0.0.1 \
-    ASTERISK_EXTERNAL_SIGNALING_ADDRESS=127.0.0.1 \
     POSTGRES_DB=gsm2sip \
     POSTGRES_HOST=postgres \
     POSTGRES_PORT=5432 \
