@@ -2,3 +2,7 @@
 type = global
 endpoint_identifier_order = auth_username,username
 disable_multi_domain = yes
+; Requests not yet identified (a gateway INVITE whose From user is the GSM
+; caller's number) are challenged with this realm; it must equal the realm of
+; the provisioned ps_auths rows, or the answering credentials are refused.
+default_realm = gsm2sip
