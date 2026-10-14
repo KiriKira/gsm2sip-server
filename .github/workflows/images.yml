@@ -215,6 +215,31 @@ jobs:
           # No fixed external address: Asterisk picks the interface per phone.
           docker exec aio-auto sh -c 'f=$(ls /tmp/gsm2sip-asterisk.*/pjsip.conf) && grep -q transport-udp "$f" && ! grep -q external_ "$f"'
           docker exec aio-auto gsm2sip-admin owner create --name ci-auto >/dev/null
+          # An INVITE from a caller number (no endpoint matches its From user)
+          # is challenged with the realm the provisioned credentials use.
+          python3 - <<'PY'
+          import socket, uuid
+          s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+          s.bind(("127.0.0.1", 0))
+          s.settimeout(5)
+          port, cid = s.getsockname()[1], uuid.uuid4().hex
+          s.sendto((
+              "INVITE sip:s@127.0.0.1 SIP/2.0\r\n"
+              f"Via: SIP/2.0/UDP 127.0.0.1:{port};branch=z9hG4bK{cid}\r\n"
+              "Max-Forwards: 70\r\n"
+              f"From: <sip:13800138000@127.0.0.1>;tag={cid[:8]}\r\n"
+              "To: <sip:s@127.0.0.1>\r\n"
+              f"Call-ID: {cid}\r\nCSeq: 1 INVITE\r\n"
+              f"Contact: <sip:13800138000@127.0.0.1:{port}>\r\nContent-Length: 0\r\n\r\n"
+          ).encode(), ("127.0.0.1", 5060))
+          while True:
+              reply = s.recv(65535).decode(errors="replace")
+              if not reply.startswith("SIP/2.0 1"):
+                  break
+          print(reply.splitlines()[0])
+          assert reply.startswith("SIP/2.0 401"), reply
+          assert 'realm="gsm2sip"' in reply, reply
+          PY
           docker rm -f -v aio-auto
           docker image ls --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep ci-smoke
 
