@@ -163,7 +163,7 @@ ENV ARI_USERNAME=gsm2sip \
     RTP_START=10000 \
     RTP_END=10199
 
-EXPOSE 5061/tcp 10000-10199/udp
+EXPOSE 5061/tcp 5060/udp 10000-10199/udp
 EXPOSE 8088/tcp
 ENTRYPOINT ["/usr/local/bin/gsm2sip-asterisk-entrypoint"]
 CMD ["/usr/sbin/asterisk", "-f"]

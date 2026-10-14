@@ -7,20 +7,30 @@ set -eu
 : "${ASTERISK_EXTERNAL_MEDIA_ADDRESS:?ASTERISK_EXTERNAL_MEDIA_ADDRESS is required}"
 : "${ASTERISK_EXTERNAL_SIGNALING_ADDRESS:?ASTERISK_EXTERNAL_SIGNALING_ADDRESS is required}"
 
-test -s /run/secrets/sip_tls_cert || {
-    echo 'Asterisk SIP certificate is missing or empty.' >&2
-    exit 1
-}
-test -s /run/secrets/sip_tls_key || {
-    echo 'Asterisk SIP private key is missing or empty.' >&2
-    exit 1
-}
+SIP_TRANSPORT="$(printf '%s' "${SIP_TRANSPORT:-tls}" | tr '[:upper:]' '[:lower:]')"
+case "$SIP_TRANSPORT" in
+    tls) SIP_PORT="${SIP_PORT:-5061}" ;;
+    udp) SIP_PORT="${SIP_PORT:-5060}" ;;
+    *) echo 'SIP_TRANSPORT must be tls or udp.' >&2; exit 1 ;;
+esac
+export SIP_PORT
 
-# Compose's file-backed secrets are bind mounts and may keep host ownership and
-# mode. Copy them to a private, Asterisk-readable runtime directory before
-# dropping privileges; never make the private key world-readable.
-install -o asterisk -g asterisk -m 0444 /run/secrets/sip_tls_cert /run/asterisk/sip_tls_cert
-install -o asterisk -g asterisk -m 0400 /run/secrets/sip_tls_key /run/asterisk/sip_tls_key
+if [ "$SIP_TRANSPORT" = tls ]; then
+    test -s /run/secrets/sip_tls_cert || {
+        echo 'Asterisk SIP certificate is missing or empty.' >&2
+        exit 1
+    }
+    test -s /run/secrets/sip_tls_key || {
+        echo 'Asterisk SIP private key is missing or empty.' >&2
+        exit 1
+    }
+
+    # Compose's file-backed secrets are bind mounts and may keep host ownership and
+    # mode. Copy them to a private, Asterisk-readable runtime directory before
+    # dropping privileges; never make the private key world-readable.
+    install -o asterisk -g asterisk -m 0444 /run/secrets/sip_tls_cert /run/asterisk/sip_tls_cert
+    install -o asterisk -g asterisk -m 0400 /run/secrets/sip_tls_key /run/asterisk/sip_tls_key
+fi
 
 umask 077
 ASTERISK_CONFIG_DIR="$(mktemp -d /tmp/gsm2sip-asterisk.XXXXXX)"
@@ -37,7 +47,10 @@ render() {
 render asterisk.conf '${ASTERISK_CONFIG_DIR}'
 render ari.conf '${ARI_USERNAME} ${ARI_PASSWORD}'
 render http.conf '${ASTERISK_ARI_BIND_ADDR}'
-render pjsip.conf '${ASTERISK_EXTERNAL_MEDIA_ADDRESS} ${ASTERISK_EXTERNAL_SIGNALING_ADDRESS}'
+render pjsip.conf ''
+envsubst '${ASTERISK_EXTERNAL_MEDIA_ADDRESS} ${ASTERISK_EXTERNAL_SIGNALING_ADDRESS} ${SIP_PORT}' \
+    < "/opt/gsm2sip/asterisk/templates/pjsip-transport-${SIP_TRANSPORT}.conf.template" \
+    >> "${ASTERISK_CONFIG_DIR}/pjsip.conf"
 render res_pgsql.conf '${POSTGRES_DB} ${POSTGRES_HOST} ${POSTGRES_PORT} ${POSTGRES_USER} ${POSTGRES_PASSWORD}'
 render rtp.conf '${RTP_END} ${RTP_START}'
 cp /opt/gsm2sip/asterisk/templates/extensions.conf "$ASTERISK_CONFIG_DIR/extensions.conf"

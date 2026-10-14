@@ -23,6 +23,20 @@ docker run -d --name gsm2sip --restart unless-stopped \
   ghcr.io/kirikira/gsm2sip:main
 ```
 
+家里或 Tailscale 内的节点可以不用证书：`SIP_TRANSPORT=udp` 用明文 SIP/RTP，API 直接用 `http://`。
+`SIP_SERVER_NAME` 与 `PUBLIC_IP` 填两部手机都能访问到的地址（局域网 IP，或常开 Tailscale 时的 100.x 地址）：
+
+```sh
+docker run -d --name gsm2sip --restart unless-stopped \
+  -v gsm2sip-data:/data \
+  -p 8080:8080 -p 5060:5060/udp -p 10000-10199:10000-10199/udp \
+  -e SIP_TRANSPORT=udp -e SIP_SERVER_NAME=192.168.1.10 -e PUBLIC_IP=192.168.1.10 \
+  ghcr.io/kirikira/gsm2sip:main
+```
+
+两部手机里的服务器地址填 `http://192.168.1.10:8080`。明文模式下短信、令牌和通话音频都不加密，
+只在你信任的网络里使用。切换 `SIP_TRANSPORT` 后，需要在两部手机上重新获取 SIP 配置（旧手机移除再添加该节点）。
+
 对外提供通话的节点，再加公网 IP、SIP/RTP 端口和证书（证书的 SAN 必须包含 `SIP_SERVER_NAME`）：
 
 ```sh
@@ -78,8 +92,9 @@ curl http://127.0.0.1:8080/readyz
 curl http://127.0.0.1:8080/v1/capabilities     # 输出应包含 "mesh"
 ```
 
-API 只监听 `127.0.0.1:8080`，由你的 HTTPS 反向代理或 cloudflared 对外提供；两个 App 只接受 HTTPS。
-ARI（8088）不对外开放。
+API 默认只监听 `127.0.0.1:8080`，由反向代理或 cloudflared 对外提供；要让手机在局域网或 Tailscale 内用
+`http://` 直连，设 `HTTP_BIND_ADDR=0.0.0.0`（或局域网/Tailscale IP）。不需要证书时设 `SIP_TRANSPORT=udp`、
+`SIP_PORT=5060`，两个证书路径设为 `/dev/null`。ARI（8088）不对外开放。
 
 ### 账户与配对码
 

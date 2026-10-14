@@ -25,6 +25,8 @@ type Config struct {
 	ARIApplication string
 	SIPRealm       string
 	TokenKey       []byte
+	// SIPInsecure issues plain sip:/UDP call URIs instead of sips:/TLS.
+	SIPInsecure bool
 }
 
 type CreateIntentRequest struct {

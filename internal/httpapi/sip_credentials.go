@@ -13,12 +13,37 @@ import (
 	"time"
 )
 
-// SIPSettings identifies the public TLS listener, never the private ARI service.
+// SIPSettings identifies the public SIP listener, never the private ARI service.
 type SIPSettings struct {
 	ServerName string
 	Port       int
 	CAPEM      string
 	EnableOpus bool
+	// Transport is SIPTransportTLS (default, with SDES-SRTP media) or
+	// SIPTransportUDP (plain SIP and RTP, for a trusted LAN or VPN).
+	Transport string
+}
+
+const (
+	SIPTransportTLS = "tls"
+	SIPTransportUDP = "udp"
+)
+
+// Secure reports whether signalling uses TLS; media then uses SDES-SRTP.
+func (c SIPSettings) Secure() bool { return c.Transport != SIPTransportUDP }
+
+func (c SIPSettings) transportName() string {
+	if c.Secure() {
+		return SIPTransportTLS
+	}
+	return SIPTransportUDP
+}
+
+func (c SIPSettings) mediaEncryption() string {
+	if c.Secure() {
+		return "sdes"
+	}
+	return "none"
 }
 
 type sipConfiguration struct {
@@ -32,10 +57,15 @@ type sipConfiguration struct {
 	OutboundProxyURI string `json:"outbound_proxy_uri,omitempty"`
 	ServerName       string `json:"server_name,omitempty"`
 	CAPEM            string `json:"ca_pem,omitempty"`
+	Transport        string `json:"transport,omitempty"`
+	MediaEncryption  string `json:"media_encryption,omitempty"`
 	Password         string `json:"password,omitempty"`
 }
 
 func (c SIPSettings) Valid() bool {
+	if c.Transport != "" && c.Transport != SIPTransportTLS && c.Transport != SIPTransportUDP {
+		return false
+	}
 	if c.Port < 1 || c.Port > 65535 || len(c.ServerName) == 0 || len(c.ServerName) > 253 {
 		return false
 	}
@@ -61,9 +91,14 @@ func (s *Server) sipConfig(p Principal) sipConfiguration {
 	}
 	id := "dev_" + strings.ReplaceAll(p.DeviceID, "-", "")
 	host := net.JoinHostPort(s.sip.ServerName, strconv.Itoa(s.sip.Port))
+	scheme, caPEM := "sips:", s.sip.CAPEM
+	if !s.sip.Secure() {
+		scheme, caPEM = "sip:", ""
+	}
 	return sipConfiguration{Available: true, EndpointID: id, Username: id, Realm: "gsm2sip",
-		AOR: "sips:" + id + "@" + host, RegistrarURI: "sips:" + host,
-		OutboundProxyURI: "sips:" + host + ";transport=tls;lr", ServerName: s.sip.ServerName, CAPEM: s.sip.CAPEM}
+		AOR: scheme + id + "@" + host, RegistrarURI: scheme + host,
+		OutboundProxyURI: scheme + host + ";transport=" + s.sip.transportName() + ";lr", ServerName: s.sip.ServerName,
+		CAPEM: caPEM, Transport: s.sip.transportName(), MediaEncryption: s.sip.mediaEncryption()}
 }
 
 func (s *Server) getSIPConfig(w http.ResponseWriter, _ *http.Request, p Principal) {
@@ -77,7 +112,7 @@ func sipCredentialAAD(deviceID string, keyHash []byte) []byte {
 func (s *Server) rotateSIPCredentials(w http.ResponseWriter, r *http.Request, p Principal) {
 	config := s.sipConfig(p)
 	if !config.Available {
-		writeError(w, 503, "SIP_NOT_CONFIGURED", "SIP TLS credentials are not configured.", false)
+		writeError(w, 503, "SIP_NOT_CONFIGURED", "SIP credentials are not configured.", false)
 		return
 	}
 	key := r.Header.Get("Idempotency-Key")
@@ -188,7 +223,7 @@ func (s *Server) rotateSIPCredentials(w http.ResponseWriter, r *http.Request, p 
 		{`INSERT INTO sip_endpoint_bindings(device_id,endpoint_id,auth_username,aor,state) VALUES($1,$2,$2,$2,'active') ON CONFLICT(device_id) DO UPDATE SET state='active',updated_at=now()`, []any{p.DeviceID, config.EndpointID}},
 		{`INSERT INTO ps_auths(id,auth_type,realm,username,password_digest,supported_algorithms_uas,supported_algorithms_uac) VALUES($1,'userpass','gsm2sip',$1,$2,'MD5','MD5') ON CONFLICT(id) DO UPDATE SET password_digest=EXCLUDED.password_digest`, []any{config.EndpointID, "MD5:" + hex.EncodeToString(digest[:])}},
 		{`INSERT INTO ps_aors(id,max_contacts,remove_existing,qualify_frequency) VALUES($1,1,'yes',30) ON CONFLICT(id) DO NOTHING`, []any{config.EndpointID}},
-		{`INSERT INTO ps_endpoints(id,transport,aors,auth,context,disallow,allow,direct_media,force_rport,rewrite_contact,rtp_symmetric,media_encryption,media_encryption_optimistic,dtmf_mode,identify_by) VALUES($1,'transport-tls',$1,$1,$2,'all',$3,'no','yes','yes','yes','sdes','no','rfc4733','auth_username,username') ON CONFLICT(id) DO UPDATE SET context=EXCLUDED.context,allow=EXCLUDED.allow`, []any{config.EndpointID, context, codecs}},
+		{`INSERT INTO ps_endpoints(id,transport,aors,auth,context,disallow,allow,direct_media,force_rport,rewrite_contact,rtp_symmetric,media_encryption,media_encryption_optimistic,dtmf_mode,identify_by) VALUES($1,$4,$1,$1,$2,'all',$3,'no','yes','yes','yes',$5,'no','rfc4733','auth_username,username') ON CONFLICT(id) DO UPDATE SET context=EXCLUDED.context,allow=EXCLUDED.allow,transport=EXCLUDED.transport,media_encryption=EXCLUDED.media_encryption`, []any{config.EndpointID, context, codecs, "transport-" + s.sip.transportName(), endpointMediaEncryption(s.sip)}},
 		{`INSERT INTO device_sip_credentials(device_id,idempotency_hash,response_ciphertext,replay_expires_at) VALUES($1,$2,$3,$4) ON CONFLICT(device_id) DO UPDATE SET idempotency_hash=EXCLUDED.idempotency_hash,response_ciphertext=EXCLUDED.response_ciphertext,replay_expires_at=EXCLUDED.replay_expires_at,updated_at=now()`, []any{p.DeviceID, keyHash, encrypted, s.now().UTC().Add(5 * time.Minute)}},
 		{`INSERT INTO sip_credential_used_keys(device_id,key_hash) VALUES($1,$2)`, []any{p.DeviceID, keyHash}},
 		{`INSERT INTO audit_log(owner_id,actor_device_id,action,resource_id) VALUES($1,$2,'sip.credentials.rotated',$2)`, []any{p.OwnerID, p.DeviceID}},
@@ -207,4 +242,12 @@ func (s *Server) rotateSIPCredentials(w http.ResponseWriter, r *http.Request, p 
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(200)
 	_, _ = w.Write(response)
+}
+
+// endpointMediaEncryption is the PJSIP media_encryption value for the mode.
+func endpointMediaEncryption(c SIPSettings) string {
+	if c.Secure() {
+		return "sdes"
+	}
+	return "no"
 }

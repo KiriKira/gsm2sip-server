@@ -34,9 +34,20 @@ ARI_PASSWORD="$(openssl rand -hex 24)"
 (umask 077; printf '%s' "$ARI_PASSWORD" > "$RUN_DIR/ari_password")
 DATABASE_URL="postgresql://gsm2sip:${DB_PASSWORD}@127.0.0.1:5432/gsm2sip?sslmode=disable"
 
+# SIP_TRANSPORT=udp: plain SIP and RTP for a trusted LAN or VPN, no certificate.
+SIP_TRANSPORT="$(printf '%s' "${SIP_TRANSPORT:-tls}" | tr '[:upper:]' '[:lower:]')"
+case "$SIP_TRANSPORT" in
+    tls) SIP_PORT="${SIP_PORT:-5061}" ;;
+    udp) SIP_PORT="${SIP_PORT:-5060}" ;;
+    *) die "SIP_TRANSPORT must be tls or udp" ;;
+esac
+
 # SIP TLS: mounted certificate, or a self-signed one kept in the volume.
 install -d -m 0755 /run/secrets 2>/dev/null || true
-if [ -s /run/secrets/sip_tls_cert ] && [ -s /run/secrets/sip_tls_key ]; then
+if [ "$SIP_TRANSPORT" = udp ]; then
+    log "SIP over UDP without TLS; call media is not encrypted"
+    SIP_CA_PEM_FILE=""
+elif [ -s /run/secrets/sip_tls_cert ] && [ -s /run/secrets/sip_tls_key ]; then
     log "using the mounted SIP certificate"
     SIP_CA_PEM_FILE="${SIP_CA_PEM_FILE:-}"
 else
@@ -105,6 +116,7 @@ env ARI_USERNAME=gsm2sip ARI_PASSWORD="$ARI_PASSWORD" ASTERISK_ARI_BIND_ADDR=127
     ASTERISK_EXTERNAL_MEDIA_ADDRESS="$ASTERISK_EXTERNAL_MEDIA_ADDRESS" \
     POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5432 POSTGRES_DB=gsm2sip POSTGRES_USER=gsm2sip \
     POSTGRES_PASSWORD="$DB_PASSWORD" RTP_START="$RTP_START" RTP_END="$RTP_END" \
+    SIP_TRANSPORT="$SIP_TRANSPORT" SIP_PORT="$SIP_PORT" \
     /usr/local/bin/gsm2sip-asterisk-entrypoint &
 pids+=("$!")
 for _ in $(seq 1 60); do
@@ -117,7 +129,7 @@ done
 app_env=(
     DATABASE_URL="$DATABASE_URL" MIGRATIONS_DIR="$MIGRATIONS_DIR"
     ARI_URL=http://127.0.0.1:8088/ari ARI_USERNAME=gsm2sip ARI_PASSWORD="$ARI_PASSWORD"
-    ARI_APPLICATION=gsm2sip SIP_SERVER_NAME="$SIP_SERVER_NAME" SIP_PORT="$SIP_PORT"
+    ARI_APPLICATION=gsm2sip SIP_SERVER_NAME="$SIP_SERVER_NAME" SIP_PORT="$SIP_PORT" SIP_TRANSPORT="$SIP_TRANSPORT"
     SIP_CA_PEM_FILE="$SIP_CA_PEM_FILE" SIP_ENABLE_OPUS="${SIP_ENABLE_OPUS:-false}"
     SECRETS_ENCRYPTION_KEY="$SECRETS_ENCRYPTION_KEY" HTTP_ADDR="$HTTP_ADDR"
 )

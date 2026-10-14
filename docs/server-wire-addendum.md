@@ -302,12 +302,21 @@ only allows retrying the same resource/key.
 Every paired device has its own endpoint/auth identity and AOR, including all
 host clients under one owner. Each AOR allows at most one registered contact;
 separate AORs allow multiple hosts to be reachable without multiple contacts
-competing under one device identity. `GET /devices/self/sip-config` returns non-secret TLS configuration. When configured,
+competing under one device identity. `GET /devices/self/sip-config` returns non-secret SIP configuration. When configured,
 `POST /devices/self/sip-credentials/rotate` with a persisted `Idempotency-Key`
 returns a new password once, with encrypted replay for five minutes. The same key
 never rotates twice; an expired/obsolete key fails explicitly. Asterisk stores a
 Digest A1 hash rather than the plaintext password. The TLS certificate server
 name is distinct from the fixed SIP Digest realm `gsm2sip`.
+
+`SIP_TRANSPORT` selects the SIP mode for the whole server. `tls` (default) is
+SIP over TLS with mandatory SDES-SRTP; the configuration carries `sips:` URIs.
+`udp` is plain SIP over UDP with plain RTP for a trusted LAN or VPN such as
+Tailscale: URIs are `sip:...;transport=udp`, `ca_pem` is omitted, and call
+intents return `sip:call.<token>@gsm2sip;transport=udp`. The configuration
+always includes `transport` (`tls`/`udp`) and `media_encryption`
+(`sdes`/`none`); clients treat their absence (older servers) as `tls`/`sdes`.
+Changing the mode requires each device to fetch its SIP configuration again.
 
 `POST /call-intents` returns HTTP 202, reserves the owner's sole gateway call
 slot for 30 seconds, and does not dial a carrier call. The slot is unique to the
