@@ -1,0 +1,100 @@
+# Production stack from prebuilt images: nothing is compiled on the server.
+#
+#   curl -fsSLO https://raw.githubusercontent.com/KiriKira/gsm2sip-server/main/deploy/compose.yaml
+#   curl -fsSL https://raw.githubusercontent.com/KiriKira/gsm2sip-server/main/deploy/env.example -o .env
+#   # fill in .env, then:
+#   docker compose up -d
+#
+# The API listens on 127.0.0.1:${HTTP_PORT}; put your own HTTPS reverse proxy
+# (or cloudflared) in front of it. See docs/deploy-images.md.
+name: gsm2sip
+
+services:
+  postgres:
+    image: postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
+    environment:
+      POSTGRES_DB: gsm2sip
+      POSTGRES_USER: gsm2sip
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  asterisk:
+    image: ghcr.io/kirikira/gsm2sip-asterisk:${GSM2SIP_VERSION:-main}
+    environment:
+      ARI_USERNAME: ${ARI_USERNAME:-gsm2sip}
+      ARI_PASSWORD: ${ARI_PASSWORD:?set ARI_PASSWORD in .env}
+      ASTERISK_ARI_BIND_ADDR: 0.0.0.0
+      ASTERISK_EXTERNAL_MEDIA_ADDRESS: ${ASTERISK_EXTERNAL_MEDIA_ADDRESS:-127.0.0.1}
+      ASTERISK_EXTERNAL_SIGNALING_ADDRESS: ${ASTERISK_EXTERNAL_SIGNALING_ADDRESS:-127.0.0.1}
+      POSTGRES_DB: gsm2sip
+      POSTGRES_HOST: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: gsm2sip
+      RTP_START: ${RTP_START:-10000}
+      RTP_END: ${RTP_END:-10199}
+    ports:
+      - "${SIP_BIND_ADDR:-127.0.0.1}:${SIP_PORT:-5061}:5061/tcp"
+      - "${SIP_BIND_ADDR:-127.0.0.1}:${RTP_START:-10000}-${RTP_END:-10199}:${RTP_START:-10000}-${RTP_END:-10199}/udp"
+    secrets:
+      - source: sip_tls_cert
+        target: sip_tls_cert
+      - source: sip_tls_key
+        target: sip_tls_key
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api:
+    image: ghcr.io/kirikira/gsm2sip-server:${GSM2SIP_VERSION:-main}
+    environment:
+      DATABASE_URL: postgresql://gsm2sip:${POSTGRES_PASSWORD}@postgres:5432/gsm2sip?sslmode=disable
+      HTTP_ADDR: :8080
+      ARI_URL: http://asterisk:8088/ari
+      ARI_USERNAME: ${ARI_USERNAME:-gsm2sip}
+      ARI_PASSWORD: ${ARI_PASSWORD}
+      ARI_APPLICATION: gsm2sip
+      SIP_SERVER_NAME: ${SIP_SERVER_NAME:?set SIP_SERVER_NAME in .env}
+      SIP_PORT: ${SIP_PORT:-5061}
+      SIP_CA_PEM_FILE: ${SIP_CA_PEM_FILE:-}
+      SIP_ENABLE_OPUS: ${SIP_ENABLE_OPUS:-false}
+      SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:?set a stable base64-encoded 32-byte key in .env}
+    ports:
+      - "127.0.0.1:${HTTP_PORT:-8080}:8080"
+    secrets:
+      - source: sip_tls_cert
+        target: sip_tls_cert
+    depends_on:
+      postgres:
+        condition: service_healthy
+      asterisk:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    image: ghcr.io/kirikira/gsm2sip-server:${GSM2SIP_VERSION:-main}
+    entrypoint: ["/usr/local/bin/gsm2sip-worker"]
+    environment:
+      DATABASE_URL: postgresql://gsm2sip:${POSTGRES_PASSWORD}@postgres:5432/gsm2sip?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+
+secrets:
+  sip_tls_cert:
+    file: ${ASTERISK_TLS_CERT_FILE:-./sip.crt}
+  sip_tls_key:
+    file: ${ASTERISK_TLS_KEY_FILE:-./sip.key}
