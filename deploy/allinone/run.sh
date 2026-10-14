@@ -1,0 +1,137 @@
+#!/bin/bash
+# Supervisor for the all-in-one image: PostgreSQL, Asterisk, API and worker.
+# Everything persistent lives under /data. If any process exits, the others
+# are stopped and the container exits so Docker's restart policy restarts it.
+set -euo pipefail
+
+log() { printf '[gsm2sip] %s\n' "$*" >&2; }
+die() { log "$*"; exit 1; }
+
+: "${SIP_SERVER_NAME:?SIP_SERVER_NAME is required (the SIP host name; any name for an SMS-only node)}"
+PG_BIN=/usr/lib/postgresql/17/bin
+DATA=/data
+PGDATA="$DATA/postgres"
+RUN_DIR=/run/gsm2sip
+install -d -m 0755 "$RUN_DIR"
+install -d -m 0700 "$DATA/secrets"
+
+# Generated once and kept in the data volume unless supplied by the operator.
+secret_file() {
+    local name="$1" generator="$2" file="$DATA/secrets/$1"
+    if [ ! -s "$file" ]; then
+        (umask 077; eval "$generator" > "$file.tmp" && mv "$file.tmp" "$file")
+        log "generated $name in $file"
+    fi
+    cat "$file"
+}
+
+DB_PASSWORD="$(secret_file db_password 'openssl rand -hex 24')"
+if [ -z "${SECRETS_ENCRYPTION_KEY:-}" ]; then
+    SECRETS_ENCRYPTION_KEY="$(secret_file secrets_encryption_key 'openssl rand -base64 32')"
+fi
+# ARI never leaves the container; a fresh password per start is enough.
+ARI_PASSWORD="$(openssl rand -hex 24)"
+(umask 077; printf '%s' "$ARI_PASSWORD" > "$RUN_DIR/ari_password")
+DATABASE_URL="postgresql://gsm2sip:${DB_PASSWORD}@127.0.0.1:5432/gsm2sip?sslmode=disable"
+
+# SIP TLS: mounted certificate, or a self-signed one kept in the volume.
+install -d -m 0755 /run/secrets 2>/dev/null || true
+if [ -s /run/secrets/sip_tls_cert ] && [ -s /run/secrets/sip_tls_key ]; then
+    log "using the mounted SIP certificate"
+    SIP_CA_PEM_FILE="${SIP_CA_PEM_FILE:-}"
+else
+    tls="$DATA/tls"
+    install -d -m 0755 "$tls"
+    if [ ! -s "$tls/sip.crt" ] || [ "$(cat "$tls/name" 2>/dev/null)" != "$SIP_SERVER_NAME" ]; then
+        (umask 077; openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+            -keyout "$tls/sip.key" -out "$tls/sip.crt" -subj "/CN=$SIP_SERVER_NAME" \
+            -addext "subjectAltName=DNS:$SIP_SERVER_NAME" 2>/dev/null)
+        chmod 0644 "$tls/sip.crt"
+        printf '%s' "$SIP_SERVER_NAME" > "$tls/name"
+        log "generated a self-signed SIP certificate for $SIP_SERVER_NAME"
+    fi
+    cp "$tls/sip.crt" /run/secrets/sip_tls_cert
+    (umask 077; cp "$tls/sip.key" /run/secrets/sip_tls_key)
+    # Phones receive this certificate as their trust anchor.
+    SIP_CA_PEM_FILE="$tls/sip.crt"
+fi
+
+PUBLIC_IP="${PUBLIC_IP:-127.0.0.1}"
+ASTERISK_EXTERNAL_SIGNALING_ADDRESS="${ASTERISK_EXTERNAL_SIGNALING_ADDRESS:-$PUBLIC_IP}"
+ASTERISK_EXTERNAL_MEDIA_ADDRESS="${ASTERISK_EXTERNAL_MEDIA_ADDRESS:-$PUBLIC_IP}"
+
+as_user() { local user="$1"; shift; setpriv --reuid="$user" --regid="$user" --init-groups "$@"; }
+
+# PostgreSQL
+if [ ! -s "$PGDATA/PG_VERSION" ]; then
+    log "initializing PostgreSQL in $PGDATA"
+    install -d -o postgres -g postgres -m 0700 "$PGDATA"
+    pwfile="$(mktemp)"
+    printf '%s' "$DB_PASSWORD" > "$pwfile"
+    chown postgres "$pwfile"
+    as_user postgres "$PG_BIN/initdb" -D "$PGDATA" -U gsm2sip --pwfile="$pwfile" \
+        -E UTF8 --no-locale --auth-host=scram-sha-256 --auth-local=peer >/dev/null
+    rm -f "$pwfile"
+fi
+chown -R postgres:postgres "$PGDATA"
+as_user postgres "$PG_BIN/postgres" -D "$PGDATA" \
+    -c listen_addresses=127.0.0.1 -c unix_socket_directories=/run/postgresql &
+PG_PID=$!
+
+pids=("$PG_PID")
+stop_all() {
+    trap - TERM INT
+    log "stopping"
+    for pid in "${pids[@]:1}"; do kill -TERM "$pid" 2>/dev/null || true; done
+    for pid in "${pids[@]:1}"; do wait "$pid" 2>/dev/null || true; done
+    kill -INT "$PG_PID" 2>/dev/null || true
+    wait "$PG_PID" 2>/dev/null || true
+}
+trap 'stop_all; exit 0' TERM INT
+
+for _ in $(seq 1 60); do
+    PGPASSWORD="$DB_PASSWORD" "$PG_BIN/pg_isready" -q -h 127.0.0.1 -U gsm2sip -d postgres && break
+    kill -0 "$PG_PID" 2>/dev/null || die "PostgreSQL exited during startup"
+    sleep 1
+done
+if [ "$(PGPASSWORD="$DB_PASSWORD" "$PG_BIN/psql" -h 127.0.0.1 -U gsm2sip -d postgres -tAc \
+        "SELECT 1 FROM pg_database WHERE datname = 'gsm2sip'")" != 1 ]; then
+    PGPASSWORD="$DB_PASSWORD" "$PG_BIN/psql" -h 127.0.0.1 -U gsm2sip -d postgres -qc 'CREATE DATABASE gsm2sip'
+fi
+
+# Asterisk (its entrypoint renders config, then drops to the asterisk user).
+env ARI_USERNAME=gsm2sip ARI_PASSWORD="$ARI_PASSWORD" ASTERISK_ARI_BIND_ADDR=127.0.0.1 \
+    ASTERISK_EXTERNAL_SIGNALING_ADDRESS="$ASTERISK_EXTERNAL_SIGNALING_ADDRESS" \
+    ASTERISK_EXTERNAL_MEDIA_ADDRESS="$ASTERISK_EXTERNAL_MEDIA_ADDRESS" \
+    POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5432 POSTGRES_DB=gsm2sip POSTGRES_USER=gsm2sip \
+    POSTGRES_PASSWORD="$DB_PASSWORD" RTP_START="$RTP_START" RTP_END="$RTP_END" \
+    /usr/local/bin/gsm2sip-asterisk-entrypoint &
+pids+=("$!")
+for _ in $(seq 1 60); do
+    ARI_USERNAME=gsm2sip ARI_PASSWORD="$ARI_PASSWORD" /usr/local/bin/gsm2sip-asterisk-healthcheck 2>/dev/null && break
+    kill -0 "${pids[1]}" 2>/dev/null || die "Asterisk exited during startup"
+    sleep 1
+done
+
+# API and worker
+app_env=(
+    DATABASE_URL="$DATABASE_URL" MIGRATIONS_DIR="$MIGRATIONS_DIR"
+    ARI_URL=http://127.0.0.1:8088/ari ARI_USERNAME=gsm2sip ARI_PASSWORD="$ARI_PASSWORD"
+    ARI_APPLICATION=gsm2sip SIP_SERVER_NAME="$SIP_SERVER_NAME" SIP_PORT="$SIP_PORT"
+    SIP_CA_PEM_FILE="$SIP_CA_PEM_FILE" SIP_ENABLE_OPUS="${SIP_ENABLE_OPUS:-false}"
+    SECRETS_ENCRYPTION_KEY="$SECRETS_ENCRYPTION_KEY" HTTP_ADDR="$HTTP_ADDR"
+)
+env -i PATH=/usr/bin:/bin "${app_env[@]}" setpriv --reuid=gsm2sip --regid=gsm2sip --init-groups \
+    /usr/local/libexec/gsm2sip-api &
+pids+=("$!")
+env -i PATH=/usr/bin:/bin DATABASE_URL="$DATABASE_URL" MIGRATIONS_DIR="$MIGRATIONS_DIR" \
+    setpriv --reuid=gsm2sip --regid=gsm2sip --init-groups /usr/local/libexec/gsm2sip-worker &
+pids+=("$!")
+log "started PostgreSQL, Asterisk, API and worker"
+
+set +e
+wait -n "${pids[@]}"
+status=$?
+log "a service exited with status $status"
+stop_all
+exit 1
