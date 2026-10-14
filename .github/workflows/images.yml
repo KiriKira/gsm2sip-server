@@ -3,6 +3,7 @@ name: Container images
 # Prebuilt images so a server only pulls and runs (deploy/compose.yaml):
 #   ghcr.io/kirikira/gsm2sip-server    API, worker and admin CLI
 #   ghcr.io/kirikira/gsm2sip-asterisk  pinned Asterisk with the gsm2sip config
+#   ghcr.io/kirikira/gsm2sip           all-in-one: both of the above plus PostgreSQL
 # Each architecture builds natively, then deploy/compose.yaml is started from
 # the freshly built images and checked before anything is pushed.
 
@@ -33,6 +34,7 @@ concurrency:
 env:
   SERVER_IMAGE: ghcr.io/kirikira/gsm2sip-server
   ASTERISK_IMAGE: ghcr.io/kirikira/gsm2sip-asterisk
+  ALLINONE_IMAGE: ghcr.io/kirikira/gsm2sip
 
 jobs:
   build:
@@ -125,6 +127,50 @@ jobs:
           docker compose run --rm --no-deps --entrypoint /usr/local/bin/gsm2sip-admin api \
             owner create --name ci-smoke >/dev/null
           docker compose down -v
+
+      - name: Build the all-in-one image from the tested images
+        run: |
+          set -euo pipefail
+          # The default (docker driver) builder sees the images loaded above.
+          docker buildx build --builder default --load \
+            --build-arg "SERVER_IMAGE=$SERVER_IMAGE:ci-smoke" \
+            --build-arg "ASTERISK_IMAGE=$ASTERISK_IMAGE:ci-smoke" \
+            --label org.opencontainers.image.source=https://github.com/KiriKira/gsm2sip-server \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --file deploy/allinone/Dockerfile --tag "$ALLINONE_IMAGE:ci-smoke" .
+
+      - name: Smoke-test the all-in-one image, including a restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'docker logs --tail 200 aio || true' ERR
+          docker run -d --name aio -e SIP_SERVER_NAME=sip.localhost \
+            -p 127.0.0.1:18080:8080 -v aio-data:/data "$ALLINONE_IMAGE:ci-smoke"
+          wait_ready() {
+            for _ in $(seq 1 90); do
+              curl --fail --silent --max-time 2 http://127.0.0.1:18080/readyz >/dev/null && return 0
+              sleep 2
+            done
+            return 1
+          }
+          wait_healthy() {
+            for _ in $(seq 1 40); do
+              [ "$(docker inspect --format '{{.State.Health.Status}}' aio)" = healthy ] && return 0
+              sleep 5
+            done
+            return 1
+          }
+          wait_ready
+          curl --fail --silent --show-error http://127.0.0.1:18080/v1/capabilities | grep -q '"mesh"'
+          docker exec aio gsm2sip-admin owner create --name ci-smoke >/dev/null
+          wait_healthy
+          docker restart aio
+          wait_ready
+          wait_healthy
+          docker exec aio gsm2sip-admin owner create --name ci-smoke-after-restart >/dev/null
+          docker logs aio 2>&1 | grep -c 'generated secrets_encryption_key' | grep -qx 1
+          docker rm -f aio
+          docker volume rm aio-data
           docker image ls --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep ci-smoke
 
       - name: Log in to GHCR
@@ -139,7 +185,7 @@ jobs:
         if: env.PUSH == 'true'
         run: |
           set -euo pipefail
-          for image in "$SERVER_IMAGE" "$ASTERISK_IMAGE"; do
+          for image in "$SERVER_IMAGE" "$ASTERISK_IMAGE" "$ALLINONE_IMAGE"; do
             docker tag "$image:ci-smoke" "$image:$ARCH_TAG"
             docker push "$image:$ARCH_TAG"
           done
@@ -178,7 +224,7 @@ jobs:
           ARCH_PREFIX: build-${{ github.sha }}
         run: |
           set -euo pipefail
-          for image in "$SERVER_IMAGE" "$ASTERISK_IMAGE"; do
+          for image in "$SERVER_IMAGE" "$ASTERISK_IMAGE" "$ALLINONE_IMAGE"; do
             args=()
             while read -r tag; do
               [ -n "$tag" ] && args+=(--tag "$image:${tag#placeholder:}")

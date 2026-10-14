@@ -2,7 +2,7 @@
 
 [自动构建与 Release](docs/releases.md)：`main` 推送发布预览版，版本标签发布正式版，包含 Linux amd64/arm64 部署包。
 
-[用预构建镜像部署](docs/deploy-images.md)：服务器不需要编译，`docker compose up -d` 拉取 `ghcr.io/kirikira/gsm2sip-server` 与 `gsm2sip-asterisk`（amd64/arm64）。
+[用预构建镜像部署](docs/deploy-images.md)：服务器不需要编译。一体镜像 `ghcr.io/kirikira/gsm2sip` 一条 `docker run` 即可（含 PostgreSQL），也可用 `deploy/compose.yaml` 分镜像部署（amd64/arm64）。
 
 Go + PostgreSQL 转发服务，把主机的短信任务投递到旧手机网关，并把网关的持久化事件安全同步回主机。一个 owner 可配对多个独立 client；每台 host 有自己的 API 会话、SIP endpoint/AOR、事件 durable receipt 和短信写请求幂等范围。短信控制核心包括一次性配对码、短时 access 与轮换 refresh token、owner/device 隔离、SIM 两阶段绑定、heartbeat、短信 command claim、事件批量事务与 durable ACK、按 owner 分页的消息事件流。
 

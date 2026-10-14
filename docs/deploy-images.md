@@ -1,17 +1,52 @@
 # 用预构建镜像部署
 
-服务器上不编译任何东西，只拉取镜像运行。需要 Docker 和 Docker Compose v2，支持 amd64 与 arm64。
+服务器上不编译任何东西，只拉取镜像运行，支持 amd64 与 arm64。
 
 | 镜像 | 内容 |
 |---|---|
+| `ghcr.io/kirikira/gsm2sip` | **一体镜像**：PostgreSQL 17、Asterisk、API 与 worker，一个容器一个数据卷 |
 | `ghcr.io/kirikira/gsm2sip-server` | API、worker、管理 CLI（distroless，静态二进制） |
 | `ghcr.io/kirikira/gsm2sip-asterisk` | 固定版本的 Asterisk 22.11.0 与 gsm2sip 配置 |
 
 标签：`main`（main 分支最新构建）、`sha-<7位提交>`（固定某次构建）、版本标签 `vX.Y.Z` 与 `latest`。
-每次推送前，CI 都在对应架构上用 [deploy/compose.yaml](../deploy/compose.yaml) 启动整套服务并检查
-`/readyz`、`/v1/capabilities`、Asterisk 健康状态与管理 CLI。
+每次推送前，CI 都在对应架构上启动一体镜像（含一次重启）和 [deploy/compose.yaml](../deploy/compose.yaml)，
+检查 `/readyz`、`/v1/capabilities`、Asterisk 健康状态与管理 CLI。
 
-## 部署
+## 最简单：一体镜像
+
+只收发短信的节点（例如经 cloudflared 对外）：
+
+```sh
+docker run -d --name gsm2sip --restart unless-stopped \
+  -v gsm2sip-data:/data -p 127.0.0.1:8080:8080 \
+  -e SIP_SERVER_NAME=sip.example.com \
+  ghcr.io/kirikira/gsm2sip:main
+```
+
+对外提供通话的节点，再加公网 IP、SIP/RTP 端口和证书（证书的 SAN 必须包含 `SIP_SERVER_NAME`）：
+
+```sh
+docker run -d --name gsm2sip --restart unless-stopped \
+  -v gsm2sip-data:/data -p 127.0.0.1:8080:8080 \
+  -p 5061:5061/tcp -p 10000-10199:10000-10199/udp \
+  -v /path/fullchain.pem:/run/secrets/sip_tls_cert:ro \
+  -v /path/privkey.pem:/run/secrets/sip_tls_key:ro \
+  -e SIP_SERVER_NAME=sip.example.com -e PUBLIC_IP=203.0.113.10 \
+  ghcr.io/kirikira/gsm2sip:main
+```
+
+- 首次启动自动生成数据库密码与 `SECRETS_ENCRYPTION_KEY`，保存在数据卷的 `/data/secrets/`；
+  没有挂载证书时自动生成自签 SIP 证书并下发给手机。备份时备份整个数据卷，并把
+  `docker exec gsm2sip cat /data/secrets/secrets_encryption_key` 另存一份。
+  也可以用 `-e SECRETS_ENCRYPTION_KEY=...` 自己提供，但之后不能再更换。
+- 挂载的是公网可信证书时无需其他设置；挂载私有 CA 签发的证书时加 `-e SIP_CA_PEM_FILE=/run/secrets/sip_tls_cert`。
+- 管理命令：`docker exec gsm2sip gsm2sip-admin owner create --name Home`，配对码同下。
+- 升级：`docker pull ghcr.io/kirikira/gsm2sip:main`，然后删除并用同样参数重建容器（数据在卷里）。
+- 证书续期后 `docker restart gsm2sip`。
+
+## 分镜像：Docker Compose
+
+### 部署
 
 ```sh
 mkdir -p /opt/gsm2sip && cd /opt/gsm2sip
@@ -46,7 +81,9 @@ curl http://127.0.0.1:8080/v1/capabilities     # 输出应包含 "mesh"
 API 只监听 `127.0.0.1:8080`，由你的 HTTPS 反向代理或 cloudflared 对外提供；两个 App 只接受 HTTPS。
 ARI（8088）不对外开放。
 
-## 账户与配对码
+### 账户与配对码
+
+一体镜像把下面的 `$A` 换成 `docker exec gsm2sip gsm2sip-admin`。
 
 ```sh
 A="docker compose run --rm --no-deps --entrypoint /usr/local/bin/gsm2sip-admin api"
@@ -55,7 +92,7 @@ $A pairing-code create --owner-id OWNER_UUID --role gateway --ttl 60m
 $A pairing-code create --owner-id OWNER_UUID --role client --ttl 60m
 ```
 
-## 升级与维护
+### 升级与维护
 
 - 升级：`docker compose pull && docker compose up -d`。要固定版本，把 `GSM2SIP_VERSION` 设为 `sha-xxxxxxx`。
 - 证书续期后执行 `docker compose restart asterisk`（Asterisk 只在启动时读取证书）。
