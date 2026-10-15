@@ -120,9 +120,11 @@ stop_all() {
     trap - TERM INT
     log "stopping"
     for pid in "${pids[@]:1}"; do kill -TERM "$pid" 2>/dev/null || true; done
-    wait_or_kill 20 "${pids[@]:1}"
+    # Both phases fit inside Docker's default 10-second stop timeout, so
+    # PostgreSQL always finishes its shutdown checkpoint before a SIGKILL.
+    wait_or_kill 5 "${pids[@]:1}"
     kill -INT "$PG_PID" 2>/dev/null || true
-    wait_or_kill 30 "$PG_PID"
+    wait_or_kill 4 "$PG_PID"
 }
 trap 'stop_all; exit 0' TERM INT
 
