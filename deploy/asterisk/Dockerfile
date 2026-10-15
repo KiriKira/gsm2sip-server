@@ -39,16 +39,37 @@ RUN --mount=type=secret,id=proxy_ca,required=false \
     rm -f asterisk.tar.gz pjproject.tar.gz asterisk-opus.tar.gz /tmp/session-ca-bundle.crt
 
 WORKDIR /usr/src/pjproject
-RUN ./aconfigure \
+# Build the pinned pjproject the way Asterisk builds its bundled copy: with
+# Asterisk's config_site.h (NDEBUG, so pjlib's debug assertions such as
+# "Calling pjlib from unknown/external thread" cannot abort Asterisk, plus
+# its transaction, hash and SDP limits) and the same configure options. The
+# malloc-debug shim only exists in the bundled build and is left out.
+RUN set -eu; \
+    asterisk_pj=/usr/src/third-party/pjproject; \
+    sed '/_ASTERISK_ASTMM_H/,/#endif/d' "$asterisk_pj/patches/config_site.h" \
+      > pjlib/include/pj/config_site.h; \
+    grep -q '^#define NDEBUG 1' pjlib/include/pj/config_site.h; \
+    if grep -q asterisk_malloc_debug pjlib/include/pj/config_site.h; then exit 1; fi; \
+    command -v patch >/dev/null; \
+    if ! grep -q PJSIP_INV_ABSORB_RETRANS_AFTER_ACK pjsip/include/pjsip/sip_config.h; then \
+      if patch -p1 --forward --dry-run < "$asterisk_pj"/patches/0020-*.patch >/dev/null; then \
+        patch -p1 --forward < "$asterisk_pj"/patches/0020-*.patch; \
+      else \
+        echo "pjproject predates the INVITE retransmission change; legacy behaviour already applies"; \
+      fi; \
+    fi; \
+    ./aconfigure \
       --prefix=/usr/local \
       --enable-shared \
       --enable-epoll \
-      --disable-sound \
-      --disable-video \
-      --disable-ffmpeg \
-      --disable-libyuv \
-      --disable-libsrtp \
-      --disable-opus && \
+      --disable-speex-codec --disable-speex-aec --disable-bcg729 --disable-gsm-codec \
+      --disable-ilbc-codec --disable-l16-codec --disable-g722-codec --disable-g7221-codec \
+      --disable-opencore-amr --disable-silk --disable-opus --disable-video --disable-v4l2 \
+      --disable-sound --disable-ext-sound --disable-sdl --disable-libyuv --disable-ffmpeg \
+      --disable-openh264 --disable-ipp --disable-libwebrtc --disable-libsrtp --disable-upnp \
+      --disable-resample --disable-g711-codec \
+      --without-external-pa --without-external-srtp \
+      CFLAGS="-O2 -DPJ_HAS_LINUX_EPOLL=1" && \
     make dep && \
     make -j2 && \
     make install && \

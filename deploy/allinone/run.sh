@@ -101,13 +101,28 @@ as_user postgres "$PG_BIN/postgres" -D "$PGDATA" \
 PG_PID=$!
 
 pids=("$PG_PID")
+# Wait up to $1 seconds for the given processes, then kill what is left, so a
+# stuck service can never keep the container alive after another one died
+# (Docker restarts the container only once this script exits).
+wait_or_kill() {
+    local deadline=$((SECONDS + $1)) pid
+    shift
+    for pid in "$@"; do
+        while kill -0 "$pid" 2>/dev/null && [ "$SECONDS" -lt "$deadline" ]; do sleep 0.5; done
+        if kill -0 "$pid" 2>/dev/null; then
+            log "process $pid did not stop in time; killing it"
+            kill -KILL "$pid" 2>/dev/null || true
+        fi
+        wait "$pid" 2>/dev/null || true
+    done
+}
 stop_all() {
     trap - TERM INT
     log "stopping"
     for pid in "${pids[@]:1}"; do kill -TERM "$pid" 2>/dev/null || true; done
-    for pid in "${pids[@]:1}"; do wait "$pid" 2>/dev/null || true; done
+    wait_or_kill 20 "${pids[@]:1}"
     kill -INT "$PG_PID" 2>/dev/null || true
-    wait "$PG_PID" 2>/dev/null || true
+    wait_or_kill 30 "$PG_PID"
 }
 trap 'stop_all; exit 0' TERM INT
 
