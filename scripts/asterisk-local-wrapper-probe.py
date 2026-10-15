@@ -606,8 +606,8 @@ def main() -> int:
             f"INSERT INTO ps_auths(id,auth_type,realm,username,password_digest) VALUES "
             f"('{gateway_endpoint}','userpass','{REALM}','{gateway_endpoint}','MD5:{auth_digest}');\n"
             "INSERT INTO ps_endpoints(id,transport,aors,auth,context,disallow,allow,direct_media,force_rport,rewrite_contact,rtp_symmetric,media_encryption,media_encryption_optimistic,dtmf_mode,identify_by) VALUES "
-            f"('{gateway_endpoint}','transport-tls','{gateway_endpoint}','{gateway_endpoint}','gsm-gateway','all','alaw,ulaw,g722','no','yes','yes','yes','sdes','no','rfc4733','username'),"
-            f"('{client_endpoint}','transport-tls','{client_endpoint}',NULL,'gsm-client','all','alaw,ulaw,g722','no','yes','yes','yes','sdes','no','rfc4733','username');\n"
+            f"('{gateway_endpoint}','transport-tls','{gateway_endpoint}','{gateway_endpoint}','gsm-gateway','all','g722,alaw,ulaw','no','yes','yes','yes','sdes','no','rfc4733','username'),"
+            f"('{client_endpoint}','transport-tls','{client_endpoint}',NULL,'gsm-client','all','g722,alaw,ulaw','no','yes','yes','yes','sdes','no','rfc4733','username');\n"
         )
 
         events = ARIEvents(host, username, password)

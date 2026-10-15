@@ -99,7 +99,7 @@ func TestPostgresSIPCredentialBootstrapRecoveryAndStorage(t *testing.T) {
 
 	var clientCodecs string
 	if err := database.db.QueryRow(`SELECT allow FROM ps_endpoints WHERE id=$1`, firstConfig.EndpointID).
-		Scan(&clientCodecs); err != nil || clientCodecs != "opus,alaw,ulaw,g722" {
+		Scan(&clientCodecs); err != nil || clientCodecs != "opus,g722,alaw,ulaw" {
 		t.Fatal("approved client profile must offer Opus with gateway-compatible fallbacks")
 	}
 	gateway := requestJSON(t, handler, http.MethodPost, "/v1/devices/self/sip-credentials/rotate",
@@ -108,7 +108,7 @@ func TestPostgresSIPCredentialBootstrapRecoveryAndStorage(t *testing.T) {
 	var gatewayCodecs string
 	gatewayEndpoint := "dev_" + strings.ReplaceAll(f.gatewayID, "-", "")
 	if err := database.db.QueryRow(`SELECT allow FROM ps_endpoints WHERE id=$1`, gatewayEndpoint).
-		Scan(&gatewayCodecs); err != nil || gatewayCodecs != "alaw,ulaw,g722" {
+		Scan(&gatewayCodecs); err != nil || gatewayCodecs != "g722,alaw,ulaw" {
 		t.Fatal("gateway profile must retain only its verified codec set")
 	}
 
