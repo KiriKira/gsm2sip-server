@@ -95,6 +95,8 @@ func (m *Manager) handleEvent(ctx context.Context, event asterisk.Event) error {
 			if len(event.Args) != 5 || event.Args[4] != "1" {
 				return m.ari.Hangup(ctx, event.Channel.ID)
 			}
+			// Whether the old phone sent a caller number; the number itself is not logged.
+			slog.Info("incoming call", "caller_number_present", event.Channel.Caller.Number != "")
 			revision, err := strconv.ParseInt(event.Args[3], 10, 64)
 			if err != nil {
 				return m.ari.Hangup(ctx, event.Channel.ID)
@@ -142,6 +144,12 @@ func (m *Manager) handleEvent(ctx context.Context, event asterisk.Event) error {
 			}
 		}
 	case "ChannelDestroyed":
+		// The first phone leg to go shows which side ended a call.
+		if endpointID, ok := endpointFromChannelName(event.Channel.Name); ok {
+			if identity, err := m.identityForEndpoint(ctx, endpointID); err == nil {
+				slog.Info("call leg ended", "leg", identity.role, "cause", event.Cause, "cause_text", event.CauseText)
+			}
+		}
 		return m.onChannelDestroyed(ctx, event.Channel.ID, event.Cause, event.CauseText)
 	}
 	return nil
