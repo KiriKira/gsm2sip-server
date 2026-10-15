@@ -69,6 +69,9 @@ cp /opt/gsm2sip/asterisk/templates/logger.conf "$ASTERISK_CONFIG_DIR/logger.conf
 cp /opt/gsm2sip/asterisk/templates/modules.conf "$ASTERISK_CONFIG_DIR/modules.conf"
 cp /opt/gsm2sip/asterisk/templates/sorcery.conf "$ASTERISK_CONFIG_DIR/sorcery.conf"
 chown -R asterisk:asterisk "$ASTERISK_CONFIG_DIR"
+# Point the default config path at this run's config so `asterisk -rx ...`
+# from `docker exec` finds the control socket without a -C flag or warning.
+ln -sfn "$ASTERISK_CONFIG_DIR/asterisk.conf" /etc/asterisk/asterisk.conf 2>/dev/null || true
 
 unset ARI_PASSWORD POSTGRES_PASSWORD
 exec setpriv --reuid=asterisk --regid=asterisk --init-groups \

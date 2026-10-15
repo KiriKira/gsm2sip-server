@@ -105,6 +105,7 @@ RUN cd /usr/src && ./configure \
       --enable res_pjsip \
       --enable res_pjsip_authenticator_digest \
       --enable res_pjsip_endpoint_identifier_user \
+      --enable res_pjsip_history \
       --enable res_srtp \
       --enable pbx_config \
       --disable BUILD_NATIVE \
