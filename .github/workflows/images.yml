@@ -168,6 +168,12 @@ jobs:
           wait_ready
           wait_healthy
           docker exec aio gsm2sip-admin owner create --name ci-smoke-after-restart >/dev/null
+          # `docker restart` allows the default 10 seconds: PostgreSQL must
+          # have shut down cleanly instead of needing crash recovery.
+          if docker logs aio 2>&1 | grep 'not properly shut down' >/dev/null; then
+            docker logs aio 2>&1 | grep -E '\[gsm2sip\]|shut|terminat' || true
+            exit 1
+          fi
           docker logs aio 2>&1 | grep -c 'generated secrets_encryption_key' | grep -qx 1
           docker rm -f aio
           docker volume rm aio-data

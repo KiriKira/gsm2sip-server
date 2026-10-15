@@ -96,7 +96,10 @@ if [ ! -s "$PGDATA/PG_VERSION" ]; then
     rm -f "$pwfile"
 fi
 chown -R postgres:postgres "$PGDATA"
-as_user postgres "$PG_BIN/postgres" -D "$PGDATA" \
+# Not through as_user: a backgrounded shell function runs in a subshell, so
+# $! would be that subshell, which ignores SIGINT, and PostgreSQL would never
+# see the fast-shutdown signal.
+setpriv --reuid=postgres --regid=postgres --init-groups "$PG_BIN/postgres" -D "$PGDATA" \
     -c listen_addresses=127.0.0.1 -c port="$PG_PORT" -c unix_socket_directories=/run/postgresql &
 PG_PID=$!
 
@@ -104,12 +107,19 @@ pids=("$PG_PID")
 # Wait up to $1 seconds for the given processes, then kill what is left, so a
 # stuck service can never keep the container alive after another one died
 # (Docker restarts the container only once this script exits).
+# An exited child stays a zombie until `wait` reaps it, and `kill -0` still
+# succeeds on a zombie, so check the process state instead.
+running() {
+    local state
+    state=$(sed 's/^.*) //' "/proc/$1/stat" 2>/dev/null) || return 1
+    [ "${state%% *}" != Z ]
+}
 wait_or_kill() {
     local deadline=$((SECONDS + $1)) pid
     shift
     for pid in "$@"; do
-        while kill -0 "$pid" 2>/dev/null && [ "$SECONDS" -lt "$deadline" ]; do sleep 0.5; done
-        if kill -0 "$pid" 2>/dev/null; then
+        while running "$pid" && [ "$SECONDS" -lt "$deadline" ]; do sleep 0.2; done
+        if running "$pid"; then
             log "process $pid did not stop in time; killing it"
             kill -KILL "$pid" 2>/dev/null || true
         fi
@@ -120,9 +130,11 @@ stop_all() {
     trap - TERM INT
     log "stopping"
     for pid in "${pids[@]:1}"; do kill -TERM "$pid" 2>/dev/null || true; done
-    wait_or_kill 20 "${pids[@]:1}"
+    # Both phases fit inside Docker's default 10-second stop timeout, so
+    # PostgreSQL always finishes its shutdown checkpoint before a SIGKILL.
+    wait_or_kill 5 "${pids[@]:1}"
     kill -INT "$PG_PID" 2>/dev/null || true
-    wait_or_kill 30 "$PG_PID"
+    wait_or_kill 4 "$PG_PID"
 }
 trap 'stop_all; exit 0' TERM INT
 
