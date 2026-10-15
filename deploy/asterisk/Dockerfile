@@ -90,6 +90,8 @@ RUN cd /usr/src && ./configure \
     make menuselect.makeopts && \
     menuselect/menuselect \
       --enable app_dial \
+      --enable app_mixmonitor \
+      --enable format_wav \
       --enable app_stack \
       --enable app_stasis \
       --enable chan_pjsip \
