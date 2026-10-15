@@ -78,6 +78,8 @@ RUN set -eu; \
     ldconfig
 
 WORKDIR /usr/src
+# BUILD_NATIVE (on by default) compiles with -march=native, so a binary built
+# on a CI runner with a newer CPU dies with SIGILL on an older home server.
 RUN cd /usr/src && ./configure \
       --prefix=/usr \
       --sysconfdir=/etc \
@@ -105,9 +107,20 @@ RUN cd /usr/src && ./configure \
       --enable res_pjsip_endpoint_identifier_user \
       --enable res_srtp \
       --enable pbx_config \
+      --disable BUILD_NATIVE \
       menuselect.makeopts && \
+    if grep -Eq '^MENUSELECT_CFLAGS=.*BUILD_NATIVE' menuselect.makeopts; then \
+      echo 'BUILD_NATIVE would tie the image to the build machine CPU' >&2; exit 1; \
+    fi && \
     make -j2 && \
-    make install
+    make install && \
+    if [ "$(uname -m)" = x86_64 ]; then \
+      for binary in /usr/sbin/asterisk /usr/lib/asterisk/modules/*.so /usr/local/lib/libpj*.so; do \
+        if objdump -d "$binary" | grep -Eq '%[yz]mm[0-9]'; then \
+          echo "$binary uses AVX instructions that older CPUs lack" >&2; exit 1; \
+        fi; \
+      done; \
+    fi
 
 # This GPL translator is maintained outside the Asterisk source tree.  Keep
 # the exact source commit pinned and build against the Asterisk 22 headers.
