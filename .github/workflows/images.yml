@@ -193,6 +193,17 @@ jobs:
           docker exec aio-udp sh -c 'grep -qi ":13C4 " /proc/net/udp /proc/net/udp6'
           docker exec aio-udp test ! -e /data/tls/sip.crt
           docker logs aio-udp 2>&1 | grep 'SIP over UDP without TLS' >/dev/null
+          # If Asterisk dies, the whole container must exit so Docker's
+          # restart policy brings it back, rather than idling with PostgreSQL.
+          asterisk_pid=$(docker top aio-udp -eo pid,comm | awk '$2 == "asterisk" {print $1; exit}')
+          test -n "$asterisk_pid"
+          sudo kill -KILL "$asterisk_pid"
+          for _ in $(seq 1 60); do
+            [ "$(docker inspect --format '{{.State.Running}}' aio-udp)" = false ] && break
+            sleep 1
+          done
+          test "$(docker inspect --format '{{.State.Running}}' aio-udp)" = false
+          docker logs aio-udp 2>&1 | grep 'a service exited' >/dev/null
           docker rm -f -v aio-udp
 
       - name: Smoke-test the all-in-one image with no address configured (host network)
