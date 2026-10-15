@@ -241,8 +241,12 @@ jobs:
           case "$history" in *"No such command"*|*"Unable to open"*) exit 1 ;; esac
           docker exec aio-auto asterisk -rx "pjsip set history off" >/dev/null
           # Per-leg recording for audio diagnosis is available.
-          docker exec aio-auto asterisk -rx "core show application MixMonitor" | grep -q "Record a call"
-          docker exec aio-auto asterisk -rx "core show file formats" | grep -q wav16
+          # Capture first: `grep -q` exits at the first match and would
+          # SIGPIPE the writer, which pipefail turns into a failure.
+          mixmonitor=$(docker exec aio-auto asterisk -rx "core show application MixMonitor")
+          grep -q "Record a call" <<<"$mixmonitor"
+          formats=$(docker exec aio-auto asterisk -rx "core show file formats")
+          grep -q wav16 <<<"$formats"
           # An INVITE from a caller number (no endpoint matches its From user)
           # is challenged with the realm the provisioned credentials use.
           python3 - <<'PY'
