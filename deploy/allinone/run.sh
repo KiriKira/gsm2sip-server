@@ -104,12 +104,19 @@ pids=("$PG_PID")
 # Wait up to $1 seconds for the given processes, then kill what is left, so a
 # stuck service can never keep the container alive after another one died
 # (Docker restarts the container only once this script exits).
+# An exited child stays a zombie until `wait` reaps it, and `kill -0` still
+# succeeds on a zombie, so check the process state instead.
+running() {
+    local state
+    state=$(sed 's/^.*) //' "/proc/$1/stat" 2>/dev/null) || return 1
+    [ "${state%% *}" != Z ]
+}
 wait_or_kill() {
     local deadline=$((SECONDS + $1)) pid
     shift
     for pid in "$@"; do
-        while kill -0 "$pid" 2>/dev/null && [ "$SECONDS" -lt "$deadline" ]; do sleep 0.5; done
-        if kill -0 "$pid" 2>/dev/null; then
+        while running "$pid" && [ "$SECONDS" -lt "$deadline" ]; do sleep 0.2; done
+        if running "$pid"; then
             log "process $pid did not stop in time; killing it"
             kill -KILL "$pid" 2>/dev/null || true
         fi
