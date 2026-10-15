@@ -96,7 +96,10 @@ if [ ! -s "$PGDATA/PG_VERSION" ]; then
     rm -f "$pwfile"
 fi
 chown -R postgres:postgres "$PGDATA"
-as_user postgres "$PG_BIN/postgres" -D "$PGDATA" \
+# Not through as_user: a backgrounded shell function runs in a subshell, so
+# $! would be that subshell, which ignores SIGINT, and PostgreSQL would never
+# see the fast-shutdown signal.
+setpriv --reuid=postgres --regid=postgres --init-groups "$PG_BIN/postgres" -D "$PGDATA" \
     -c listen_addresses=127.0.0.1 -c port="$PG_PORT" -c unix_socket_directories=/run/postgresql &
 PG_PID=$!
 
