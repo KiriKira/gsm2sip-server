@@ -106,6 +106,7 @@ type fakeARI struct {
 	mu                sync.Mutex
 	createCalls       []map[string]any
 	dialCalls         []string
+	dialQueries       []string
 	hangupCalls       []string
 	destroyCalls      []string
 	channels          []asterisk.Channel
@@ -171,6 +172,7 @@ func (f *fakeARI) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		channelID := strings.TrimSuffix(strings.TrimPrefix(path, "/channels/"), "/dial")
 		f.mu.Lock()
 		f.dialCalls = append(f.dialCalls, channelID)
+		f.dialQueries = append(f.dialQueries, r.URL.RawQuery)
 		f.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	case strings.HasPrefix(path, "/channels/") && strings.HasSuffix(path, "/progress") && r.Method == http.MethodPost:
@@ -350,9 +352,15 @@ func TestCreateIntentIsIdempotentAndOnlyClientSIPStartsARIWrapper(t *testing.T) 
 	}
 	fake.mu.Lock()
 	dials := append([]string(nil), fake.dialCalls...)
+	queries := append([]string(nil), fake.dialQueries...)
 	fake.mu.Unlock()
 	if len(dials) != 1 || dials[0] != wrapperID {
 		t.Fatalf("wrapper was dialed more than once or with wrong ID: %v", dials)
+	}
+	// The wrapper never reaches Up, so an ARI dial timeout would hang up the
+	// connected call when it fired.
+	if len(queries) != 1 || queries[0] != "" {
+		t.Fatalf("wrapper dial must not carry an ARI timeout: %q", queries)
 	}
 }
 

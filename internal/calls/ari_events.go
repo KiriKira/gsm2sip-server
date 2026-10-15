@@ -203,8 +203,7 @@ func (m *Manager) dialWrapper(ctx context.Context, channelID, callID, participan
 		if err := tx.Commit(); err != nil {
 			return err
 		}
-		timeout := time.Until(expires)
-		if err := m.ari.Dial(ctx, channelID, timeout); err != nil {
+		if err := m.ari.Dial(ctx, channelID); err != nil {
 			return err
 		}
 		return nil
@@ -221,11 +220,7 @@ func (m *Manager) dialWrapper(ctx context.Context, channelID, callID, participan
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	timeout := time.Minute
-	if direction == "incoming" {
-		timeout = time.Until(expires)
-	}
-	if err := m.ari.Dial(ctx, channelID, timeout); err != nil {
+	if err := m.ari.Dial(ctx, channelID); err != nil {
 		_ = m.markUnknown(context.Background(), callID, "ari_wrapper_dial_uncertain")
 		return err
 	}

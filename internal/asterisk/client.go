@@ -188,16 +188,12 @@ func (c *Client) CreateChannel(ctx context.Context, request OriginateRequest) (C
 	return channel, err
 }
 
-func (c *Client) Dial(ctx context.Context, channelID string, timeout time.Duration) error {
-	query := url.Values{}
-	if timeout > 0 {
-		seconds := int(timeout.Seconds())
-		if seconds < 1 {
-			seconds = 1
-		}
-		query.Set("timeout", fmt.Sprintf("%d", seconds))
-	}
-	return c.request(ctx, http.MethodPost, "channels/"+url.PathEscape(channelID)+"/dial", query, nil, nil)
+// Dial dials a channel without an ARI timeout. The Local wrappers dialed here
+// never reach Up (their PJSIP leg enters Stasis before Dial would answer), and
+// ARI hangs up any dialed channel that is not Up when its timeout fires, which
+// cut connected calls off. Ringing limits are enforced by expireDueCalls.
+func (c *Client) Dial(ctx context.Context, channelID string) error {
+	return c.request(ctx, http.MethodPost, "channels/"+url.PathEscape(channelID)+"/dial", nil, nil, nil)
 }
 
 func (c *Client) CreateBridge(ctx context.Context, bridgeID string) error {
