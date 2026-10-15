@@ -147,7 +147,7 @@ env ARI_USERNAME=gsm2sip ARI_PASSWORD="$ARI_PASSWORD" ASTERISK_ARI_BIND_ADDR=127
 pids+=("$!")
 for _ in $(seq 1 60); do
     ARI_USERNAME=gsm2sip ARI_PASSWORD="$ARI_PASSWORD" ASTERISK_ARI_PORT="$ARI_PORT" /usr/local/bin/gsm2sip-asterisk-healthcheck 2>/dev/null && break
-    kill -0 "${pids[1]}" 2>/dev/null || die "Asterisk exited during startup"
+    kill -0 "${pids[1]}" 2>/dev/null || { log "Asterisk exited during startup"; stop_all; exit 1; }
     sleep 1
 done
 
