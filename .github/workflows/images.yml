@@ -195,7 +195,10 @@ jobs:
           docker logs aio-udp 2>&1 | grep 'SIP over UDP without TLS' >/dev/null
           # If Asterisk dies, the whole container must exit so Docker's
           # restart policy brings it back, rather than idling with PostgreSQL.
-          asterisk_pid=$(docker top aio-udp -eo pid,comm | awk '$2 == "asterisk" {print $1; exit}')
+          # Read the whole listing first: an awk that exits early would
+          # SIGPIPE `docker top`, which pipefail turns into a failure.
+          processes=$(docker top aio-udp -eo pid,comm)
+          asterisk_pid=$(printf '%s\n' "$processes" | awk '$2 == "asterisk" {pid = $1} END {print pid}')
           test -n "$asterisk_pid"
           sudo kill -KILL "$asterisk_pid"
           for _ in $(seq 1 60); do
