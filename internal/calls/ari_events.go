@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strconv"
 	"strings"
@@ -130,6 +131,14 @@ func (m *Manager) handleEvent(ctx context.Context, event asterisk.Event) error {
 						return err
 					}
 				}
+			}
+		}
+	case "ChannelDtmfReceived":
+		// Shows which leg a keypress reached when DTMF does not get through.
+		// The digit itself is not logged: it may be a PIN.
+		if endpointID, ok := endpointFromChannelName(event.Channel.Name); ok {
+			if identity, err := m.identityForEndpoint(ctx, endpointID); err == nil {
+				slog.Info("DTMF received", "from", identity.role, "duration_ms", event.DurationMs)
 			}
 		}
 	case "ChannelDestroyed":

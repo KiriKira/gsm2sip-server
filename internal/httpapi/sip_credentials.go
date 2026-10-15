@@ -242,9 +242,9 @@ func (s *Server) rotateSIPCredentials(w http.ResponseWriter, r *http.Request, p 
 		writeDBUnavailable(w)
 		return
 	}
-	context, codecs := "gsm-client", "alaw,ulaw,g722"
+	context, codecs := "gsm-client", "g722,alaw,ulaw"
 	if p.Role == "client" && s.sip.EnableOpus {
-		codecs = "opus,alaw,ulaw,g722"
+		codecs = "opus,g722,alaw,ulaw"
 	}
 	if p.Role == "gateway" {
 		context = "gsm-gateway"

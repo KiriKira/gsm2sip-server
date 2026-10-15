@@ -59,6 +59,8 @@ type Event struct {
 	Channel     Channel  `json:"channel"`
 	Cause       int      `json:"cause"`
 	CauseText   string   `json:"cause_txt"`
+	// DurationMs is set on ChannelDtmfReceived.
+	DurationMs int `json:"duration_ms"`
 }
 
 type OriginateRequest struct {
