@@ -229,6 +229,11 @@ jobs:
           # No fixed external address: Asterisk picks the interface per phone.
           docker exec aio-auto sh -c 'f=$(ls /tmp/gsm2sip-asterisk.*/pjsip.conf) && grep -q transport-udp "$f" && ! grep -q external_ "$f"'
           docker exec aio-auto gsm2sip-admin owner create --name ci-auto >/dev/null
+          # Operators can record SIP history from `docker exec` without -C.
+          history=$(docker exec aio-auto asterisk -rx "pjsip set history on" 2>&1)
+          echo "$history"
+          case "$history" in *"No such command"*|*"Unable to open"*) exit 1 ;; esac
+          docker exec aio-auto asterisk -rx "pjsip set history off" >/dev/null
           # An INVITE from a caller number (no endpoint matches its From user)
           # is challenged with the realm the provisioned credentials use.
           python3 - <<'PY'
