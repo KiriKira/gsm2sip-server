@@ -80,6 +80,30 @@ Go 侧目前只用到 ARI 的一个小子集：`Events`（`StasisStart`，参数
 - 一体镜像在 `native` 下不启动 Asterisk；健康检查只看 API。
 - 两种引擎写同一套数据库表，可以随时切回。
 
+## 依赖调研（2026-10-15）
+
+原则：活跃维护、宽松许可、依赖少的库才引入；冷门或长期不更新的，自己实现；
+加密实现一律不自己写。数据来自 deps.dev（stars）和 Go 模块代理（最近发布）。
+
+| 库 | 用途 | Stars | 最近发布 | 许可 | 结论 |
+|---|---|---|---|---|---|
+| `github.com/emiago/sipgo` | SIP 解析、传输（UDP/TCP/TLS/WS）、事务层 | 1.1k | v1.6.0，2026-08 | BSD-2 | **采用**。约每月一个版本；直接依赖只有 uuid、gobwas/ws、icholy/digest；LiveKit 的 SIP 服务在生产中使用它。只用解析、传输和事务层，对话和 B2BUA 自己写 |
+| `github.com/pion/rtp` | RTP 包头解析 | 478 | v1.10.5，2026-07 | MIT | **采用** |
+| `github.com/pion/rtcp` | RTCP 解析（丢包、RTT 统计） | 163 | v1.2.19，2026-10 | MIT | **采用**。stars 少，但属于 Pion 项目，维护和 pion/webrtc（16.8k）同步 |
+| `github.com/pion/sdp/v3` | SDP 解析与生成 | 185 | v3.0.20，2026-09 | MIT | **采用**。理由同上 |
+| `github.com/pion/srtp/v3` | SRTP/SRTCP 加解密 | 141 | v3.1.3，2026-10 | MIT | **采用**。加密不自己实现 |
+| `github.com/icholy/digest` | sipgo 自带的摘要认证辅助 | 73 | v1.2.0，2026-07 | MIT | 作为 sipgo 的间接依赖存在；服务端摘要校验约 50 行，自己实现，不直接调用 |
+| `github.com/emiago/diago` | 基于 sipgo 的完整 VoIP 框架 | 422 | v0.41.0，2026-10 | MPL-2.0 | **不用**。v0.x 接口变动频繁，依赖 cgo 的 libopus 和整套 pion/webrtc，功能远超所需 |
+| `github.com/ghettovoice/gosip` | SIP 栈 | 528 | 无 tag，go.mod 仍是 Go 1.13 时代的依赖 | BSD-2 | **不用** |
+| `github.com/jart/gosip` | SIP 栈 | 538 | 无 tag | Apache-2.0 | **不用**，早已不维护 |
+| `github.com/cloudwebrtc/go-sip-ua` | SIP UA | 237 | v1.1.6，2022-01 | Apache-2.0 | **不用**，三年未发布 |
+| `github.com/livekit/sip` | LiveKit 的 SIP 网关服务 | 480 | v1.19.0，2026-10 | Apache-2.0 | 不作为依赖（与 LiveKit 房间耦合），可参考其对 sipgo 和 pion 的用法 |
+| `github.com/pion/webrtc/v4`、`turn/v4`、`ice/v4` | 以后的 WebRTC 方向 | 16.8k / 2.3k / 617 | 2026-10 / 2026-01 / 2026-10 | MIT | 以后评估 WebRTC 时使用 |
+
+自己实现的部分：注册表与在线状态、服务端摘要校验、对话与 B2BUA、端口池、RTP 中继循环与
+对称锁定、DTMF payload type 映射、媒体超时与统计。SIP 解析、传输和事务计时器交给 sipgo；
+如果后续发现它的事务层满足不了我们的场景，退路是只保留它的解析器，事务层自己写。
+
 ## 分阶段 PR
 
 1. **接口重构**：引入 `calls.Switch` 和 Asterisk 适配器，没有行为变化，现有测试全部通过。
