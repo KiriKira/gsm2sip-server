@@ -49,11 +49,13 @@ RUN set -eu; \
     sed '/_ASTERISK_ASTMM_H/,/#endif/d' "$asterisk_pj/patches/config_site.h" \
       > pjlib/include/pj/config_site.h; \
     grep -q '^#define NDEBUG 1' pjlib/include/pj/config_site.h; \
-    if grep -q asterisk_malloc_debug pjlib/include/pj/config_site.h; then exit 1; fi; \
+    if grep -q '#include "asterisk_malloc_debug.h"' pjlib/include/pj/config_site.h; then exit 1; fi; \
     command -v patch >/dev/null; \
+    retrans_patch=$(echo "$asterisk_pj"/patches/0020-*.patch); \
+    test -f "$retrans_patch"; \
     if ! grep -q PJSIP_INV_ABSORB_RETRANS_AFTER_ACK pjsip/include/pjsip/sip_config.h; then \
-      if patch -p1 --forward --dry-run < "$asterisk_pj"/patches/0020-*.patch >/dev/null; then \
-        patch -p1 --forward < "$asterisk_pj"/patches/0020-*.patch; \
+      if patch -p1 --forward --dry-run < "$retrans_patch" >/dev/null; then \
+        patch -p1 --forward < "$retrans_patch"; \
       else \
         echo "pjproject predates the INVITE retransmission change; legacy behaviour already applies"; \
       fi; \
