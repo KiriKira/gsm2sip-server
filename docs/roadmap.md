@@ -16,3 +16,8 @@
 当前 M1/M2 短信核心及系统库补扫、刷新恢复、主机 durable receipt 已落代码。M3 的内置 SDK/Telecom、SIP 配置和 ARI 编排，以及 M4 的 pending/ready/expiry 与后台 SIP 服务已实现；实现不表示已完成两卡音频、锁屏或弱网实机验收。FCM、ICE/TURN 仍待实现；现有跨网媒体恢复策略、M5 持续运行和生产发布仍待验收。折叠屏按实际窗口和铰链适配，Z Fold8 需最终实机验证。
 
 本地软件测试、官方 Android Emulator 与 Asterisk 探针用于初步验证；没有执行真实短信、计费拨号或公网生产部署。结果以验证产物及三份 PR 的对应提交记录为准。
+
+## 之后：替换 Asterisk
+
+在 M3 真机通话验收通过后，按 [plan-native-sip.md](plan-native-sip.md) 分阶段用 Go 实现 SIP 信令和 RTP 中继，
+以 `SIP_ENGINE` 开关与 Asterisk 并行验证，再移除 Asterisk。
