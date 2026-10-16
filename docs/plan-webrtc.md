@@ -1,6 +1,7 @@
 # 三端 WebRTC 通话迁移计划
 
-更新：2026-10-16。状态：已开始 W0 基线整理和 W2 兼容接缝；W1 媒体探针及 WebRTC 通话尚未完成。
+更新：2026-10-16。状态：W0 基线和 W2 接缝/协商模块部分完成，W1 隔离媒体探针已构建；
+真机 PCM/TURN、生产信令接入及 WebRTC 通话尚未完成，仍默认 SIP。
 实际进度及验证记录见 [迁移实施记录](webrtc-migration-status.md)；本文的目标接口、配置和阶段不表示均已可用。
 
 目标：将主机、网关和服务器的通话信令/媒体从 SIP + Asterisk 迁移到 WebRTC，保持现有 UI 和外围功能的可观察行为。
@@ -8,6 +9,7 @@
 本文取代 [旧自研 SIP 计划](plan-native-sip.md) 的后续实施路线；既有协议仍以
 [wire addendum](server-wire-addendum.md) 与 [OpenAPI](../openapi/openapi.yaml) 为准。
 新增 WebRTC wire 契约在 W2 单独冻结并纳入同一套协议文档、schema 和 fixtures，禁止两端各自定义。
+已实现协商子模块及其未接入边界见 [RTC v1 实验契约](rtc-signaling-v1.md)；该契约尚未发布为网络端点。
 
 ## 1. 范围与不可退化的边界
 
