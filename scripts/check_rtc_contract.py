@@ -44,11 +44,16 @@ for mutation in mutations:
 # single-repository invocation's skipped cross-repository check explicit.
 siblings = [ROOT.parent / name for name in ("gsm2sip-client-android", "gsm2sip")]
 if all(path.is_dir() for path in siblings):
-    for area, filename in (("main", "RemoteIceBuffer.kt"), ("test", "RemoteIceBufferTest.kt")):
+    for area, filename in (("main", "RemoteIceBuffer.kt"), ("test", "RemoteIceBufferTest.kt"),
+                           ("main", "RtcCommandCodec.kt"), ("test", "RtcCommandCodecTest.kt")):
         files = [path / f"app/src/{area}/java/com/callagent/rtc/{filename}" for path in siblings]
         hashes = [hashlib.sha256(path.read_bytes()).digest() for path in files]
         assert hashes[0] == hashes[1], "Android RTC guards drifted between repositories"
-    print("Android RTC guard and tests match across both repositories")
+    for fixture in fixtures:
+        for sibling in siblings:
+            copied = sibling / "app/src/test/resources/rtc-v1" / fixture.name
+            assert copied.read_bytes() == fixture.read_bytes(), "Android RTC fixture drifted from server canonical input"
+    print("Android RTC guard, codec, tests and canonical fixtures match across both repositories")
 else:
     print("SKIP: sibling Android repositories unavailable; cross-repository source check not run")
 print(f"RTC schema: {len(fixtures)} fixtures and {len(mutations)} invalid mutations passed")

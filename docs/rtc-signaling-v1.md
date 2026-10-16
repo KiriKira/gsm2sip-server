@@ -96,6 +96,26 @@ TTL 指当前逻辑记录清理，不代表 PostgreSQL WAL/备份中的历史字
 closed 不可由新 generation 重开。调用方仍须把返回的候选放到同一个 PeerConnection 串行执行器并在执行前复核代次。
 该类不负责 JSON、WSS、认证、重连策略或用户接听授权，不能仅实例化它就标记 WebRTC 已可用。
 
+两端已增加相同的 `RtcCommandCodec`，严格解析/编码本命令契约，使用同一份六种 canonical fixtures；
+不建立网络连接，不解析服务端 snapshot/ACK，也不启动音频。跨仓库脚本同时检查 codec、guard、测试和 fixtures 字节一致。
+
+## 独立 WSS 传输模块
+
+`NewWebSocketHandler` 已实现该 Service 的 WSS 传输，测试挂载在
+`/rtc/v1/legs/{leg_id}/signals`；生产 Server.Handler/cmd/api 尚未注册此路径，不能将测试挂载视为已发布接口。
+它要求直接 HTTPS，拒绝 Origin 和不可信证书；不会自动相信代理转发头，TLS 终止拓扑在接入时另行确认。
+必须显式注入会话验证函数和已授权的 Repository；现有生产协调器/Authorizer 尚未完成。
+
+输出为 type=snapshot（state.snapshot/signals/replay_complete）、type=ack（ack/duplicate）或 type=error（code）。
+snapshot 按各参与者 scope 读取已提交状态，signals 为数组，终态或缺失重放时为空数组。
+初次连接先读快照；每条命令和定时 pulse 重新校验会话，历史 ACK 也不能绕过撤销。
+默认独立预算：全 handler 64 连接（含待鉴权/升级者）、每设备 2 连接、每连接 16 条待发结果、
+16 条命令突发/每秒恢复 8 条；10 秒复验会话，3 秒存储/写截止时间，45 秒读/pong 窗口。
+慢消费者/过载只关闭相应语音连接；Close 只关闭该 handler，不接触短信 wake 连接或 HTTP server。
+这个传输不创建业务 call、不开放媒体，也没有完成 Android WSS 客户端/生产协调器的接入。
+
+真实 WSS + Pion 媒体协议测试与明确未验收项见 [协议验收记录](webrtc-protocol-verification.md)。
+
 ## 验证
 
 ```sh

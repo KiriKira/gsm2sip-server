@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"strconv"
 	"unicode/utf8"
 )
 
@@ -110,9 +111,45 @@ func objectKeys(d *json.Decoder, depth int) error {
 				return err
 			}
 		}
+		if trimmed[0] == '"' && !validUnicodeEscapes(trimmed) {
+			return ErrInvalid
+		}
 	}
 	if token, err = d.Token(); err != nil || token != json.Delim('}') {
 		return ErrInvalid
 	}
 	return nil
+}
+
+// encoding/json otherwise replaces lone UTF-16 surrogates with U+FFFD, while
+// Android retains them. Reject this ambiguity before hashing/relaying strings.
+func validUnicodeEscapes(raw []byte) bool {
+	for index := 1; index < len(raw)-1; index++ {
+		if raw[index] != '\\' {
+			continue
+		}
+		index++
+		if raw[index] != 'u' {
+			continue
+		}
+		value, err := strconv.ParseUint(string(raw[index+1:index+5]), 16, 16)
+		if err != nil {
+			return false
+		}
+		index += 4
+		if value >= 0xdc00 && value <= 0xdfff {
+			return false
+		}
+		if value >= 0xd800 && value <= 0xdbff {
+			if index+6 >= len(raw)-1 || raw[index+1] != '\\' || raw[index+2] != 'u' {
+				return false
+			}
+			low, err := strconv.ParseUint(string(raw[index+3:index+7]), 16, 16)
+			if err != nil || low < 0xdc00 || low > 0xdfff {
+				return false
+			}
+			index += 6
+		}
+	}
+	return true
 }

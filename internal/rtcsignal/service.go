@@ -24,9 +24,9 @@ type Service struct {
 }
 
 type ReadResult struct {
-	Snapshot       Snapshot
-	Signals        []Signal
-	ReplayComplete bool
+	Snapshot       Snapshot `json:"snapshot"`
+	Signals        []Signal `json:"signals"`
+	ReplayComplete bool     `json:"replay_complete"`
 }
 
 func NewService(repository Repository, now func() time.Time) (*Service, error) {
@@ -77,6 +77,9 @@ func (s *Service) Read(ctx context.Context, p Principal, legID string) (ReadResu
 	})
 	if err != nil {
 		return ReadResult{}, err
+	}
+	if result.Signals == nil {
+		result.Signals = []Signal{}
 	}
 	return result, nil
 }

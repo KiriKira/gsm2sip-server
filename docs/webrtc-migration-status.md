@@ -2,7 +2,10 @@
 
 更新：2026-10-16。三端专用分支均为 `feat/webrtc-migration`。总计划见 [plan-webrtc.md](plan-webrtc.md)。
 
-最新结果：第二批已完成隔离 SDK/PCM 探针、RTC 协商状态机、PostgreSQL 事务存储及两端 ICE 缓冲。
+最新结果：第三批已完成真实 headless WebRTC/STUN/TURN/WSS 协议检查、WSS 传输模块和两端严格命令 codec。
+13 项实际协议检查、服务端 114 项、主机 186 项、网关 175 项回归通过，详情见
+[协议验收记录](webrtc-protocol-verification.md)；可准备云手机开始 Android 原生 SDK/合成 PCM 验收。
+第二批已完成隔离 SDK/PCM 探针、RTC 协商状态机、PostgreSQL 事务存储及两端 ICE 缓冲。
 当前仍默认 SIP，没有生产 WebRTC 信令入口或媒体路径；真机验收由用户后续提供设备/环境后执行。
 第二批详情与余项在本文后半部分；第一批的“未执行”描述保留为当时的历史记录。
 
@@ -163,7 +166,7 @@ TTL 清理不丢失去重摘要。协调器可以受限续期，不能复活过�
 ## 当前后续实施顺序
 
 1. 保持 SIP 默认，完成服务端共享 engine/occupancy、能力协商、ARI 恢复隔离及生产 Authorizer；
-   另行实现独立信令路由、连接预算/速率限制与 TTL worker，不改 wake-only `/v1/ws`。
+   将已验证的 WSS handler 接入独立生产路由并启动 TTL worker；保留其独立连接/队列/速率预算，不改 wake-only `/v1/ws`。
 2. 网关实现协议无关的 CellularAudioBridge、语音独立停止、共享执行账本/全局 winner 与 fencing；
    不让媒体故障触发短信/控制同步服务停止，不另建绕过 SIP 占用的执行入口。
 3. 两端增加仅开发配置可启用的 WebRTC 引擎和完整认证/重连适配；保持现有 UI 状态与音频焦点。
