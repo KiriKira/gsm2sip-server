@@ -19,6 +19,7 @@ SIP 凭据配置/加密恢复、一次性呼叫意图、Asterisk ARI/Stasis 编�
 - [服务端 wire addendum](docs/server-wire-addendum.md)
 - [OpenAPI](openapi/openapi.yaml)
 - [跨端路线图](docs/roadmap.md)
+- [三端 WebRTC 通话迁移计划（保持 UI 与外围行为）](docs/plan-webrtc.md)
 - [功能缺口与弱网恢复审查](docs/network-and-feature-status.md)
 - [两端 KVM 界面截图与原始验证结果](docs/ui-verification/README.md)
 - [Android 虚拟机使用指南：启动、停止、截图与 Magisk 验证](https://github.com/KiriKira/gsm2sip/blob/main/docs/android-virtual-machine.md)

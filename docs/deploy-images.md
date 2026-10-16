@@ -14,7 +14,7 @@
 
 ## 最简单：一体镜像
 
-只收发短信的节点（例如经 cloudflared 对外）：
+只收发短信的节点（API 通过 HTTPS 反向代理对外提供）：
 
 ```sh
 docker run -d --name gsm2sip --restart unless-stopped \
@@ -83,7 +83,7 @@ chmod 600 .env
 - `SIP_SERVER_NAME` 与证书文件 `ASTERISK_TLS_CERT_FILE`/`ASTERISK_TLS_KEY_FILE`：证书的 SAN 必须包含该名字。
   公网可信证书时 `SIP_CA_PEM_FILE` 留空；自签证书时设为 `/run/secrets/sip_tls_cert`。
 - 对外提供通话：`SIP_BIND_ADDR=0.0.0.0`，两个 `ASTERISK_EXTERNAL_*_ADDRESS` 填公网 IP，
-  防火墙放行 5061/tcp 与 10000–10199/udp。只收发短信的节点（例如经 cloudflared 对外）保持默认的
+  防火墙放行 5061/tcp 与 10000–10199/udp。只收发短信的节点保持默认的
   `127.0.0.1`，自签证书即可：
 
   ```sh
@@ -99,7 +99,7 @@ curl http://127.0.0.1:8080/readyz
 curl http://127.0.0.1:8080/v1/capabilities     # 输出应包含 "mesh"
 ```
 
-API 默认只监听 `127.0.0.1:8080`，由反向代理或 cloudflared 对外提供；要让手机在局域网或 Tailscale 内用
+API 默认只监听 `127.0.0.1:8080`，由 HTTPS 反向代理对外提供；要让手机在局域网或 Tailscale 内用
 `http://` 直连，设 `HTTP_BIND_ADDR=0.0.0.0`（或局域网/Tailscale IP）。不需要证书时设 `SIP_TRANSPORT=udp`、
 `SIP_PORT=5060`，两个证书路径设为 `/dev/null`。ARI（8088）不对外开放。
 

@@ -6,7 +6,7 @@
 #   docker compose up -d
 #
 # The API listens on ${HTTP_BIND_ADDR:-127.0.0.1}:${HTTP_PORT}; put a reverse
-# proxy or cloudflared in front of it, or bind it to a LAN/Tailscale address
+# proxy in front of it, or bind it to a LAN/Tailscale address
 # and let the phones use http:// directly. See docs/deploy-images.md.
 name: gsm2sip
 
