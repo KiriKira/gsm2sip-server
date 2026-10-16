@@ -220,7 +220,11 @@ jobs:
         run: |
           set -euo pipefail
           trap 'docker logs --tail 200 aio-auto || true' ERR
+          # On the host network the internal PostgreSQL and ARI ports share the
+          # runner's port space; the defaults (55432, 58088) sit inside Linux's
+          # ephemeral range, where an outgoing connection can already hold them.
           docker run -d --name aio-auto --network host -e SIP_TRANSPORT=udp -e HTTP_PORT=18082 \
+            -e PG_PORT=25432 -e ARI_PORT=28088 \
             "$ALLINONE_IMAGE:ci-smoke"
           for _ in $(seq 1 90); do
             curl --fail --silent --max-time 2 http://127.0.0.1:18082/readyz >/dev/null && break
