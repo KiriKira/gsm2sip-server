@@ -103,13 +103,14 @@ func main() {
 			if application == "" {
 				application = "gsm2sip"
 			}
-			options.Calls, err = calls.NewManager(database, calls.Config{ARIURL: ariURL, ARIUsername: os.Getenv("ARI_USERNAME"), ARIPassword: os.Getenv("ARI_PASSWORD"), ARIApplication: application, SIPRealm: "gsm2sip", TokenKey: tokenKey[:], SIPInsecure: !options.SIP.Secure()})
+			manager, err := calls.NewManager(database, calls.Config{ARIURL: ariURL, ARIUsername: os.Getenv("ARI_USERNAME"), ARIPassword: os.Getenv("ARI_PASSWORD"), ARIApplication: application, SIPRealm: "gsm2sip", TokenKey: tokenKey[:], SIPInsecure: !options.SIP.Secure()})
 			if err != nil {
 				logger.Error("ARI coordinator configuration is invalid")
 				os.Exit(2)
 			}
+			options.Calls = manager
 			go func() {
-				if runErr := options.Calls.Run(ctx); runErr != nil && ctx.Err() == nil {
+				if runErr := manager.Run(ctx); runErr != nil && ctx.Err() == nil {
 					logger.Error("ARI coordinator stopped")
 					stop()
 				}

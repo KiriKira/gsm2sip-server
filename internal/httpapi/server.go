@@ -32,7 +32,7 @@ type Server struct {
 	logger       *slog.Logger
 	now          func() time.Time
 	secretCipher *securestore.Cipher
-	calls        *calls.Manager
+	calls        CallController
 	sip          SIPSettings
 
 	wsMu          sync.Mutex
@@ -48,11 +48,16 @@ func New(database *sql.DB, logger *slog.Logger) *Server {
 
 type Options struct {
 	SecretCipher *securestore.Cipher
-	Calls        *calls.Manager
+	Calls        CallController
 	SIP          SIPSettings
 }
 
 func NewWithOptions(database *sql.DB, logger *slog.Logger, options Options) *Server {
+	// Preserve the old *calls.Manager option's nil semantics when it is supplied
+	// through the interface. In particular, history endpoints must not dereference it.
+	if manager, ok := options.Calls.(*calls.Manager); ok && manager == nil {
+		options.Calls = nil
+	}
 	if logger == nil {
 		logger = slog.Default()
 	}
