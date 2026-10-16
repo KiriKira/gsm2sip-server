@@ -95,9 +95,9 @@ func (m *Manager) handleEvent(ctx context.Context, event asterisk.Event) error {
 			if len(event.Args) != 5 || event.Args[4] != "1" {
 				return m.ari.Hangup(ctx, event.Channel.ID)
 			}
-			// Whether the old phone sent a caller number; the number itself is not logged.
-			slog.Info("incoming call", "caller_number_present", incomingCallerNumber(event.Channel) != "",
-				"from_user_present", event.Channel.Caller.Number != "", "from_name_present", event.Channel.Caller.Name != "")
+			// The From user and display name as Asterisk saw them, and the number kept from them.
+			slog.Info("incoming call", "caller_number", incomingCallerNumber(event.Channel),
+				"from_user", event.Channel.Caller.Number, "from_name", event.Channel.Caller.Name)
 			revision, err := strconv.ParseInt(event.Args[3], 10, 64)
 			if err != nil {
 				return m.ari.Hangup(ctx, event.Channel.ID)
