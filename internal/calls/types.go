@@ -62,6 +62,8 @@ type Call struct {
 	CreatedAt       time.Time  `json:"created_at"`
 	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
 	WakeNonce       *string    `json:"wake_nonce,omitempty"`
+	// Set once the call was bridged; an ended incoming call without it was missed.
+	AnsweredAt *time.Time `json:"answered_at,omitempty"`
 }
 
 type ListResult struct {
