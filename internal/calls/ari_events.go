@@ -96,7 +96,8 @@ func (m *Manager) handleEvent(ctx context.Context, event asterisk.Event) error {
 				return m.ari.Hangup(ctx, event.Channel.ID)
 			}
 			// Whether the old phone sent a caller number; the number itself is not logged.
-			slog.Info("incoming call", "caller_number_present", event.Channel.Caller.Number != "")
+			slog.Info("incoming call", "caller_number_present", incomingCallerNumber(event.Channel) != "",
+				"from_user_present", event.Channel.Caller.Number != "", "from_name_present", event.Channel.Caller.Name != "")
 			revision, err := strconv.ParseInt(event.Args[3], 10, 64)
 			if err != nil {
 				return m.ari.Hangup(ctx, event.Channel.ID)
@@ -225,6 +226,37 @@ func (m *Manager) dialWrapper(ctx context.Context, channelID, callID, participan
 		return err
 	}
 	return nil
+}
+
+// incomingCallerNumber is the GSM caller's number from the gateway's INVITE,
+// or "" when there is none. The gateway sends "anonymous" for a caller with
+// no number, and the same number as the From display name, which stands in
+// when the From user part did not survive.
+func incomingCallerNumber(channel asterisk.Channel) string {
+	for _, value := range []string{channel.Caller.Number, channel.Caller.Name} {
+		if value = strings.TrimSpace(value); isCallerNumber(value) {
+			return value
+		}
+	}
+	return ""
+}
+
+func isCallerNumber(value string) bool {
+	if len(value) > 32 {
+		return false
+	}
+	digits := 0
+	for i, r := range value {
+		switch {
+		case r >= '0' && r <= '9':
+			digits++
+		case r == '*' || r == '#':
+		case r == '+' && i == 0:
+		default:
+			return false
+		}
+	}
+	return digits >= 2
 }
 
 func endpointFromChannelName(name string) (string, bool) {
@@ -465,7 +497,7 @@ func (m *Manager) acceptIncoming(ctx context.Context, endpointID string, channel
 	if toAddress == "" {
 		toAddress = channel.Dialplan.Exten
 	}
-	fromAddress := channel.Caller.Number
+	fromAddress := incomingCallerNumber(channel)
 	expiresAt := time.Now().UTC().Add(incomingCallLifetime)
 	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO call_sessions(call_id,owner_id,client_device_id,gateway_id,sim_id,mapping_revision,
