@@ -826,3 +826,37 @@ func TestCreateIntentKeepsAClientMintedCallIDOnce(t *testing.T) {
 		t.Fatalf("invalid call_id returned %v, want ErrInvalid", err)
 	}
 }
+
+func TestCallListingsReportWhenTheCallWasAnswered(t *testing.T) {
+	database := openCallsDatabase(t)
+	f := seedCallFixture(t, database)
+	manager, cleanup := readyCallManager(t, database, newFakeARI())
+	defer cleanup()
+	answered, missed := testUUID(t), testUUID(t)
+	for _, seed := range []struct {
+		callID, answeredAt string
+	}{{answered, "clock_timestamp()"}, {missed, "NULL"}} {
+		if _, err := database.Exec(`
+			INSERT INTO call_sessions(call_id,owner_id,client_device_id,gateway_id,sim_id,mapping_revision,direction,from_address,to_address,state,state_revision,
+			 gateway_endpoint_id,client_endpoint_id,answered_at,ended_at)
+			VALUES($1,$2,$3,$4,$5,1,'incoming','+15551234567','+15557654321','ended',5,$6,$7,`+seed.answeredAt+`,clock_timestamp())`,
+			seed.callID, f.ownerID, f.clientID, f.gatewayID, f.simID, f.gatewayEndpoint, f.clientEndpoint); err != nil {
+			t.Fatalf("seed ended incoming call: %v", err)
+		}
+	}
+	got, err := manager.GetCall(context.Background(), f.ownerID, f.clientID, answered)
+	if err != nil || got.AnsweredAt == nil {
+		t.Fatalf("answered call has no answered_at: answered_at=%v err=%v", got.AnsweredAt, err)
+	}
+	items, _, err := manager.ListCalls(context.Background(), f.ownerID, f.clientID, "", 10)
+	if err != nil {
+		t.Fatalf("list calls: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, item := range items {
+		seen[item.CallID] = item.AnsweredAt != nil
+	}
+	if !seen[answered] || seen[missed] {
+		t.Fatalf("listing answered_at is wrong: %v", seen)
+	}
+}

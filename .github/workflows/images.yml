@@ -251,6 +251,9 @@ jobs:
           grep -q "Record a call" <<<"$mixmonitor"
           formats=$(docker exec aio-auto asterisk -rx "core show file formats")
           grep -q wav16 <<<"$formats"
+          # Incoming calls take their caller ID from the From header.
+          callerid=$(docker exec aio-auto asterisk -rx "module show like res_pjsip_caller_id")
+          grep -q "res_pjsip_caller_id.so.*Running" <<<"$callerid"
           # An INVITE from a caller number (no endpoint matches its From user)
           # is challenged with the realm the provisioned credentials use.
           python3 - <<'PY'

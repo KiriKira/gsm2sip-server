@@ -422,7 +422,7 @@ func (m *Manager) ListCalls(ctx context.Context, ownerID, clientID, cursor strin
 		       CASE WHEN p.client_device_id IS NULL OR c.state='unknown' AND p.state<>'ended' THEN c.reason ELSE p.reason END,c.created_at,c.expires_at,
 	       CASE WHEN p.state='pending_wakeup' AND c.state<>'unknown' AND c.expires_at>clock_timestamp() THEN p.wake_nonce
 		            WHEN p.client_device_id IS NULL AND c.direction='incoming' AND c.state='pending_wakeup' AND c.expires_at>clock_timestamp() THEN c.wake_nonce
-		            ELSE NULL END
+		            ELSE NULL END,c.answered_at
 		FROM call_sessions c LEFT JOIN call_participants p
 		  ON p.call_id=c.call_id AND p.owner_id=c.owner_id AND p.client_device_id=$2
 		WHERE c.owner_id=$1 AND (c.client_device_id=$2 OR p.client_device_id=$2)`
@@ -491,7 +491,7 @@ func loadCall(ctx context.Context, q queryer, ownerID, clientID, callID string) 
 		       CASE WHEN p.client_device_id IS NULL OR c.state='unknown' AND p.state<>'ended' THEN c.reason ELSE p.reason END,c.created_at,c.expires_at,
 	       CASE WHEN p.state='pending_wakeup' AND c.state<>'unknown' AND c.expires_at>clock_timestamp() THEN p.wake_nonce
 		            WHEN p.client_device_id IS NULL AND c.direction='incoming' AND c.state='pending_wakeup' AND c.expires_at>clock_timestamp() THEN c.wake_nonce
-		            ELSE NULL END
+		            ELSE NULL END,c.answered_at
 		FROM call_sessions c LEFT JOIN call_participants p
 		  ON p.call_id=c.call_id AND p.owner_id=c.owner_id AND p.client_device_id=$3
 		WHERE c.call_id=$1 AND c.owner_id=$2 AND (c.client_device_id=$3 OR p.client_device_id=$3)`, callID, ownerID, clientID))
@@ -502,9 +502,9 @@ type rowScanner interface{ Scan(...any) error }
 func scanCall(row rowScanner) (Call, error) {
 	var result Call
 	var from, reason, wake sql.NullString
-	var expires sql.NullTime
+	var expires, answered sql.NullTime
 	err := row.Scan(&result.CallID, &result.GatewayID, &result.ClientID, &result.SIMID, &result.MappingRevision,
-		&result.Direction, &result.State, &result.StateRevision, &from, &result.To, &reason, &result.CreatedAt, &expires, &wake)
+		&result.Direction, &result.State, &result.StateRevision, &from, &result.To, &reason, &result.CreatedAt, &expires, &wake, &answered)
 	if err != nil {
 		return Call{}, err
 	}
@@ -519,6 +519,9 @@ func scanCall(row rowScanner) (Call, error) {
 	}
 	if wake.Valid && wake.String != "" {
 		result.WakeNonce = &wake.String
+	}
+	if answered.Valid {
+		result.AnsweredAt = &answered.Time
 	}
 	return result, nil
 }
