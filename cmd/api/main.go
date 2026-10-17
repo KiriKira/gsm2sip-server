@@ -37,6 +37,33 @@ func main() {
 	}
 	defer database.Close()
 	options := httpapi.Options{}
+	if value := strings.TrimSpace(os.Getenv("RTC_MEDIA_ENABLED")); value != "" {
+		options.RTC.Enabled, err = strconv.ParseBool(value)
+		if err != nil {
+			logger.Error("RTC_MEDIA_ENABLED must be a boolean")
+			os.Exit(2)
+		}
+	}
+	options.RTC.NodeID = strings.TrimSpace(os.Getenv("RTC_NODE_ID"))
+	options.RTC.STUNURLs = strings.FieldsFunc(os.Getenv("RTC_STUN_URLS"), func(c rune) bool { return c == ',' || c == ' ' })
+	options.RTC.TURNURLs = strings.FieldsFunc(os.Getenv("RTC_TURN_URLS"), func(c rune) bool { return c == ',' || c == ' ' })
+	options.RTC.TURNSecret = os.Getenv("RTC_TURN_SHARED_SECRET")
+	for _, url := range options.RTC.STUNURLs {
+		if !strings.HasPrefix(url, "stun:") && !strings.HasPrefix(url, "stuns:") {
+			logger.Error("Invalid RTC_STUN_URLS scheme")
+			os.Exit(2)
+		}
+	}
+	for _, url := range options.RTC.TURNURLs {
+		if !strings.HasPrefix(url, "turn:") && !strings.HasPrefix(url, "turns:") {
+			logger.Error("Invalid RTC_TURN_URLS scheme")
+			os.Exit(2)
+		}
+	}
+	if len(options.RTC.TURNURLs) > 0 && len(options.RTC.TURNSecret) < 32 {
+		logger.Error("RTC TURN requires a shared secret of at least 32 bytes")
+		os.Exit(2)
+	}
 	if encoded := strings.TrimSpace(os.Getenv("SECRETS_ENCRYPTION_KEY")); encoded != "" {
 		key, decodeErr := base64.StdEncoding.DecodeString(encoded)
 		if decodeErr != nil || len(key) != 32 {

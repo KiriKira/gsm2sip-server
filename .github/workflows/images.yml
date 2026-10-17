@@ -224,7 +224,7 @@ jobs:
           # runner's port space; the defaults (55432, 58088) sit inside Linux's
           # ephemeral range, where an outgoing connection can already hold them.
           docker run -d --name aio-auto --network host -e SIP_TRANSPORT=udp -e HTTP_PORT=18082 \
-            -e PG_PORT=25432 -e ARI_PORT=28088 \
+            -e PG_PORT=25432 -e ARI_PORT=28088 -e RTC_MEDIA_ENABLED=true -e RTC_NODE_ID=ci-auto \
             "$ALLINONE_IMAGE:ci-smoke"
           for _ in $(seq 1 90); do
             curl --fail --silent --max-time 2 http://127.0.0.1:18082/readyz >/dev/null && break
@@ -236,6 +236,7 @@ jobs:
             sleep 5
           done
           test "$(docker inspect --format '{{.State.Health.Status}}' aio-auto)" = healthy
+          curl --fail --silent --show-error http://127.0.0.1:18082/v1/capabilities | grep -E '"rtc_audio":[[:space:]]*true'
           # No fixed external address: Asterisk picks the interface per phone.
           docker exec aio-auto sh -c 'f=$(ls /tmp/gsm2sip-asterisk.*/pjsip.conf) && grep -q transport-udp "$f" && ! grep -q external_ "$f"'
           docker exec aio-auto gsm2sip-admin owner create --name ci-auto >/dev/null

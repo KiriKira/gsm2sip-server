@@ -170,6 +170,9 @@ app_env=(
     ARI_APPLICATION=gsm2sip SIP_SERVER_NAME="$SIP_SERVER_NAME" SIP_PORT="$SIP_PORT" SIP_TRANSPORT="$SIP_TRANSPORT"
     SIP_CA_PEM_FILE="$SIP_CA_PEM_FILE" SIP_ENABLE_OPUS="${SIP_ENABLE_OPUS:-false}"
     SECRETS_ENCRYPTION_KEY="$SECRETS_ENCRYPTION_KEY" HTTP_ADDR="$HTTP_ADDR"
+    RTC_MEDIA_ENABLED="${RTC_MEDIA_ENABLED:-false}" RTC_NODE_ID="${RTC_NODE_ID:-local}"
+    RTC_STUN_URLS="${RTC_STUN_URLS:-}" RTC_TURN_URLS="${RTC_TURN_URLS:-}"
+    RTC_TURN_SHARED_SECRET="${RTC_TURN_SHARED_SECRET:-}"
 )
 env -i PATH=/usr/bin:/bin "${app_env[@]}" setpriv --reuid=gsm2sip --regid=gsm2sip --init-groups \
     /usr/local/libexec/gsm2sip-api &

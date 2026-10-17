@@ -1,0 +1,22 @@
+# Optional independent TURN service on Linux; never enabled by default.
+# docker compose --env-file ../.env -f compose.yaml up -d
+services:
+  turn:
+    image: coturn/coturn:4.18.0-r0-alpine@sha256:c29135c08565810d37053f384584392b7c24b69570fc81a721b878d6fe63e04e
+    network_mode: host
+    entrypoint: ["/bin/sh", "/etc/gsm2sip-turn-entrypoint.sh"]
+    environment:
+      RTC_TURN_SHARED_SECRET: ${RTC_TURN_SHARED_SECRET:?set a private shared secret}
+      TURN_PUBLIC_IP: ${TURN_PUBLIC_IP:?set the public IPv4 address}
+      TURN_PRIVATE_IP: ${TURN_PRIVATE_IP:?set the host interface IPv4 address}
+      TURN_REALM: ${TURN_REALM:?set a stable realm}
+    volumes:
+      - ./entrypoint.sh:/etc/gsm2sip-turn-entrypoint.sh:ro
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+    read_only: true
+    mem_limit: 128m
+    cpus: 1
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped

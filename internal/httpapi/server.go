@@ -34,6 +34,7 @@ type Server struct {
 	secretCipher *securestore.Cipher
 	calls        CallController
 	sip          SIPSettings
+	rtc          *rtcMediaRuntime
 
 	wsMu          sync.Mutex
 	wsByDevice    map[string]int
@@ -50,6 +51,7 @@ type Options struct {
 	SecretCipher *securestore.Cipher
 	Calls        CallController
 	SIP          SIPSettings
+	RTC          RTCMediaOptions
 }
 
 func NewWithOptions(database *sql.DB, logger *slog.Logger, options Options) *Server {
@@ -61,11 +63,13 @@ func NewWithOptions(database *sql.DB, logger *slog.Logger, options Options) *Ser
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Server{
+	server := &Server{
 		db: database, logger: logger, now: time.Now,
 		secretCipher: options.SecretCipher, calls: options.Calls, sip: options.SIP,
 		wsByDevice: make(map[string]int), wsConnections: make(map[*websocket.Conn]struct{}),
 	}
+	server.startRTCMedia(options.RTC)
+	return server
 }
 
 func (s *Server) Handler() http.Handler {
@@ -77,7 +81,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/capabilities", func(w http.ResponseWriter, _ *http.Request) {
 		// Public and secret-free: clients probe it to measure a node and to learn
 		// which optional request fields it accepts before sending them.
-		writeJSON(w, http.StatusOK, map[string]any{"protocol_version": 1, "extensions": SupportedExtensions})
+		writeJSON(w, http.StatusOK, map[string]any{"protocol_version": 1, "extensions": SupportedExtensions, "rtc_audio": s.rtc != nil})
 	})
 	mux.HandleFunc("POST /v1/pairings/claim", s.claimPairing)
 	mux.HandleFunc("POST /v1/auth/refresh", s.refreshSession)
@@ -100,6 +104,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/events/ack", s.authenticated(s.acknowledgeClientEvents))
 	mux.HandleFunc("GET /v1/calls", s.authenticated(s.listCalls))
 	mux.HandleFunc("GET /v1/calls/{call_id}", s.authenticated(s.getCall))
+	mux.HandleFunc("POST /v1/devices/self/rtc-capability", s.authenticated(s.rtcCapability))
+	mux.HandleFunc("POST /v1/calls/{call_id}/media", s.authenticated(s.selectRTCMedia))
+	mux.HandleFunc("GET /v1/calls/{call_id}/media", s.authenticated(s.getRTCMedia))
+	mux.HandleFunc("POST /v1/calls/{call_id}/media/active", s.authenticated(s.rtcCellularActive))
+	mux.HandleFunc("GET /v1/rtc/legs/{leg_id}", s.authenticated(s.rtcSignals))
+	mux.HandleFunc("POST /v1/rtc/legs/{leg_id}", s.authenticated(s.rtcSignals))
 	mux.HandleFunc("POST /v1/call-intents", s.authenticated(s.createCallIntent))
 	mux.HandleFunc("DELETE /v1/call-intents/{intent_id}", s.authenticated(s.cancelCallIntent))
 	mux.HandleFunc("POST /v1/clients/{client_id}/ready", s.authenticated(s.clientReady))
