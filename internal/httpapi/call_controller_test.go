@@ -90,6 +90,9 @@ type stubCallController struct {
 }
 
 func (s *stubCallController) Configured() bool { return s.configured }
+func (s *stubCallController) RenewExternalMedia(context.Context, string, string, string) error {
+	return nil
+}
 func (s *stubCallController) CreateIntent(_ context.Context, ownerID, clientID string, request calls.CreateIntentRequest, key string) (calls.Intent, error) {
 	s.creates++
 	s.ownerID, s.clientID, s.request, s.key = ownerID, clientID, request, key

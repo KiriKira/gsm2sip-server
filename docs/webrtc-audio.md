@@ -8,7 +8,9 @@ The shared gateway occupancy and durable dispatch ledger remain authoritative.
 An RTC failure ends the selected call; it does not silently dial again or fall
 back to SIP audio. Turn the switch off before the next call for SIP audio.
 
-Deploy updated API and gateway before enabling the host switch. Configure:
+Deploy the updated **API and Asterisk images**, plus gateway, before enabling
+the host switch. Updating only the API leaves the old SIP RTP watchdog active
+and can terminate a healthy WebRTC call after 30 seconds. Configure:
 
 ```dotenv
 RTC_MEDIA_ENABLED=true
@@ -23,6 +25,15 @@ secret private and configure the same value in that API and its coturn.
 Both compose deployments and the all-in-one container forward these variables.
 RTC is disabled by default. `/v1/capabilities` advertises `rtc_audio`; the
 gateway registers its native SDK capability before a host can select RTC.
+
+The supplied Asterisk build supports a bounded `GSM2SIP_RTC_UNTIL` channel lease.
+After authorizing a negotiated RTC read, the API renews **only that participant's
+SIP channel** for 12 seconds. Asterisk checks this lease every second; missing,
+expired, malformed or more than 20 seconds ahead values retain the normal RTP
+watchdog. No endpoint timeout is disabled or raised. SIP-only calls never obtain
+this lease. Client loss, revoked authorization or API/ARI failure stops renewal;
+the existing watchdog then tears down the control channel. This does not send
+SIP speech, enable an audio fallback or authorize another GSM dispatch.
 
 ## Network ports
 

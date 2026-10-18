@@ -80,6 +80,12 @@ RUN set -eu; \
 WORKDIR /usr/src
 # BUILD_NATIVE (on by default) compiles with -march=native, so a binary built
 # on a CI runner with a newer CPU dies with SIGILL on an older home server.
+COPY deploy/asterisk/rtc_media_lease.h /usr/src/res/rtc_media_lease.h
+COPY deploy/asterisk/rtc_media_lease_test.c /usr/src/res/rtc_media_lease_test.c
+COPY deploy/asterisk/rtc-media-lease.patch /usr/src/rtc-media-lease.patch
+RUN cc -Wall -Wextra -Werror res/rtc_media_lease_test.c -o /tmp/rtc-media-lease-test && \
+    /tmp/rtc-media-lease-test && rm /tmp/rtc-media-lease-test && \
+    patch -p1 --fuzz=0 < rtc-media-lease.patch
 RUN cd /usr/src && ./configure \
       --prefix=/usr \
       --sysconfdir=/etc \

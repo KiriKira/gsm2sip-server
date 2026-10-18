@@ -17,6 +17,7 @@ type CallController interface {
 	ListCalls(context.Context, string, string, string, int) ([]calls.Call, string, error)
 	GetCall(context.Context, string, string, string) (calls.Call, error)
 	ClientReady(context.Context, string, string, string, string, string) (calls.Call, error)
+	RenewExternalMedia(context.Context, string, string, string) error
 }
 
 var _ CallController = (*calls.Manager)(nil)

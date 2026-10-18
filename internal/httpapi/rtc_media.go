@@ -456,6 +456,15 @@ func (s *Server) rtcSignals(w http.ResponseWriter, r *http.Request, p Principal)
 		rtcError(w, err)
 		return
 	}
+	// WebRTC carries the speech independently of SIP RTP. Renew a bounded
+	// watchdog lease only after the exact HTTP session, winner and SIM mapping
+	// passed authorization. Each participant renews only its own SIP channel.
+	if result.Snapshot.Phase == rtcsignal.Negotiated && s.calls != nil && s.calls.Configured() {
+		if err := s.calls.RenewExternalMedia(ctx, p.OwnerID, p.DeviceID, result.Snapshot.Binding.CallID); err != nil {
+			writeError(w, 503, "RTC_CONTROL_UNAVAILABLE", "WebRTC call control is unavailable.", true)
+			return
+		}
+	}
 	var active bool
 	if err = s.db.QueryRowContext(r.Context(), `SELECT cellular_active FROM rtc_media_sessions WHERE leg_id=$1`, legID).Scan(&active); err != nil {
 		writeDBUnavailable(w)
