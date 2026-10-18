@@ -1,5 +1,7 @@
 # RTC v1 协商模块（尚未发布网络接口）
 
+> 2026-10-18：协商 reducer 现由 `internal/httpapi/rtc_media.go` 适配到既有 SIP 业务通话，通过认证 HTTP 端点开放。旧 W2 阶段的“未接入”描述是历史边界；当前部署/API 入口见 [WebRTC 音频说明](webrtc-audio.md)。`/v1/ws` 仍只负责唤醒。
+
 本契约对应 `internal/rtcsignal`、[command schema](../protocol/rtc-v1/command.schema.json)
 和六份 [fixtures](../protocol/rtc-v1/fixtures)。它是 W2 的独立协商模块，不是已经可以使用的 WebRTC 通话 API。
 `/v1/ws` 继续只做唤醒；现有 OpenAPI、能力声明、SIP intent 和呼叫控制入口均未改动。

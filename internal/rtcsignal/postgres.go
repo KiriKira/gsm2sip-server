@@ -12,7 +12,7 @@ import (
 // Authorizer must verify current session/device, call engine, participant scope,
 // shared gateway occupancy, SIM revision and the coordinator's authorization.
 // It runs inside the transaction, after the leg row is locked. There is no
-// permissive default and no adapter connected to the existing SIP coordinator.
+// permissive default. The HTTP audio adapter supplies the SIP call/slot authorizer.
 type Authorizer interface {
 	Authorize(context.Context, *sql.Tx, Principal, Binding) error
 }

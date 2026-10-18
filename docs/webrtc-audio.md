@@ -56,6 +56,28 @@ cd deploy/turn
 docker compose --env-file ../.env up -d
 ```
 
+## Authenticated adapter endpoints
+
+All paths use the existing paired bearer session under `/v1`:
+
+| Method and path | Scope |
+| --- | --- |
+| `POST /devices/self/rtc-capability` | Gateway advertises native SDK version 1; renewed by normal heartbeats |
+| `POST /calls/{call_id}/media` | Host selects `{"media_transport":"webrtc"}` before SIP dial/answer; retry returns the same leg |
+| `GET /calls/{call_id}/media` | Bound host/gateway reads the immutable choice; gateway waits for an incoming winner |
+| `GET /rtc/legs/{leg_id}` | Bound peer reads committed signals and renews authorization against the current session and business lease |
+| `POST /rtc/legs/{leg_id}` | Strict RTC v1 offer/answer/candidate/EOC/close command; durable ACK before publication |
+| `POST /calls/{call_id}/media/active` | Gateway reports its negotiated leg only after real Telecom ACTIVE and audio backend start |
+
+The caller never supplies a trusted owner/client/gateway/SIM binding. The adapter
+rechecks device revocation, session, participant/winner, shared gateway slot and
+SIM identity/revision. RTC negotiation cannot allocate another cellular executor.
+Signal replay expires after 15 seconds; an already connected peer keeps its
+applied native state and continues authorization renewal. A new peer cannot
+recover from missing replay by pretending the call is connected. Current clients
+end the selected call after unrecoverable ICE/signaling failure; they do not
+start another GSM attempt or switch audio transport inside that call.
+
 ## Logs and acceptance scope
 
 Host and gateway log `GsmRtc media=webrtc call_control=sip call_id=...` with

@@ -1,5 +1,7 @@
 # WebRTC 迁移实施记录
 
+> 2026-10-18：本分支已新增主机真实语音开关、两端 native WebRTC 媒体和经身份/通话占用校验的 HTTPS 信令适配器；SIP 保留呼叫控制。部署和端口以 [WebRTC 音频说明](webrtc-audio.md) 为准。完整双模拟器联合验收仍在进行，尚未发布可供安装的新 Release。下文是 10 月 16 日各批次的历史验收记录，不能作为本次三端通话的通过证据。
+
 更新：2026-10-16。三端专用分支均为 `feat/webrtc-migration`。总计划见 [plan-webrtc.md](plan-webrtc.md)。
 
 最新结果：第三批已完成真实 headless WebRTC/STUN/TURN/WSS 协议检查、WSS 传输模块和两端严格命令 codec。
