@@ -1,6 +1,6 @@
 # WebRTC 协议验收记录
 
-> 2026-10-18：本分支已新增主机真实语音开关、两端 native WebRTC 媒体和经身份/通话占用校验的 HTTPS 信令适配器；SIP 保留呼叫控制。部署和端口以 [WebRTC 音频说明](webrtc-audio.md) 为准。完整双模拟器联合验收仍在进行，尚未发布可供安装的新 Release。下文是 10 月 16 日各批次的历史验收记录，不能作为本次三端通话的通过证据。
+> 2026-10-19：本分支的主机实际语音开关、两端 native WebRTC 和 SIP 呼叫控制已完成双模拟器联合验收，并发布原签名 Debug Release；[本批结果、范围与下载](webrtc-joint-validation-20261019.md)。包含双向测试音频、呼叫事件、TURN UDP/TCP 和三节点备用切换；物理蜂窝音频仍待真机。部署端口见 [WebRTC 音频说明](webrtc-audio.md)。下文保留 10 月 16 日历史组件验收记录，不代表本次三端联测范围。
 
 更新：2026-10-16，分支 `feat/webrtc-migration`。
 
