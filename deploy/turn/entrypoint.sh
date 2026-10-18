@@ -11,6 +11,8 @@ case "$TURN_PUBLIC_IP:$TURN_PRIVATE_IP" in *[!0-9.:]*) exit 2;; esac
 case "$TURN_REALM:$RTC_TURN_SHARED_SECRET" in *[!a-zA-Z0-9.:_-]*) exit 2;; esac
 [ "${#RTC_TURN_SHARED_SECRET}" -ge 32 ] || exit 2
 cat > /tmp/gsm2sip-turn.conf <<EOF
+pidfile=/tmp/turnserver.pid
+relay-threads=1
 listening-port=3478
 listening-ip=$TURN_PRIVATE_IP
 relay-ip=$TURN_PRIVATE_IP

@@ -318,7 +318,7 @@ func (s *Server) selectRTCMedia(w http.ResponseWriter, r *http.Request, p Princi
 		rtcError(w, rtcsignal.ErrClosed)
 		return
 	}
-	s.logger.Info("call media selected", "call_id", callID, "media", "webrtc", "signaling", "sip", "leg_id", b.LegID)
+	s.logger.Info("call media selected", "call_id", callID, "media", "webrtc", "call_control", "sip", "rtc_signaling", "https", "leg_id", b.LegID)
 	s.writeMediaAdmission(w, b, false)
 }
 
@@ -441,8 +441,9 @@ func (s *Server) rtcSignals(w http.ResponseWriter, r *http.Request, p Principal)
 	// call lease. Never renew a closed/expired grant or extend a negotiation.
 	err := s.rtc.repo.Update(ctx, actor, legID, func(l rtcsignal.Leg) (rtcsignal.Leg, error) {
 		snap := l.Snapshot()
-		if snap.Phase != rtcsignal.Closed && snap.AuthorizedUntil.Sub(s.now()) < 30*time.Second {
-			return l.ExtendAuthorization(s.now(), s.now().Add(60*time.Second))
+		now := s.now()
+		if snap.Phase != rtcsignal.Closed && snap.AuthorizedUntil.Sub(now) < 30*time.Second {
+			return l.ExtendAuthorization(now, now.Add(60*time.Second))
 		}
 		return l, nil
 	})

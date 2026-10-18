@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/kirikira/gsm2sip-server/internal/rtcsignal"
 )
@@ -227,4 +229,26 @@ func TestRTCMediaIncomingWinnerCannotLeakToAnotherCandidate(t *testing.T) {
 		t.Fatal("gateway received a losing candidate's media leg")
 	}
 	requireStatus(t, requestJSON(t, api.Handler(), http.MethodGet, "/v1/calls/"+callID+"/media", f.clientToken, nil, ""), 403)
+}
+
+// A moving real clock previously made the two renewal timestamps exceed the
+// reducer's exact 60s bound by nanoseconds, ending every call at its first renew.
+func TestRTCMediaRenewalUsesOneClockInstant(t *testing.T) {
+	_, f, api, callID := rtcFixture(t, "outgoing")
+	rtcRegister(t, api, f.gatewayToken)
+	b := rtcSelect(t, api, f.clientToken, callID).Binding
+	first := rtcRead(t, api, f.clientToken, b.LegID, 200)
+	rtcPost(t, api, f.clientToken, rtcCommand(b, rtcsignal.Offer, first.State.Snapshot.Revision), 200)
+	offer := rtcRead(t, api, f.gatewayToken, b.LegID, 200)
+	rtcPost(t, api, f.gatewayToken, rtcCommand(b, rtcsignal.Answer, offer.State.Snapshot.Revision), 200)
+	before := rtcRead(t, api, f.clientToken, b.LegID, 200)
+	base := time.Now().Add(31 * time.Second)
+	var ticks atomic.Int64
+	api.now = func() time.Time { return base.Add(time.Duration(ticks.Add(1)) * time.Microsecond) }
+	renewed := rtcRead(t, api, f.clientToken, b.LegID, 200)
+	if !renewed.State.Snapshot.AuthorizedUntil.After(before.State.Snapshot.AuthorizedUntil) ||
+		renewed.State.Snapshot.Phase != rtcsignal.Negotiated {
+		t.Fatal("active native leg did not retain its renewed grant")
+	}
+	rtcRead(t, api, f.gatewayToken, b.LegID, 200)
 }
