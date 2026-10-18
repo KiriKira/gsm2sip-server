@@ -1,5 +1,9 @@
 # Experimental WebRTC voice with existing SIP call control
 
+**This release is an audio-only transition and still requires SIP/Asterisk.
+It does not complete the planned Asterisk replacement.** See
+[remaining work and the Asterisk-off acceptance criteria](webrtc-asterisk-removal.md).
+
 The host's **WebRTC 语音（实验）** switch freezes the audio transport for a
 new outgoing call or an incoming invitation. Enabled calls use native
 ICE / DTLS-SRTP / Opus between host and gateway. SIP/Asterisk still handles
