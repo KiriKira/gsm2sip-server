@@ -12,7 +12,7 @@ FROM ${ASTERISK_IMAGE}
 
 RUN set -eu; \
     DEBIAN_FRONTEND=noninteractive apt-get update; \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssl coturn python3-minimal; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssl coturn python3; \
     install -d /usr/share/postgresql-common/pgdg /etc/postgresql-common; \
     curl --fail --silent --show-error --location \
       https://www.postgresql.org/media/keys/ACCC4CF8.asc \
