@@ -1,6 +1,6 @@
 # 三端 WebRTC 通话迁移计划
 
-> 2026-10-19：分支已实现独立 Go/HTTPS 呼叫控制、两端原生 WebRTC 和可选 SIP 兼容；三个节点关闭 Asterisk 的呼出/呼入长通话、通话控制、拒接/取消与零 SIP/ARI 抓包已通过。其余媒体/控制故障、多节点与兼容验收继续执行，尚未发布新独立控制 Release。[实现、协议与部署](rtc-call-control-v1.md)。下文旧阶段状态按记录日期阅读。
+> 2026-10-19：独立 Go/HTTPS 呼叫控制与原生 WebRTC 已完成两台持续运行的 KVM 模拟器、三个真实 Docker 节点联合验收，并发布沿用原签名的 Debug Release。纯模式三节点不运行 Asterisk，SIP/ARI 抓包为 0；呼入/呼出双向测试 PCM、呼叫事件、TURN UDP/TCP、控制/媒体故障与 A→B→C→A 切换通过。WebRTC 开关关闭时的 SIP 来电、开启时的混合来电事件另行通过。物理蜂窝 HAL 和真实手机音频仍待真机验收。 [本批独立控制报告](webrtc-independent-validation-20261019.md)。下文旧阶段按记录日期阅读。
 
 更新：2026-10-16。状态：W0 基线和 W2 接缝/协商模块部分完成，W1 隔离媒体探针已构建；
 真机 PCM/TURN、生产信令接入及 WebRTC 通话尚未完成，仍默认 SIP。

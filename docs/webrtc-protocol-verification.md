@@ -1,6 +1,6 @@
 # WebRTC 协议验收记录
 
-> 2026-10-19：本分支的主机实际语音开关、两端 native WebRTC 和 SIP 呼叫控制已完成双模拟器联合验收，并发布原签名 Debug Release；[本批结果、范围与下载](webrtc-joint-validation-20261019.md)。包含双向测试音频、呼叫事件、TURN UDP/TCP 和三节点备用切换；物理蜂窝音频仍待真机。部署端口见 [WebRTC 音频说明](webrtc-audio.md)。下文保留 10 月 16 日历史组件验收记录，不代表本次三端联测范围。
+> 2026-10-19：独立 Go/HTTPS 呼叫控制与原生 WebRTC 已完成两台持续运行的 KVM 模拟器、三个真实 Docker 节点联合验收，并发布沿用原签名的 Debug Release。纯模式三节点不运行 Asterisk，SIP/ARI 抓包为 0；呼入/呼出双向测试 PCM、呼叫事件、TURN UDP/TCP、控制/媒体故障与 A→B→C→A 切换通过。WebRTC 开关关闭时的 SIP 来电、开启时的混合来电事件另行通过。物理蜂窝 HAL 和真实手机音频仍待真机验收。 [本批独立控制报告](webrtc-independent-validation-20261019.md)。下文旧阶段按记录日期阅读。
 
 更新：2026-10-16，分支 `feat/webrtc-migration`。
 

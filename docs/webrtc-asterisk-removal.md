@@ -6,7 +6,7 @@
 
 ## 独立控制实现状态（2026-10-19）
 
-已接入 Go/PostgreSQL 持久呼叫控制、Host `RtcCallEngine`、Gateway 真实蜂窝执行、全安装占用与 winner 账本。`SIP_COMPATIBILITY_ENABLED=false` 跳过 SIP/ARI/Asterisk；纯 RTC compose 不包含 Asterisk 镜像。协议、失败边界、兼容来电分流和可配置端口见 [RTC 控制 v1](rtc-call-control-v1.md)。实际三节点 Asterisk 全停的呼出/呼入 104 秒双向测试 PCM 与通话控制、拒接/取消已通过；来电轮次 SIP/ARI 抓包为 0。仍在执行媒体/控制故障、多节点与新旧组合验收，新独立控制 Release 尚未发布。
+2026-10-19：独立 Go/HTTPS 呼叫控制与原生 WebRTC 已完成两台持续运行的 KVM 模拟器、三个真实 Docker 节点联合验收，并发布沿用原签名的 Debug Release。纯模式三节点不运行 Asterisk，SIP/ARI 抓包为 0；呼入/呼出双向测试 PCM、呼叫事件、TURN UDP/TCP、控制/媒体故障与 A→B→C→A 切换通过。WebRTC 开关关闭时的 SIP 来电、开启时的混合来电事件另行通过。物理蜂窝 HAL 和真实手机音频仍待真机验收。 [报告、证据及原签名下载](webrtc-independent-validation-20261019.md)。独立控制、授权边界和部署契约见 [RTC 控制 v1](rtc-call-control-v1.md)。
 
 ## 旧过渡版本的依赖审计（历史）
 
@@ -20,7 +20,7 @@
 | Server RTC SIP channel lease | 为避免旧 RTP 看门狗误拆正常 RTC 通话而续租 Asterisk channel | 新 RTC 路径使用自己的呼叫/参与者租约和故障回收；不创建或续租 Asterisk channel |
 | Docker / 配置 | AIO 内含 Asterisk，API 仍配置 ARI/SIP | 提供 API + PostgreSQL + 按需 TURN 的部署，不要求 Asterisk 容器、ARI、SIP 端口或 SIP 密钥；旧 SIP 部署保持明确可选 |
 
-## 下一批必须落实的控制链路
+## 已落地的软件控制链路要求
 
 1. 冻结协议无关的呼叫能力、命令和事件契约：出站授权与邀请、网关准备/拒绝、响铃、接受/拒接/取消/挂断、真实蜂窝 ACTIVE/结束、revision、operation_id、到期及重连快照。复用现有身份和逐节点会话；不把 SDP 协商 reducer 当成完整呼叫状态机。
 2. 在 Go/PostgreSQL 中实现该契约的持久协调器。共享 SIP/RTC 的网关占用与去重边界；原 SIP 只作为一个独立适配器。来电多客户端 winner 必须由服务端原子选定，其他候选不能获音频或继续接听。
@@ -28,7 +28,7 @@
 4. 去除 RTC 模式下所有 SIP bootstrap、注册、URI、ARI endpoint/channel 的前置条件，并逐项替换 UI 就绪判断与节点探测。状态日志必须报告实际控制和音频路径。
 5. 加入不运行 Asterisk 的部署与 CI/联合验收；完成后才将新路径标为 Asterisk 替代。未实现的能力不能标为 ready 或用假凭据维持旧判断。
 
-## 完成条件
+## 软件联合验收条件与真机边界
 
 使用现有持续运行的两台 KVM 模拟器和三个独立服务器节点，保留原配对/SIM/短信数据：
 
@@ -38,4 +38,4 @@
 - 配对、短信、历史、备份、本地数据和原 UI 行为不能退化。可选 SIP 兼容路径另行验收，其存在不能成为 RTC 路径的依赖。
 - 模拟器测试 PCM 仍只证明软件媒体闭环；物理蜂窝音频采集/注入和真实手机兼容性另行验证。
 
-界面边界：过渡音频开关只在设置页，不占拨号页联系人建议区域；通话界面可保留只读的实际媒体/控制状态。完成独立控制前，不再将这一音频开关描述为完整 Asterisk 替代开关。
+界面边界：WebRTC 语音开关只在设置页，不占拨号页联系人建议区域；通话页显示实际媒体/控制。新独立 Go/RTC Release 已满足上述软件闭环；原混合 Release 的历史限制仍成立，物理手机音频仍需真机验证。
