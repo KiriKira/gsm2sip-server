@@ -10,15 +10,35 @@ umask 077
 case "$TURN_PUBLIC_IP:$TURN_PRIVATE_IP" in *[!0-9.:]*) exit 2;; esac
 case "$TURN_REALM:$RTC_TURN_SHARED_SECRET" in *[!a-zA-Z0-9.:_-]*) exit 2;; esac
 [ "${#RTC_TURN_SHARED_SECRET}" -ge 32 ] || exit 2
+TURN_LISTEN_PORT=${TURN_LISTEN_PORT:-3478}
+TURN_RELAY_MIN_PORT=${TURN_RELAY_MIN_PORT:-49160}
+TURN_RELAY_MAX_PORT=${TURN_RELAY_MAX_PORT:-49259}
+# Decimal only, without signs/leading zeroes (shell arithmetic can treat them as
+# octal). Validate before writing configuration or starting a listener.
+port() {
+    case "$2" in ''|0*|*[!0-9]*) echo "Invalid $1: expected port 1..65535" >&2; exit 2;; esac
+    [ "${#2}" -le 5 ] && [ "$2" -le 65535 ] || {
+        echo "Invalid $1: expected port 1..65535" >&2; exit 2;
+    }
+}
+port TURN_LISTEN_PORT "$TURN_LISTEN_PORT"
+port TURN_RELAY_MIN_PORT "$TURN_RELAY_MIN_PORT"
+port TURN_RELAY_MAX_PORT "$TURN_RELAY_MAX_PORT"
+[ "$TURN_RELAY_MIN_PORT" -le "$TURN_RELAY_MAX_PORT" ] || {
+    echo 'TURN relay range is reversed' >&2; exit 2;
+}
+if [ "$TURN_LISTEN_PORT" -ge "$TURN_RELAY_MIN_PORT" ] && [ "$TURN_LISTEN_PORT" -le "$TURN_RELAY_MAX_PORT" ]; then
+    echo 'TURN listener must be outside the relay range' >&2; exit 2
+fi
 cat > /tmp/gsm2sip-turn.conf <<EOF
 pidfile=/tmp/turnserver.pid
 relay-threads=1
-listening-port=3478
+listening-port=$TURN_LISTEN_PORT
 listening-ip=$TURN_PRIVATE_IP
 relay-ip=$TURN_PRIVATE_IP
 external-ip=$TURN_PUBLIC_IP/$TURN_PRIVATE_IP
-min-port=49160
-max-port=49259
+min-port=$TURN_RELAY_MIN_PORT
+max-port=$TURN_RELAY_MAX_PORT
 realm=$TURN_REALM
 use-auth-secret
 static-auth-secret=$RTC_TURN_SHARED_SECRET

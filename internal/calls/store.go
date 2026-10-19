@@ -290,19 +290,19 @@ func (m *Manager) lockAndValidateIntent(ctx context.Context, tx *sql.Tx, ownerID
 }
 
 func (m *Manager) releaseExpiredReservation(ctx context.Context, tx *sql.Tx, gatewayID string) error {
-	var callID, state string
+	var callID, state, transport string
 	var expiresAt sql.NullTime
 	err := tx.QueryRowContext(ctx, `
-		SELECT c.call_id::text,c.state,c.expires_at FROM gateway_call_slots s
+		SELECT c.call_id::text,c.state,c.expires_at,c.control_transport FROM gateway_call_slots s
 		JOIN call_sessions c ON c.call_id=s.call_id WHERE s.gateway_id=$1 FOR UPDATE OF s,c`, gatewayID).
-		Scan(&callID, &state, &expiresAt)
+		Scan(&callID, &state, &expiresAt, &transport)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if state != "reserved" || !expiresAt.Valid || expiresAt.Time.After(time.Now().UTC()) {
+	if transport != "sip" || state != "reserved" || !expiresAt.Valid || expiresAt.Time.After(time.Now().UTC()) {
 		return nil
 	}
 	var ownerID, clientID string

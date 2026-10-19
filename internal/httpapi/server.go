@@ -81,7 +81,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/capabilities", func(w http.ResponseWriter, _ *http.Request) {
 		// Public and secret-free: clients probe it to measure a node and to learn
 		// which optional request fields it accepts before sending them.
-		writeJSON(w, http.StatusOK, map[string]any{"protocol_version": 1, "extensions": SupportedExtensions, "rtc_audio": s.rtc != nil})
+		writeJSON(w, http.StatusOK, map[string]any{"protocol_version": 1, "extensions": SupportedExtensions, "sip_call_control": s.calls != nil && s.calls.Configured(), "rtc_audio": s.rtc != nil, "rtc_call_control": s.rtc != nil && s.rtc.options.ControlEnabled})
 	})
 	mux.HandleFunc("POST /v1/pairings/claim", s.claimPairing)
 	mux.HandleFunc("POST /v1/auth/refresh", s.refreshSession)
@@ -110,6 +110,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/calls/{call_id}/media/active", s.authenticated(s.rtcCellularActive))
 	mux.HandleFunc("GET /v1/rtc/legs/{leg_id}", s.authenticated(s.rtcSignals))
 	mux.HandleFunc("POST /v1/rtc/legs/{leg_id}", s.authenticated(s.rtcSignals))
+	mux.HandleFunc("POST /v1/rtc/control/capability", s.authenticated(s.rtcControlCapability))
+	mux.HandleFunc("POST /v1/rtc/control/calls", s.authenticated(s.rtcControlCreate))
+	mux.HandleFunc("GET /v1/rtc/control/incoming-policy", s.authenticated(s.rtcIncomingPolicy))
+	mux.HandleFunc("POST /v1/rtc/control/incoming", s.authenticated(s.rtcControlCreate))
+	mux.HandleFunc("GET /v1/rtc/control/calls", s.authenticated(s.rtcControlRead))
+	mux.HandleFunc("GET /v1/rtc/control/calls/{call_id}", s.authenticated(s.rtcControlRead))
+	mux.HandleFunc("POST /v1/rtc/control/calls/{call_id}/operations", s.authenticated(s.rtcControlOperate))
 	mux.HandleFunc("POST /v1/call-intents", s.authenticated(s.createCallIntent))
 	mux.HandleFunc("DELETE /v1/call-intents/{intent_id}", s.authenticated(s.cancelCallIntent))
 	mux.HandleFunc("POST /v1/clients/{client_id}/ready", s.authenticated(s.clientReady))

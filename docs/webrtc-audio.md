@@ -1,53 +1,46 @@
-# Experimental WebRTC voice with existing SIP call control
+# WebRTC voice and optional SIP compatibility
 
-**This release is an audio-only transition and still requires SIP/Asterisk.
-It does not complete the planned Asterisk replacement.** See
-[remaining work and the Asterisk-off acceptance criteria](webrtc-asterisk-removal.md).
+The upgraded Host **WebRTC 语音** switch in Settings selects native
+ICE / DTLS-SRTP / Opus. With `RTC_CONTROL_ENABLED=true`, it also selects
+independent Go call control, without a SIP or Asterisk prerequisite. See
+[control protocol, migration and pure RTC deployment](rtc-call-control-v1.md).
 
-The host's **WebRTC 语音（实验）** switch freezes the audio transport for a
-new outgoing call or an incoming invitation. Enabled calls use native
-ICE / DTLS-SRTP / Opus between host and gateway. SIP/Asterisk still handles
-registration, call authorization, incoming winner selection and call control.
-The shared gateway occupancy and durable dispatch ledger remain authoritative.
-An RTC failure ends the selected call; it does not silently dial again or fall
-back to SIP audio. Turn the switch off before the next call for SIP audio.
+Keep `SIP_COMPATIBILITY_ENABLED=true` while supporting existing clients.
+The switch off setting retains original SIP calls. On older servers without
+independent control, WebRTC audio can still use the existing SIP-controlled
+transition adapter. The actual selected control and media are shown per call
+and logged by all three endpoints; a failed RTC call never silently falls back.
 
-Deploy the updated **API and Asterisk images**, plus gateway, before enabling
-the host switch. Updating only the API leaves the old SIP RTP watchdog active
-and can terminate a healthy WebRTC call after 30 seconds. Configure:
+Configure API and gateway before enabling the switch:
 
 ```dotenv
+RTC_CONTROL_ENABLED=true
 RTC_MEDIA_ENABLED=true
 RTC_NODE_ID=your-stable-node-name
 RTC_STUN_URLS=stun:turn.example.com:3478
 RTC_TURN_URLS=turn:turn.example.com:3478?transport=udp,turn:turn.example.com:3478?transport=tcp
-RTC_TURN_SHARED_SECRET=<openssl rand -hex 32>
+RTC_TURN_SHARED_SECRET=<private-shared-secret>
 ```
 
-Use a different stable node ID on each independent server. Keep the shared
-secret private and configure the same value in that API and its coturn.
-Both compose deployments and the all-in-one container forward these variables.
-RTC is disabled by default. `/v1/capabilities` advertises `rtc_audio`; the
-gateway registers its native SDK capability before a host can select RTC.
+Each independent server uses a distinct stable node ID. Keep the TURN shared
+secret private and equal in its API and coturn. Compose and the all-in-one
+container forward these variables. RTC media is disabled by default.
 
-The supplied Asterisk build supports a bounded `GSM2SIP_RTC_UNTIL` channel lease.
-After authorizing a negotiated RTC read, the API renews **only that participant's
-SIP channel** for 12 seconds. Asterisk checks this lease every second; missing,
-expired, malformed or more than 20 seconds ahead values retain the normal RTP
-watchdog. No endpoint timeout is disabled or raised. SIP-only calls never obtain
-this lease. Client loss, revoked authorization or API/ARI failure stops renewal;
-the existing watchdog then tears down the control channel. This does not send
-SIP speech, enable an audio fallback or authorize another GSM dispatch.
+For the older SIP-controlled WebRTC adapter, deploy both updated API and
+Asterisk images. Its negotiated peer renews only its authorized SIP channel's
+bounded 12-second `GSM2SIP_RTC_UNTIL` lease, without raising the normal RTP
+watchdog timeout. **Independent Go/RTC calls never renew this ARI lease and do
+not need Asterisk.**
 
 ## Network ports
 
 | Port | Purpose | Required when |
 | --- | --- | --- |
 | Existing HTTPS TCP 443 | Authenticated SDP/ICE relay and call APIs | Always; no additional signaling port |
-| Existing SIP TLS TCP 5061 (or configured UDP 5060) | Existing call control | Always for this compatibility adapter |
+| Existing SIP TLS TCP 5061 (or configured UDP 5060) | Optional legacy call control | Only with SIP compatibility |
 | Existing UDP RTP range, default 10000–10199 | Existing SIP audio | SIP audio remains supported |
-| TURN UDP **and** TCP 3478 | STUN and authenticated TURN allocation | Recommended for phones behind NAT |
-| TURN UDP 49160–49259 | Bounded TURN media relay | Required with the supplied TURN deployment |
+| TURN UDP **and** TCP `TURN_LISTEN_PORT` (default 3478) | STUN and authenticated TURN allocation | Recommended for phones behind NAT |
+| TURN UDP `TURN_RELAY_MIN_PORT`–`TURN_RELAY_MAX_PORT` (default 49160–49259) | Bounded TURN media relay | Required with the supplied TURN deployment |
 | Optional TCP 5349 | TURN over TLS | Only if separately configured with a valid certificate |
 
 Direct ICE audio travels between the phones and does not pass through an API
@@ -63,6 +56,24 @@ env file. For EC2 public IPv4 NAT use the actual public/private address pair;
 security group, host firewall and NAT must preserve the relay port numbers.
 The template denies relay access to private/internal peer addresses. Private
 VPN deployments need an explicitly reviewed peer-address policy of their own.
+
+All additional TURN ports are configurable in the same private env file. For example:
+
+```dotenv
+TURN_LISTEN_PORT=13478
+TURN_RELAY_MIN_PORT=52000
+TURN_RELAY_MAX_PORT=52099
+RTC_STUN_URLS=stun:turn.example.com:13478
+RTC_TURN_URLS=turn:turn.example.com:13478?transport=udp,turn:turn.example.com:13478?transport=tcp
+```
+
+This opens TCP/UDP 13478 and UDP 52000–52099 on the TURN host. Apply the same
+values to the firewall, cloud security group and NAT; update the API's advertised
+URLs and restart API and TURN. Phones obtain the URL from the API and require no
+TURN port setting. The relay range is learned through ICE, so it does not go in
+`RTC_TURN_URLS`. The entrypoint rejects invalid ports, reversed ranges and overlap
+with the listener before starting coturn. Ports must be free on the host. The
+optional TLS listener remains disabled; this setting does not enable TLS.
 
 Run independently from the normal stack:
 

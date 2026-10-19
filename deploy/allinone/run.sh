@@ -35,12 +35,18 @@ DB_PASSWORD="$(secret_file db_password 'openssl rand -hex 24')"
 if [ -z "${SECRETS_ENCRYPTION_KEY:-}" ]; then
     SECRETS_ENCRYPTION_KEY="$(secret_file secrets_encryption_key 'openssl rand -base64 32')"
 fi
+SIP_COMPATIBILITY_ENABLED="${SIP_COMPATIBILITY_ENABLED:-true}"
+case "$SIP_COMPATIBILITY_ENABLED" in true|false) ;; *) die "SIP_COMPATIBILITY_ENABLED must be true or false";; esac
+ARI_PASSWORD=""
+if [ "$SIP_COMPATIBILITY_ENABLED" = true ]; then
 # ARI never leaves the container; a fresh password per start is enough.
 ARI_PASSWORD="$(openssl rand -hex 24)"
 (umask 077; printf '%s' "$ARI_PASSWORD" > "$RUN_DIR/ari_password")
-printf 'PG_PORT=%s\nARI_PORT=%s\nHTTP_ADDR=%s\n' "$PG_PORT" "$ARI_PORT" "$HTTP_ADDR" > "$RUN_DIR/ports"
+fi
+printf 'PG_PORT=%s\nARI_PORT=%s\nHTTP_ADDR=%s\nSIP_COMPATIBILITY_ENABLED=%s\n' "$PG_PORT" "$ARI_PORT" "$HTTP_ADDR" "$SIP_COMPATIBILITY_ENABLED" > "$RUN_DIR/ports"
 DATABASE_URL="postgresql://gsm2sip:${DB_PASSWORD}@127.0.0.1:${PG_PORT}/gsm2sip?sslmode=disable"
 
+if [ "$SIP_COMPATIBILITY_ENABLED" = true ]; then
 # SIP_TRANSPORT=udp: plain SIP and RTP for a trusted LAN or VPN, no certificate.
 SIP_TRANSPORT="$(printf '%s' "${SIP_TRANSPORT:-tls}" | tr '[:upper:]' '[:lower:]')"
 case "$SIP_TRANSPORT" in
@@ -81,6 +87,8 @@ fi
 PUBLIC_IP="${PUBLIC_IP:-}"
 ASTERISK_EXTERNAL_SIGNALING_ADDRESS="${ASTERISK_EXTERNAL_SIGNALING_ADDRESS:-$PUBLIC_IP}"
 ASTERISK_EXTERNAL_MEDIA_ADDRESS="${ASTERISK_EXTERNAL_MEDIA_ADDRESS:-$PUBLIC_IP}"
+
+fi
 
 as_user() { local user="$1"; shift; setpriv --reuid="$user" --regid="$user" --init-groups "$@"; }
 
@@ -148,6 +156,7 @@ if [ "$(PGPASSWORD="$DB_PASSWORD" "$PG_BIN/psql" -h 127.0.0.1 -p "$PG_PORT" -U g
     PGPASSWORD="$DB_PASSWORD" "$PG_BIN/psql" -h 127.0.0.1 -p "$PG_PORT" -U gsm2sip -d postgres -qc 'CREATE DATABASE gsm2sip'
 fi
 
+if [ "$SIP_COMPATIBILITY_ENABLED" = true ]; then
 # Asterisk (its entrypoint renders config, then drops to the asterisk user).
 env ARI_USERNAME=gsm2sip ARI_PASSWORD="$ARI_PASSWORD" ASTERISK_ARI_BIND_ADDR=127.0.0.1 ASTERISK_ARI_PORT="$ARI_PORT" \
     ASTERISK_EXTERNAL_SIGNALING_ADDRESS="$ASTERISK_EXTERNAL_SIGNALING_ADDRESS" \
@@ -163,24 +172,32 @@ for _ in $(seq 1 60); do
     sleep 1
 done
 
+fi
+
 # API and worker
 app_env=(
     DATABASE_URL="$DATABASE_URL" MIGRATIONS_DIR="$MIGRATIONS_DIR"
-    ARI_URL="http://127.0.0.1:${ARI_PORT}/ari" ARI_USERNAME=gsm2sip ARI_PASSWORD="$ARI_PASSWORD"
-    ARI_APPLICATION=gsm2sip SIP_SERVER_NAME="$SIP_SERVER_NAME" SIP_PORT="$SIP_PORT" SIP_TRANSPORT="$SIP_TRANSPORT"
-    SIP_CA_PEM_FILE="$SIP_CA_PEM_FILE" SIP_ENABLE_OPUS="${SIP_ENABLE_OPUS:-false}"
+    SIP_COMPATIBILITY_ENABLED="$SIP_COMPATIBILITY_ENABLED"
     SECRETS_ENCRYPTION_KEY="$SECRETS_ENCRYPTION_KEY" HTTP_ADDR="$HTTP_ADDR"
+    RTC_CONTROL_ENABLED="${RTC_CONTROL_ENABLED:-false}"
     RTC_MEDIA_ENABLED="${RTC_MEDIA_ENABLED:-false}" RTC_NODE_ID="${RTC_NODE_ID:-local}"
     RTC_STUN_URLS="${RTC_STUN_URLS:-}" RTC_TURN_URLS="${RTC_TURN_URLS:-}"
     RTC_TURN_SHARED_SECRET="${RTC_TURN_SHARED_SECRET:-}"
 )
+if [ "$SIP_COMPATIBILITY_ENABLED" = true ]; then
+    app_env+=(
+    ARI_URL="http://127.0.0.1:${ARI_PORT}/ari" ARI_USERNAME=gsm2sip ARI_PASSWORD="$ARI_PASSWORD"
+    ARI_APPLICATION=gsm2sip SIP_SERVER_NAME="$SIP_SERVER_NAME" SIP_PORT="$SIP_PORT" SIP_TRANSPORT="$SIP_TRANSPORT"
+    SIP_CA_PEM_FILE="$SIP_CA_PEM_FILE" SIP_ENABLE_OPUS="${SIP_ENABLE_OPUS:-false}"
+    )
+fi
 env -i PATH=/usr/bin:/bin "${app_env[@]}" setpriv --reuid=gsm2sip --regid=gsm2sip --init-groups \
     /usr/local/libexec/gsm2sip-api &
 pids+=("$!")
 env -i PATH=/usr/bin:/bin DATABASE_URL="$DATABASE_URL" MIGRATIONS_DIR="$MIGRATIONS_DIR" \
     setpriv --reuid=gsm2sip --regid=gsm2sip --init-groups /usr/local/libexec/gsm2sip-worker &
 pids+=("$!")
-log "started PostgreSQL, Asterisk, API and worker"
+log "started PostgreSQL, API and worker (SIP compatibility: $SIP_COMPATIBILITY_ENABLED)"
 
 set +e
 wait -n "${pids[@]}"

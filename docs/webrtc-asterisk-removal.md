@@ -1,10 +1,14 @@
-# 移除 Asterisk：尚未完成的呼叫控制迁移
+# 移除 Asterisk：独立控制实现与联合验收
 
 2026-10-19。目标仍是：新 WebRTC 路径不依赖 SIP、PJSUA2、Asterisk 或 ARI。原 SIP 仅可作为明确选择的兼容路径，不能成为 WebRTC 模式的运行前提。
 
 已发布的 `debug-webrtc-joint-20261019` 只替换了音频：ICE/DTLS-SRTP/Opus 与测试 PCM 已经联合验证，但邀请、响铃、接听、拒接、挂断及业务通话状态仍通过 SIP/Asterisk。关掉 Asterisk 后该版本不能完成呼叫；本次媒体联测通过不代表原迁移目标完成。当前日志中的 `call_control=sip` 正是实际情况，不能只改显示文字冒充去除了依赖。
 
-## 已确认的实际依赖
+## 独立控制实现状态（2026-10-19）
+
+已接入 Go/PostgreSQL 持久呼叫控制、Host `RtcCallEngine`、Gateway 真实蜂窝执行、全安装占用与 winner 账本。`SIP_COMPATIBILITY_ENABLED=false` 跳过 SIP/ARI/Asterisk；纯 RTC compose 不包含 Asterisk 镜像。协议、失败边界、兼容来电分流和可配置端口见 [RTC 控制 v1](rtc-call-control-v1.md)。实际三节点 Asterisk 全停的呼出/呼入 104 秒双向测试 PCM 与通话控制、拒接/取消已通过；来电轮次 SIP/ARI 抓包为 0。仍在执行媒体/控制故障、多节点与新旧组合验收，新独立控制 Release 尚未发布。
+
+## 旧过渡版本的依赖审计（历史）
 
 | 位置 | 当前依赖 | 独立 WebRTC 路径必须实现 |
 | --- | --- | --- |

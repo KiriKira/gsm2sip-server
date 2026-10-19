@@ -15,6 +15,7 @@ import (
 
 // SIPSettings identifies the public SIP listener, never the private ARI service.
 type SIPSettings struct {
+	Disabled bool
 	// ServerName is the SIP host given to devices. Empty means each device is
 	// told the host it used to reach this API, so one node can serve phones on
 	// different networks (LAN, Tailscale) without a configured address.
@@ -113,7 +114,7 @@ func validSIPHost(name string) bool {
 }
 
 func (s *Server) sipConfig(p Principal, r *http.Request) sipConfiguration {
-	if s.secretCipher == nil || !s.sip.Valid() {
+	if s.sip.Disabled || s.secretCipher == nil || !s.sip.Valid() {
 		return sipConfiguration{Reason: "sip_not_configured"}
 	}
 	serverName := s.sip.ServerName

@@ -125,3 +125,15 @@ func (l Leg) nextExpiry(now time.Time) *time.Time {
 	}
 	return &value
 }
+
+// CheckpointNegotiated lets the business coordinator inspect committed media
+// readiness inside its own transaction without depending on private JSON fields.
+// It never renews authorization or resurrects a closed/expired leg.
+func CheckpointNegotiated(data []byte, now time.Time) bool {
+	leg, err := restore(data)
+	if err != nil {
+		return false
+	}
+	leg, _ = leg.Expire(now)
+	return leg.phase == Negotiated
+}

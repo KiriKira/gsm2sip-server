@@ -15,6 +15,10 @@ validate(spec)
 registry = Registry().with_resource('urn:gsm2sip:openapi', Resource.from_contents(
     dict(spec, **{'$schema': 'https://json-schema.org/draft/2020-12/schema'})))
 fixtures = {
+    'rtc-control-outgoing.json': 'RTCOutgoingCall',
+    'rtc-control-incoming.json': 'RTCIncomingCall',
+    'rtc-control-operation.json': 'RTCControlOperation',
+    'rtc-control-snapshot.json': 'RTCControlSnapshot',
     'wake-sync-required.json': 'WakeSyncRequired',
     'capabilities-response.json': 'Capabilities',
     'sip-config-response.json': 'SipConfiguration',
@@ -117,3 +121,14 @@ print(
     f'{len(mutations)} invalid events, 3 invalid platform labels, 3 unsafe client rows and '
     f'{len(radio_mutations)} unsafe SIM radio reports rejected'
 )
+
+# Independent call control must not acquire a trusted identity override or SIP URI.
+for fixture, schema_name, mutations in [
+    ('rtc-control-outgoing.json','RTCOutgoingCall', [lambda x:x.update(version=2),lambda x:x.update(mapping_revision=0),lambda x:x.update(owner_id='other'),lambda x:x.update(sip_uri='sip:forged'),lambda x:x.update(**{'from':'forged'}),lambda x:x.update(to='caller\nforged')]),
+    ('rtc-control-operation.json','RTCControlOperation',[lambda x:x.update(revision=0),lambda x:x.update(kind='dial_modem'),lambda x:x.update(winner_client_id='override'),lambda x:x.pop('operation_id')]),
+]:
+    validator=Draft202012Validator({'$ref':'urn:gsm2sip:openapi#/components/schemas/'+schema_name},registry=registry,format_checker=FormatChecker())
+    for mutation in mutations:
+        value=json.loads((ROOT/'fixtures/api'/fixture).read_text());mutation(value)
+        assert not validator.is_valid(value), 'Unsafe independent control mutation accepted: '+str(value)
+print('Independent RTC control fixtures and forbidden mutations passed')
