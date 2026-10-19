@@ -23,6 +23,15 @@ on:
       - go.sum
       - .github/workflows/images.yml
   workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Additional public image tag for this build
+        type: string
+        default: ''
+      build_only:
+        description: Build and publish images without running smoke tests
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -91,6 +100,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=asterisk-${{ matrix.arch }}
 
       - name: Smoke-test deploy/compose.yaml with the built images
+        if: ${{ !inputs.build_only }}
         shell: bash
         run: |
           set -euo pipefail
@@ -129,6 +139,7 @@ jobs:
           docker compose down -v
 
       - name: Smoke-test independent RTC compose without Asterisk
+        if: ${{ !inputs.build_only }}
         run: bash scripts/rtc-independent-probe.sh
 
       - name: Build the all-in-one image from the tested images
@@ -143,6 +154,7 @@ jobs:
             --file deploy/allinone/Dockerfile --tag "$ALLINONE_IMAGE:ci-smoke" .
 
       - name: Smoke-test all-in-one pure RTC without SIP configuration
+        if: ${{ !inputs.build_only }}
         shell: bash
         run: |
           set -euo pipefail
@@ -172,6 +184,7 @@ jobs:
           docker exec aio-rtc /usr/local/bin/gsm2sip-allinone-healthcheck
 
       - name: Smoke-test the all-in-one image, including a restart
+        if: ${{ !inputs.build_only }}
         shell: bash
         run: |
           set -euo pipefail
@@ -211,6 +224,7 @@ jobs:
           docker volume rm aio-data
 
       - name: Smoke-test the all-in-one image with plain SIP over UDP
+        if: ${{ !inputs.build_only }}
         shell: bash
         run: |
           set -euo pipefail
@@ -248,6 +262,7 @@ jobs:
           docker rm -f -v aio-udp
 
       - name: Smoke-test the all-in-one image with no address configured (host network)
+        if: ${{ !inputs.build_only }}
         shell: bash
         run: |
           set -euo pipefail
@@ -256,7 +271,7 @@ jobs:
           # runner's port space; the defaults (55432, 58088) sit inside Linux's
           # ephemeral range, where an outgoing connection can already hold them.
           docker run -d --name aio-auto --network host -e SIP_TRANSPORT=udp -e HTTP_PORT=18082 \
-            -e PG_PORT=25432 -e ARI_PORT=28088 -e RTC_MEDIA_ENABLED=true -e RTC_NODE_ID=ci-auto \
+            -e PG_PORT=25432 -e ARI_PORT=28088 -e RTC_MEDIA_ENABLED=true \
             "$ALLINONE_IMAGE:ci-smoke"
           for _ in $(seq 1 90); do
             curl --fail --silent --max-time 2 http://127.0.0.1:18082/readyz >/dev/null && break
@@ -357,6 +372,7 @@ jobs:
           tags: |
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=sha-,format=short
+            type=raw,value=${{ inputs.image_tag }},enable=${{ inputs.image_tag != '' }}
             type=ref,event=tag
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
 

@@ -63,7 +63,6 @@ func main() {
 		logger.Error("RTC_CONTROL_ENABLED requires RTC_MEDIA_ENABLED")
 		os.Exit(2)
 	}
-	options.RTC.NodeID = strings.TrimSpace(os.Getenv("RTC_NODE_ID"))
 	options.RTC.STUNURLs = strings.FieldsFunc(os.Getenv("RTC_STUN_URLS"), func(c rune) bool { return c == ',' || c == ' ' })
 	options.RTC.TURNURLs = strings.FieldsFunc(os.Getenv("RTC_TURN_URLS"), func(c rune) bool { return c == ',' || c == ' ' })
 	options.RTC.TURNSecret = os.Getenv("RTC_TURN_SHARED_SECRET")

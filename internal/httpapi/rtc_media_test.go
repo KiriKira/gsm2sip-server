@@ -25,7 +25,7 @@ func rtcFixture(t *testing.T, direction string) (*integrationDatabase, integrati
 	t.Helper()
 	database := openIntegrationDatabase(t)
 	f := seedIntegrationFixture(t, database.db)
-	api := NewWithOptions(database.db, nil, Options{RTC: RTCMediaOptions{Enabled: true, NodeID: "test-node"}})
+	api := NewWithOptions(database.db, nil, Options{RTC: RTCMediaOptions{Enabled: true}})
 	t.Cleanup(api.ShutdownWebSockets)
 	callID := newUUID()
 	state := "reserved"

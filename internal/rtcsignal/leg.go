@@ -39,7 +39,9 @@ type Principal struct{ OwnerID, DeviceID string }
 // Binding is trusted coordinator input, never copied from an untrusted frame.
 // A leg identifies exactly one client/gateway pair, not all ringing clients.
 type Binding struct {
-	NodeID          string `json:"node_id"`
+	// Retained only to decode existing checkpoints; new legs omit this legacy
+	// field. Session, owner, call and paired-device identities authorize access.
+	NodeID          string `json:"node_id,omitempty"`
 	OwnerID         string `json:"owner_id"`
 	CallID          string `json:"call_id"`
 	LegID           string `json:"leg_id"`
@@ -149,7 +151,7 @@ type Transition struct {
 }
 
 func New(binding Binding, now, authorizedUntil time.Time) (Leg, error) {
-	for _, value := range []string{binding.NodeID, binding.OwnerID, binding.CallID, binding.LegID,
+	for _, value := range []string{binding.OwnerID, binding.CallID, binding.LegID,
 		binding.AttemptID, binding.ClientID, binding.GatewayID, binding.SIMID} {
 		if !validID(value) {
 			return Leg{}, ErrInvalid

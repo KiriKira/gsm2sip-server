@@ -15,7 +15,7 @@ func controlFixture(t *testing.T) (*integrationDatabase, integrationFixture, *Se
 	t.Helper()
 	db := openIntegrationDatabase(t)
 	f := seedIntegrationFixture(t, db.db)
-	api := NewWithOptions(db.db, nil, Options{RTC: RTCMediaOptions{Enabled: true, ControlEnabled: true, NodeID: "independent"}})
+	api := NewWithOptions(db.db, nil, Options{RTC: RTCMediaOptions{Enabled: true, ControlEnabled: true}})
 	t.Cleanup(api.ShutdownWebSockets)
 	for _, token := range []string{f.clientToken, f.gatewayToken} {
 		requireStatus(t, requestJSON(t, api.Handler(), "POST", "/v1/rtc/control/capability", token, map[string]any{"version": 1, "enabled": true}, ""), 200)
@@ -201,7 +201,7 @@ func TestIndependentRTCReplaySurvivesRestartAndConcurrentRetries(t *testing.T) {
 	body := rtcCreateCall{Version: 1, OperationID: strings.ToUpper(newUUID()), CallID: strings.ToUpper(newUUID()), GatewayID: strings.ToUpper(f.gatewayID), SIMID: strings.ToUpper(f.simID), MappingRevision: 1, To: "15550100200"}
 	requireStatus(t, requestJSON(t, api.Handler(), "POST", "/v1/rtc/control/calls", f.clientToken, body, ""), 201)
 	// A different API process has no in-memory replay state.
-	restarted := NewWithOptions(db.db, nil, Options{RTC: RTCMediaOptions{Enabled: true, ControlEnabled: true, NodeID: "independent"}})
+	restarted := NewWithOptions(db.db, nil, Options{RTC: RTCMediaOptions{Enabled: true, ControlEnabled: true}})
 	t.Cleanup(restarted.ShutdownWebSockets)
 	requireStatus(t, requestJSON(t, restarted.Handler(), "POST", "/v1/rtc/control/calls", f.clientToken, body, ""), 200)
 	op := rtcCallOperation{Version: 1, OperationID: strings.ToUpper(newUUID()), Revision: 1, Kind: "start"}

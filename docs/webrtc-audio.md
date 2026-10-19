@@ -16,14 +16,14 @@ Configure API and gateway before enabling the switch:
 ```dotenv
 RTC_CONTROL_ENABLED=true
 RTC_MEDIA_ENABLED=true
-RTC_NODE_ID=your-stable-node-name
 RTC_STUN_URLS=stun:turn.example.com:3478
 RTC_TURN_URLS=turn:turn.example.com:3478?transport=udp,turn:turn.example.com:3478?transport=tcp
 RTC_TURN_SHARED_SECRET=<private-shared-secret>
 ```
 
-Each independent server uses a distinct stable node ID. Keep the TURN shared
-secret private and equal in its API and coturn. Compose and the all-in-one
+RTC reuses the existing owner, paired device, session, call, gateway and SIM
+identities. Servers need no extra RTC node ID, including for mesh failover.
+Keep the TURN shared secret private and equal in its API and coturn. Compose and the all-in-one
 container forward these variables. RTC media is disabled by default.
 
 For the older SIP-controlled WebRTC adapter, deploy both updated API and

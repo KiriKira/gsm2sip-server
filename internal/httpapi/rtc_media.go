@@ -21,7 +21,6 @@ import (
 type RTCMediaOptions struct {
 	ControlEnabled bool
 	Enabled        bool
-	NodeID         string
 	STUNURLs       []string
 	TURNURLs       []string
 	TURNSecret     string
@@ -39,10 +38,7 @@ func (s *Server) startRTCMedia(options RTCMediaOptions) {
 	if !options.Enabled {
 		return
 	}
-	if options.NodeID == "" {
-		options.NodeID = "local"
-	}
-	repo, err := rtcsignal.NewPostgresRepository(s.db, rtcMediaAuthorizer{options.NodeID}, s.now)
+	repo, err := rtcsignal.NewPostgresRepository(s.db, rtcMediaAuthorizer{}, s.now)
 	if err != nil {
 		s.logger.Error("RTC media adapter unavailable")
 		return
@@ -94,10 +90,10 @@ func (s *Server) requireRTC(w http.ResponseWriter) bool {
 // Authorize rechecks the exact HTTP session and the same business-call lease on
 // every read, SDP command and renewal. An incoming loser cannot access the winner's
 // media, including after its SIP channel has been canceled.
-type rtcMediaAuthorizer struct{ nodeID string }
+type rtcMediaAuthorizer struct{}
 
 func (a rtcMediaAuthorizer) Authorize(ctx context.Context, tx *sql.Tx, p rtcsignal.Principal, b rtcsignal.Binding) error {
-	if b.NodeID != a.nodeID || p.OwnerID != b.OwnerID || (p.DeviceID != b.ClientID && p.DeviceID != b.GatewayID) {
+	if p.OwnerID != b.OwnerID || (p.DeviceID != b.ClientID && p.DeviceID != b.GatewayID) {
 		return rtcsignal.ErrForbidden
 	}
 	hash, ok := ctx.Value(rtcAccessKey{}).([]byte)
@@ -273,7 +269,6 @@ func (s *Server) selectRTCMedia(w http.ResponseWriter, r *http.Request, p Princi
 	var b rtcsignal.Binding
 	var direction, state, client, winner, transport string
 	var valid bool
-	b.NodeID = s.rtc.options.NodeID
 	b.CallID = callID
 	b.OwnerID = p.OwnerID
 	b.ClientID = p.DeviceID
@@ -356,7 +351,6 @@ func (s *Server) getRTCMedia(w http.ResponseWriter, r *http.Request, p Principal
 	}
 	var b rtcsignal.Binding
 	var direction, state, client, winner, transport string
-	b.NodeID = s.rtc.options.NodeID
 	b.OwnerID = p.OwnerID
 	b.CallID = callID
 	err := s.db.QueryRowContext(r.Context(), `SELECT gateway_id::text,sim_id::text,mapping_revision,direction,state,client_device_id::text,COALESCE(incoming_winner_client_device_id::text,''),control_transport FROM call_sessions WHERE call_id=$1 AND owner_id=$2`, callID, p.OwnerID).Scan(&b.GatewayID, &b.SIMID, &b.MappingRevision, &direction, &state, &client, &winner, &transport)
