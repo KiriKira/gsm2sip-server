@@ -174,6 +174,21 @@ done
 
 fi
 
+# Default RTC deployment manages its own relay and credentials. Explicit TURN
+# URLs still select an external relay, preserving existing advanced deployments.
+if [ "${RTC_MEDIA_ENABLED:-false}" = true ] && [ -z "${RTC_TURN_URLS:-}" ]; then
+    if ! SECRETS_ENCRYPTION_KEY="$SECRETS_ENCRYPTION_KEY" PUBLIC_IP="${PUBLIC_IP:-}" \
+        python3 /usr/local/libexec/gsm2sip-turn-config.py; then
+        stop_all
+        exit 1
+    fi
+    . "$RUN_DIR/turn.env"
+    turnserver -c "$RUN_DIR/turn.conf" &
+    TURN_PID=$!
+    pids+=("$TURN_PID")
+    printf '%s\n' "$TURN_PID" > "$RUN_DIR/turn-supervisor.pid"
+fi
+
 # API and worker
 app_env=(
     DATABASE_URL="$DATABASE_URL" MIGRATIONS_DIR="$MIGRATIONS_DIR"

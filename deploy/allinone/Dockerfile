@@ -12,7 +12,7 @@ FROM ${ASTERISK_IMAGE}
 
 RUN set -eu; \
     DEBIAN_FRONTEND=noninteractive apt-get update; \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssl; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssl coturn python3-minimal; \
     install -d /usr/share/postgresql-common/pgdg /etc/postgresql-common; \
     curl --fail --silent --show-error --location \
       https://www.postgresql.org/media/keys/ACCC4CF8.asc \
@@ -42,6 +42,7 @@ RUN set -eu; \
 COPY --from=server /usr/local/bin/gsm2sip-api /usr/local/bin/gsm2sip-worker /usr/local/libexec/
 COPY --from=server /usr/local/bin/gsm2sip-admin /usr/local/libexec/gsm2sip-admin
 COPY --from=server /app/migrations/ /app/migrations/
+COPY deploy/allinone/turn-config.py /usr/local/libexec/gsm2sip-turn-config.py
 COPY deploy/allinone/run.sh /usr/local/bin/gsm2sip-allinone
 COPY deploy/allinone/admin.sh /usr/local/bin/gsm2sip-admin
 COPY deploy/allinone/healthcheck.sh /usr/local/bin/gsm2sip-allinone-healthcheck
@@ -53,7 +54,7 @@ ENV MIGRATIONS_DIR=/app/migrations \
     RTP_END=10199
 
 VOLUME ["/data"]
-EXPOSE 8080/tcp 5061/tcp 5060/udp 10000-10199/udp
+EXPOSE 8080/tcp 5061/tcp 5060/udp 10000-10199/udp 3478/tcp 3478/udp 49160-49259/udp
 ENTRYPOINT ["/usr/local/bin/gsm2sip-allinone"]
 CMD []
 HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=4 \

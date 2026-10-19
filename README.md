@@ -1,5 +1,7 @@
 # gsm2sip-server
 
+一体镜像启用 RTC 后自动管理 TURN：密钥从已有安装密钥派生、realm 使用默认值、监听 0.0.0.0、自动探测中继地址。无需填写 TURN secret/IP/realm 或 RTC 节点 ID，也无需额外 coturn 容器。端口仍可指定；云安全组/路由器需要放行对应端口。
+
 RTC 部署无需额外节点 ID：沿用原有配对、会话、Call ID、网关和 SIM 身份；多服务端故障转移也不需要手动分配 RTC 节点编号。旧 `RTC_NODE_ID` 环境变量可删除。
 
 2026-10-19 更新：WebRTC 熄屏保活已修复，三端按本批一起更新；同版本备用切换与实际通话已验证。[本批验收与 Debug 下载](docs/webrtc-screenoff-validation-20261019.md)。

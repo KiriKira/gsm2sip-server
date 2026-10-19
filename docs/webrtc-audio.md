@@ -11,7 +11,16 @@ independent control, WebRTC audio can still use the existing SIP-controlled
 transition adapter. The actual selected control and media are shown per call
 and logged by all three endpoints; a failed RTC call never silently falls back.
 
-Configure API and gateway before enabling the switch:
+For the all-in-one image, enable RTC_CONTROL_ENABLED and RTC_MEDIA_ENABLED.
+The image automatically supervises coturn, derives its stable authentication
+secret from the existing install encryption key, listens on 0.0.0.0 and discovers
+the relay address. No extra node ID, TURN secret, IP, realm or URL is required.
+TURN_LISTEN_PORT / TURN_RELAY_MIN_PORT / TURN_RELAY_MAX_PORT remain optional
+port overrides; forward/open the chosen ports in your firewall and NAT.
+When public STUN discovery is unavailable behind NAT, the image also reuses
+an existing PUBLIC_IP; TURN_PUBLIC_IP remains an optional advanced override.
+
+For a separately managed external TURN service, configure:
 
 ```dotenv
 RTC_CONTROL_ENABLED=true
