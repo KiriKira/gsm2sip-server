@@ -479,7 +479,7 @@ INSERT INTO public.gateway_call_slots(gateway_id,call_id) VALUES
         original_archive = self.archive.read_bytes()
         original_manifest = manifest_path.read_bytes()
         manifest = json.loads(original_manifest)
-        self.assertEqual(manifest["schema_revision"], "0016_rtc_media_adapter.sql")
+        self.assertEqual(manifest["schema_revision"], "0017_rtc_call_control.sql")
         password = urlsplit(TEST_DATABASE_URL).password or "" if self.backend == "local" else "backup-test-only"
         self.assertNotIn(password, original_manifest.decode("utf-8"))
         self.assertNotIn(b"backup-test-env-secret-never-export-6ac47d", original_archive)
