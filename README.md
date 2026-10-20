@@ -1,24 +1,33 @@
-# gsm2sip-server
+# SoulGem
 
-一体镜像启用 RTC 后自动管理 TURN：密钥从已有安装密钥派生、realm 使用默认值、监听 0.0.0.0、自动探测中继地址。无需填写 TURN secret/IP/realm 或 RTC 节点 ID，也无需额外 coturn 容器。端口仍可指定；云安全组/路由器需要放行对应端口。
+SoulGem 是三端系统的服务端：主机 App **Madoka**、旧手机网关 App **Homura** 通过它配对、同步短信并建立通话。
+（仓库、镜像、二进制和数据库名仍沿用 gsm2sip，升级和回退不用改部署。）
 
-RTC 部署无需额外节点 ID：沿用原有配对、会话、Call ID、网关和 SIM 身份；多服务端故障转移也不需要手动分配 RTC 节点编号。旧 `RTC_NODE_ID` 环境变量可删除。
+**0.4.0**：通话只走 WebRTC，SIP、Asterisk 与 ARI 已彻底移除。呼叫状态、来电多主机抢接的 winner 和网关通话占用
+都由 Go/PostgreSQL 维护，音频走 ICE/DTLS-SRTP/Opus，需要两部手机都能到达的 TURN（一体镜像自带）。
+从 0.4 之前升级、以及回退到上一版的方法见 [0.4 发布说明](docs/release-0.4.md)；三端联合验收计划见
+[0.4 联合测试计划](docs/plan-0.4-joint-test.md)。
 
-2026-10-19 更新：WebRTC 熄屏保活已修复，三端按本批一起更新；同版本备用切换与实际通话已验证。[本批验收与 Debug 下载](docs/webrtc-screenoff-validation-20261019.md)。
-
-2026-10-19：独立 Go/HTTPS 呼叫控制与原生 WebRTC 已完成两台持续运行的 KVM 模拟器、三个真实 Docker 节点联合验收，并发布沿用原签名的 Debug Release。纯模式三节点不运行 Asterisk，SIP/ARI 抓包为 0；呼入/呼出双向测试 PCM、呼叫事件、TURN UDP/TCP、控制/媒体故障与 A→B→C→A 切换通过。WebRTC 开关关闭时的 SIP 来电、开启时的混合来电事件另行通过。物理蜂窝 HAL 和真实手机音频仍待真机验收。 [独立控制验收与下载](docs/webrtc-independent-validation-20261019.md)。
-
+[用预构建镜像部署](docs/deploy-images.md)：服务器不需要编译。一体镜像 `ghcr.io/kirikira/gsm2sip` 一条 `docker run`
+即可（含 PostgreSQL 与 TURN），也可用 `deploy/compose.yaml` 分镜像部署（amd64/arm64）。
 [自动构建与 Release](docs/releases.md)：`main` 推送发布预览版，版本标签发布正式版，包含 Linux amd64/arm64 部署包。
 
-[用预构建镜像部署](docs/deploy-images.md)：服务器不需要编译。一体镜像 `ghcr.io/kirikira/gsm2sip` 一条 `docker run` 即可（含 PostgreSQL），也可用 `deploy/compose.yaml` 分镜像部署（amd64/arm64）。
+Go + PostgreSQL 转发服务，把主机的短信任务投递到旧手机网关，并把网关的持久化事件安全同步回主机。一个 owner
+可配对多个独立 client；每台 host 有自己的 API 会话、事件 durable receipt 和短信写请求幂等范围。短信控制核心包括
+一次性配对码、短时 access 与轮换 refresh token、owner/device 隔离、SIM 两阶段绑定、heartbeat、短信 command claim、
+事件批量事务与 durable ACK、按 owner 分页的消息事件流。
 
-Go + PostgreSQL 转发服务，把主机的短信任务投递到旧手机网关，并把网关的持久化事件安全同步回主机。一个 owner 可配对多个独立 client；每台 host 有自己的 API 会话、SIP endpoint/AOR、事件 durable receipt 和短信写请求幂等范围。短信控制核心包括一次性配对码、短时 access 与轮换 refresh token、owner/device 隔离、SIM 两阶段绑定、heartbeat、短信 command claim、事件批量事务与 durable ACK、按 owner 分页的消息事件流。
+`GET /v1/clients` 让 client 查看同 owner 已配对设备及 `platform/state/is_self`。`POST /pairings/claim` 的平台标签是
+开放展示标识（如 `android`、`windows`、`linux`），不构成系统白名单或能力声明。`GET /v1/ws` 是 authenticated
+wake-only WebSocket，只发 `{"protocol_version":1,"type":"sync_required"}`；owner 的短信事件变化唤醒 owner clients，
+通话变化只唤醒相关设备。frame 不带事件、命令、来电数据或游标。
 
-`GET /v1/clients` 让 client 查看同 owner 已配对设备及 `platform/state/is_self`。`POST /pairings/claim` 的平台标签是开放展示标识（如 `android`、`windows`、`linux`），不构成系统白名单或能力声明。`GET /v1/ws` 仍是 authenticated wake-only WebSocket，只发 `{"protocol_version":1,"type":"sync_required"}`；owner 的短信事件变化唤醒 owner clients，呼入 participant 变化只唤醒对应 client。客户端分别通过 HTTPS 恢复短信游标和读取自己的 `/calls` 视图。frame 不带事件、命令、来电数据或游标；FCM/APNs、呼入 push 与完整背压仍待实现。
+通话控制见 [RTC 呼叫控制 v1](docs/rtc-call-control-v1.md)：主机预留出站呼叫，网关在媒体协商完成后才拨号；
+来电同时邀请所有在线、已声明 RTC 能力的主机，由网关在全局账本里选定唯一 winner，其他主机得到
+`ended/answered_elsewhere`。控制租约过期时已拨出的通话标为 `unknown` 并保留占用，直到网关确认蜂窝结束。
 
-可选 SIP 兼容路径保留凭据配置/加密恢复、一次性呼叫意图、Asterisk ARI/Stasis 编排、设备通话占位、呼入 pending/ready/expiry 和呼叫历史。一个蜂窝呼入可为多个 active client 快照各自的 participant 状态；只有真正到达 Up 的已认证 SIP channel 决定 winner，其他 host 得到 `ended/answered_elsewhere`。拒接一台设备不会结束其它候选，所有候选结束或呼入超时才释放 gateway 通话 slot。SIP 兼容路径配置缺失或 ARI 未连接时拒绝创建 SIP 呼叫；独立 Go/RTC 的业务状态、winner 和占用由 Go/PostgreSQL 直接维护，不依赖该注册或 ARI 状态；实际双 SIM 音频和公网联调仍需真机验收。参见 [运行说明](docs/operations.md)。
-
-平台标签不会授予 host root、短信或蜂窝控制权限。Windows 的 host UI 与媒体验证尚未实现；`windows` 可用于未来版本配对识别，但不能当作 Windows 客户端已交付。MagiskVM 或其他 Android 运行环境也必须单独验证 SIM/Telecom 账户与实际媒体路径；当前契约不承诺 raw PCM、特定 root 接口或短信必达。
+平台标签不会授予 host root、短信或蜂窝控制权限。MagiskVM 或其他 Android 运行环境也必须单独验证 SIM/Telecom
+账户与实际媒体路径；当前契约不承诺特定 root 接口或短信必达。
 
 - [三端架构与远程控制链路（总览、数据流、协议演进、后续优先级）](docs/architecture.md)
 - [多节点（mesh）：多台独立服务器、按优先级自动切换、跨节点去重](docs/mesh.md)
@@ -27,7 +36,9 @@ Go + PostgreSQL 转发服务，把主机的短信任务投递到旧手机网关�
 - [服务端 wire addendum](docs/server-wire-addendum.md)
 - [OpenAPI](openapi/openapi.yaml)
 - [跨端路线图](docs/roadmap.md)
-- [三端 WebRTC 通话迁移计划（保持 UI 与外围行为）](docs/plan-webrtc.md)
+- [0.4 发布说明：升级与回退](docs/release-0.4.md)
+- [0.4 三端联合测试计划](docs/plan-0.4-joint-test.md)
+- [三端 WebRTC 通话迁移计划（历史）](docs/plan-webrtc.md)
 - [功能缺口与弱网恢复审查](docs/network-and-feature-status.md)
 - [两端 KVM 界面截图与原始验证结果](docs/ui-verification/README.md)
 - [Android 虚拟机使用指南：启动、停止、截图与 Magisk 验证](https://github.com/KiriKira/gsm2sip/blob/main/docs/android-virtual-machine.md)
@@ -43,7 +54,7 @@ Go + PostgreSQL 转发服务，把主机的短信任务投递到旧手机网关�
 
 ```sh
 cp .env.example .env
-# 按 docs/operations.md 生成并保存加密键、配置 TLS 证书与 ARI 凭据
+# 按 docs/operations.md 生成并保存加密键
 docker compose up --build -d
 curl http://127.0.0.1:8080/healthz
 curl http://127.0.0.1:8080/readyz
@@ -90,4 +101,4 @@ python3 scripts/check_contract.py
 
 `compose.yaml` 是本地开发骨架，不是公网生产配置。公网部署应提供 TLS、托管或持久化 PostgreSQL、备份与受限管理员访问，并使用受信任的 `DATABASE_URL`。生产客户端使用 `wss://`，保留默认 CA 和主机名验证；Caddy 可以在公网终止 TLS，再通过私有网络转发到 API 的 HTTP listener。明文 `ws://` 仅适用于本机开发和测试。如果构建网络使用 HTTPS 检查代理，可通过 `CODEX_PROXY_CERT` 环境变量向 BuildKit 提供 CA 文件；该 CA 只在依赖下载步骤挂载，TLS 校验保持开启。
 
-数据库 `/readyz` 只验证 PostgreSQL，不能表示电话已就绪。呼叫控制另行检查 ARI 连接、设备和 SIM 的可用状态；SIP REGISTER 也不能代替数字音频验收。服务端事件事务提交后才 ACK；主机另行确认 SQLite durable cursor，确认不会删除事件。刷新响应丢失可用原 token 和持久化请求键恢复当前令牌代际，直到其自然到期。
+数据库 `/readyz` 只验证 PostgreSQL，不能表示电话已就绪。呼叫控制另行检查网关在线、RTC 能力声明和 SIM 的可用状态；媒体协商完成也不能代替真机音频验收。服务端事件事务提交后才 ACK；主机另行确认 SQLite durable cursor，确认不会删除事件。刷新响应丢失可用原 token 和持久化请求键恢复当前令牌代际，直到其自然到期。

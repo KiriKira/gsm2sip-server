@@ -15,7 +15,7 @@ func controlFixture(t *testing.T) (*integrationDatabase, integrationFixture, *Se
 	t.Helper()
 	db := openIntegrationDatabase(t)
 	f := seedIntegrationFixture(t, db.db)
-	api := NewWithOptions(db.db, nil, Options{RTC: RTCMediaOptions{Enabled: true, ControlEnabled: true}})
+	api := NewWithOptions(db.db, nil, Options{})
 	t.Cleanup(api.ShutdownWebSockets)
 	for _, token := range []string{f.clientToken, f.gatewayToken} {
 		requireStatus(t, requestJSON(t, api.Handler(), "POST", "/v1/rtc/control/capability", token, map[string]any{"version": 1, "enabled": true}, ""), 200)
@@ -90,8 +90,8 @@ func TestIndependentRTCOutgoingWithoutSIPCredentialsOrARI(t *testing.T) {
 	db, f, api := controlFixture(t)
 	var sip int
 	_ = db.db.QueryRow(`SELECT count(*) FROM sip_endpoint_bindings`).Scan(&sip)
-	if sip != 0 || api.calls != nil {
-		t.Fatal("test requires no SIP bindings or ARI controller")
+	if sip != 0 {
+		t.Fatal("test requires no SIP bindings")
 	}
 	out := controlCreate(t, f, api, false)
 	if out.ControlTransport != "rtc" || out.Dispatched || out.State != "reserved" {
@@ -172,19 +172,19 @@ func TestIndependentRTCExpiryRetainsUncertainCellularSlot(t *testing.T) {
 	controlOp(t, api, f.gatewayToken, out, "dispatch", 409)
 	controlOp(t, api, f.gatewayToken, out, "ended", 200)
 }
-func TestIndependentRTCRejectAndCompatibilitySelection(t *testing.T) {
+func TestIndependentRTCRejectAndIncomingWithoutReadyClients(t *testing.T) {
 	db, f, api := controlFixture(t)
 	requireStatus(t, requestJSON(t, api.Handler(), "POST", "/v1/rtc/control/capability", f.clientToken, map[string]any{"version": 1, "enabled": false}, ""), 200)
 	body := rtcCreateCall{Version: 1, OperationID: newUUID(), CallID: newUUID(), GatewayID: f.gatewayID, SIMID: f.simID, MappingRevision: 1, To: "15550100200"}
 	reply := requestJSON(t, api.Handler(), "POST", "/v1/rtc/control/incoming", f.gatewayToken, body, "")
-	requireStatus(t, reply, 409)
-	if !strings.Contains(reply.Body.String(), "RTC_COMPATIBILITY_REQUIRES_SIP") {
-		t.Fatal("mixed participants did not choose SIP before invitation")
+	requireStatus(t, reply, 503)
+	if !strings.Contains(reply.Body.String(), "GATEWAY_UNAVAILABLE") {
+		t.Fatal("an incoming call without a ready client was not refused")
 	}
 	var count int
 	_ = db.db.QueryRow(`SELECT count(*) FROM call_sessions`).Scan(&count)
 	if count != 0 {
-		t.Fatal("compatibility probe created a second call")
+		t.Fatal("a refused incoming call left a call record")
 	}
 	requireStatus(t, requestJSON(t, api.Handler(), "POST", "/v1/rtc/control/capability", f.clientToken, map[string]any{"version": 1, "enabled": true}, ""), 200)
 	out := controlCreate(t, f, api, true)
@@ -201,7 +201,7 @@ func TestIndependentRTCReplaySurvivesRestartAndConcurrentRetries(t *testing.T) {
 	body := rtcCreateCall{Version: 1, OperationID: strings.ToUpper(newUUID()), CallID: strings.ToUpper(newUUID()), GatewayID: strings.ToUpper(f.gatewayID), SIMID: strings.ToUpper(f.simID), MappingRevision: 1, To: "15550100200"}
 	requireStatus(t, requestJSON(t, api.Handler(), "POST", "/v1/rtc/control/calls", f.clientToken, body, ""), 201)
 	// A different API process has no in-memory replay state.
-	restarted := NewWithOptions(db.db, nil, Options{RTC: RTCMediaOptions{Enabled: true, ControlEnabled: true}})
+	restarted := NewWithOptions(db.db, nil, Options{})
 	t.Cleanup(restarted.ShutdownWebSockets)
 	requireStatus(t, requestJSON(t, restarted.Handler(), "POST", "/v1/rtc/control/calls", f.clientToken, body, ""), 200)
 	op := rtcCallOperation{Version: 1, OperationID: strings.ToUpper(newUUID()), Revision: 1, Kind: "start"}

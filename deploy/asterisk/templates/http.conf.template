@@ -1,5 +1,0 @@
-[general]
-enabled = yes
-bindaddr = ${ASTERISK_ARI_BIND_ADDR}
-bindport = ${ASTERISK_ARI_PORT}
-tlsenable = no

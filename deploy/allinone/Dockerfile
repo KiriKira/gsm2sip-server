@@ -1,18 +1,24 @@
 # syntax=docker/dockerfile:1.7
 #
-# All-in-one image: PostgreSQL 17, Asterisk, the API and the worker in one
-# container with one data volume. It reuses the two tested images rather
-# than compiling again; CI passes their local tags as build arguments.
+# All-in-one SoulGem image: PostgreSQL 17, a TURN relay, the API and the
+# worker in one container with one data volume. It reuses the tested server
+# image rather than compiling again; CI passes its local tag as a build argument.
 ARG SERVER_IMAGE=ghcr.io/kirikira/gsm2sip-server:main
-ARG ASTERISK_IMAGE=ghcr.io/kirikira/gsm2sip-asterisk:main
 
 FROM ${SERVER_IMAGE} AS server
 
-FROM ${ASTERISK_IMAGE}
+FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
 
-RUN set -eu; \
+RUN --mount=type=secret,id=proxy_ca,required=false \
+    set -eu; \
+    if [ -s /run/secrets/proxy_ca ]; then \
+      install -d /usr/local/share/ca-certificates; \
+      cp /run/secrets/proxy_ca /usr/local/share/ca-certificates/build-proxy.crt; \
+      echo 'Acquire::https::CAInfo "/etc/ssl/certs/ca-certificates.crt";' > /etc/apt/apt.conf.d/99build-proxy; \
+    fi; \
     DEBIAN_FRONTEND=noninteractive apt-get update; \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssl coturn python3; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl openssl coturn python3; \
+    update-ca-certificates; \
     install -d /usr/share/postgresql-common/pgdg /etc/postgresql-common; \
     curl --fail --silent --show-error --location \
       https://www.postgresql.org/media/keys/ACCC4CF8.asc \
@@ -32,7 +38,10 @@ RUN set -eu; \
     for binary in postgres initdb pg_isready psql; do \
       if ldd "/usr/lib/postgresql/17/bin/$binary" | grep 'not found'; then exit 1; fi; \
     done; \
-    rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/locale/*; \
+    rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/locale/* /etc/apt/apt.conf.d/99build-proxy; \
+    if [ -e /usr/local/share/ca-certificates/build-proxy.crt ]; then \
+      rm /usr/local/share/ca-certificates/build-proxy.crt; update-ca-certificates --fresh >/dev/null; \
+    fi; \
     groupadd --system --gid 10002 gsm2sip; \
     useradd --system --uid 10002 --gid 10002 --home-dir /nonexistent \
       --no-create-home --shell /usr/sbin/nologin gsm2sip; \
@@ -49,12 +58,10 @@ COPY deploy/allinone/healthcheck.sh /usr/local/bin/gsm2sip-allinone-healthcheck
 RUN chmod 0755 /usr/local/bin/gsm2sip-allinone /usr/local/bin/gsm2sip-admin \
       /usr/local/bin/gsm2sip-allinone-healthcheck
 
-ENV MIGRATIONS_DIR=/app/migrations \
-    RTP_START=10000 \
-    RTP_END=10199
+ENV MIGRATIONS_DIR=/app/migrations
 
 VOLUME ["/data"]
-EXPOSE 8080/tcp 5061/tcp 5060/udp 10000-10199/udp 3478/tcp 3478/udp 49160-49259/udp
+EXPOSE 8080/tcp 3478/tcp 3478/udp 49160-49259/udp
 ENTRYPOINT ["/usr/local/bin/gsm2sip-allinone"]
 CMD []
 HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=4 \

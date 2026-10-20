@@ -21,6 +21,7 @@ from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsp
 ROOT = Path(__file__).resolve().parent.parent
 QUARANTINE_SQL = Path(__file__).resolve().with_name("restore_quarantine.sql")
 MANIFEST_VERSION = 1
+# asterisk: still running on a stack from before 0.4.
 COMPOSE_RESTORE_BLOCKERS = {"api", "worker", "asterisk"}
 DB_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,62}$")
 
@@ -209,7 +210,7 @@ def do_restore(args: argparse.Namespace) -> None:
         f"Restored schema {manifest['schema_revision']} into {target_label}; "
         "old sessions and call authorization were quarantined."
     )
-    print("Keep API, worker, and Asterisk stopped until recovery checks are complete.")
+    print("Keep the API and worker stopped until recovery checks are complete.")
 
 
 def connection(args: argparse.Namespace):

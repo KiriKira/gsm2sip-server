@@ -6,8 +6,6 @@ import (
 )
 
 var (
-	ErrNotConfigured      = errors.New("calling is not configured")
-	ErrNotReady           = errors.New("ARI call coordinator is not ready")
 	ErrInvalid            = errors.New("invalid call request")
 	ErrForbidden          = errors.New("call resource is not available to this client")
 	ErrConflict           = errors.New("call state conflicts with this request")
@@ -17,35 +15,6 @@ var (
 	ErrBusy               = errors.New("gateway already has a call in progress")
 	ErrCallIDConflict     = errors.New("call_id is already used by another call")
 )
-
-type Config struct {
-	ARIURL         string
-	ARIUsername    string
-	ARIPassword    string
-	ARIApplication string
-	SIPRealm       string
-	TokenKey       []byte
-	// SIPInsecure issues plain sip:/UDP call URIs instead of sips:/TLS.
-	SIPInsecure bool
-}
-
-type CreateIntentRequest struct {
-	GatewayID       string `json:"gateway_id"`
-	SIMID           string `json:"sim_id"`
-	MappingRevision int64  `json:"mapping_revision"`
-	To              string `json:"to"`
-	// CallID is minted by the client under the mesh extension so that one
-	// call attempted through several server nodes keeps one business ID and
-	// the gateway's call ledger dials it at most once. Empty: the server mints.
-	CallID string `json:"call_id,omitempty"`
-}
-
-type Intent struct {
-	IntentID  string    `json:"intent_id"`
-	CallID    string    `json:"call_id"`
-	SIPURI    string    `json:"sip_uri"`
-	ExpiresAt time.Time `json:"expires_at"`
-}
 
 type Call struct {
 	CallID          string     `json:"call_id"`
@@ -61,8 +30,7 @@ type Call struct {
 	Reason          *string    `json:"reason,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`
 	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
-	WakeNonce       *string    `json:"wake_nonce,omitempty"`
-	// Set once the call was bridged; an ended incoming call without it was missed.
+	// Set once the call was answered; an ended incoming call without it was missed.
 	AnsweredAt *time.Time `json:"answered_at,omitempty"`
 }
 
@@ -70,9 +38,4 @@ type ListResult struct {
 	Items          []Call  `json:"items"`
 	NextCursor     *string `json:"next_cursor"`
 	ResyncRequired bool    `json:"resync_required"`
-}
-
-type ClientReadyRequest struct {
-	CallID    string `json:"call_id"`
-	WakeNonce string `json:"wake_nonce"`
 }

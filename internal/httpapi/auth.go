@@ -91,14 +91,12 @@ func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 		writeDBUnavailable(w)
 		return
 	}
-	sip := s.sipConfig(Principal{DeviceID: deviceID}, r)
 	writeJSON(w, http.StatusOK, PairingClaimResponse{
 		OwnerID: ownerID, DeviceID: deviceID, Role: role,
 		SessionTokens: SessionTokens{
 			AccessToken: accessToken, AccessExpiresAt: accessExpires,
 			RefreshToken: refreshToken, RefreshExpiresAt: refreshExpires,
 		},
-		SIP: SIPCapability{Available: sip.Available, Reason: sip.Reason},
 	})
 }
 
@@ -320,6 +318,8 @@ func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !hasLiveSession {
+		// Releases before 0.4 provisioned SIP logins in these tables. Remove the
+		// device's rows so rolling the server back cannot revive a revoked login.
 		var endpointID string
 		bindingErr := tx.QueryRowContext(r.Context(), `
 			UPDATE sip_endpoint_bindings SET state='revoked', updated_at=now()

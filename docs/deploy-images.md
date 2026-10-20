@@ -1,73 +1,58 @@
-# 用预构建镜像部署
+# 用预构建镜像部署 SoulGem
 
-服务器上不编译任何东西，只拉取镜像运行，支持 amd64 与 arm64。
+服务器上不编译任何东西，只拉取镜像运行，支持 amd64 与 arm64。0.4 起通话只走 WebRTC：
+不再需要 Asterisk、SIP 端口、SIP 证书或 ARI 密码。
 
 | 镜像 | 内容 |
 |---|---|
-| `ghcr.io/kirikira/gsm2sip` | **一体镜像**：PostgreSQL 17、Asterisk、API 与 worker，一个容器一个数据卷 |
+| `ghcr.io/kirikira/gsm2sip` | **一体镜像**：PostgreSQL 17、TURN 中继、API 与 worker，一个容器一个数据卷 |
 | `ghcr.io/kirikira/gsm2sip-server` | API、worker、管理 CLI（distroless，静态二进制） |
-| `ghcr.io/kirikira/gsm2sip-asterisk` | 固定版本的 Asterisk 22.11.0 与 gsm2sip 配置 |
 
-标签：`main`（main 分支最新构建）、`sha-<7位提交>`（固定某次构建）、版本标签 `vX.Y.Z` 与 `latest`。
-每次推送前，CI 都在对应架构上启动一体镜像（含一次重启）和 [deploy/compose.yaml](../deploy/compose.yaml)，
-检查 `/readyz`、`/v1/capabilities`、Asterisk 健康状态与管理 CLI。
+镜像名沿用旧名，升级和回退不用改部署命令。标签：`main`（main 分支最新构建）、`sha-<7位提交>`
+（固定某次构建）、版本标签 `vX.Y.Z` 与 `latest`。每次推送前，CI 都在对应架构上启动一体镜像
+（含一次重启和中继进程退出）和 [deploy/compose.yaml](../deploy/compose.yaml)，检查 `/readyz`、
+`/v1/capabilities`、TURN 与管理 CLI。
 
 ## 最简单：一体镜像
 
-只收发短信的节点（API 通过 HTTPS 反向代理对外提供）：
-
-```sh
-docker run -d --name gsm2sip --restart unless-stopped \
-  -v gsm2sip-data:/data -p 127.0.0.1:8080:8080 \
-  -e SIP_SERVER_NAME=sip.example.com \
-  ghcr.io/kirikira/gsm2sip:main
-```
-
-家里或 Tailscale 内的节点不用证书，也不用填任何地址：
+家里或 Tailscale 内的节点，不用填任何地址：
 
 ```sh
 docker run -d --name gsm2sip --restart unless-stopped --network host \
-  -v gsm2sip-data:/data -e SIP_TRANSPORT=udp \
-  ghcr.io/kirikira/gsm2sip:main
+  -v gsm2sip-data:/data ghcr.io/kirikira/gsm2sip:main
 ```
 
-两部手机里填 `http://<这台机器的局域网 IP、Tailscale IP 或主机名>:8080`，用哪个地址都行，可以各不相同：
+两部手机里填 `http://<这台机器的局域网 IP、Tailscale IP 或主机名>:8080`。
 
-- 服务端把手机连接 API 时用的主机名/IP 作为它的 SIP 服务器地址下发（未设置 `SIP_SERVER_NAME` 时）。
-- Asterisk 在 `--network host` 下按每台手机的路由选择本机网卡地址写进 SIP 和 SDP，局域网手机拿到局域网 IP，
-  Tailscale 手机拿到 100.x 地址。
-- 端口用环境变量改：`HTTP_PORT`（默认 8080）、`SIP_PORT`（UDP 默认 5060）、`RTP_START`/`RTP_END`（默认 10000–10199）。
-  内部使用的 PostgreSQL（`PG_PORT`，默认 55432）与 ARI（`ARI_PORT`，默认 58088）只监听 127.0.0.1。
+- 首次启动自动生成数据库密码与 `SECRETS_ENCRYPTION_KEY`，保存在数据卷的 `/data/secrets/`。
+  备份时备份整个数据卷，并把 `docker exec gsm2sip cat /data/secrets/secrets_encryption_key` 另存一份。
+  也可以用 `-e SECRETS_ENCRYPTION_KEY=...` 自己提供，但之后不能再更换。
+- 容器自带 TURN 中继：TURN 密钥由安装密钥派生，监听 `0.0.0.0:3478`（UDP/TCP），中继端口 49160–49259/udp，
+  对外地址自动探测。云安全组/路由器要放行这些端口；端口可用 `TURN_LISTEN_PORT`、`TURN_RELAY_MIN_PORT`、
+  `TURN_RELAY_MAX_PORT` 修改。探测不到公网地址时设 `PUBLIC_IP`（或 `TURN_PUBLIC_IP`）。
+- 已有外部 TURN 时设 `RTC_TURN_URLS` 与 `RTC_TURN_SHARED_SECRET`，容器就不再启动自带中继。
+- 其他端口：`HTTP_PORT`（默认 8080）；内部 PostgreSQL（`PG_PORT`，默认 55432）只监听 127.0.0.1。
 
-明文模式下短信、令牌和通话音频都不加密，只在你信任的网络里使用。切换 `SIP_TRANSPORT` 后，需要在两部手机上
-重新获取 SIP 配置（旧手机移除再添加该节点）。不用 `--network host`（例如 `-p` 端口映射）时，容器看不到宿主机的
-网卡，需要设置 `PUBLIC_IP` 为手机访问的地址，且 SIP/RTP 端口映射两侧必须相同。
-
-对外提供通话的 TLS 节点，再加 SIP/RTP 端口和证书（证书的 SAN 必须包含 `SIP_SERVER_NAME`）。
-这里用 `-p` 端口映射，所以要设 `PUBLIC_IP`：
+不用 `--network host`（例如 `-p` 端口映射）时，容器看不到宿主机网卡，要设 `PUBLIC_IP` 为手机访问的地址，
+并且 TURN 端口映射两侧必须相同：
 
 ```sh
 docker run -d --name gsm2sip --restart unless-stopped \
   -v gsm2sip-data:/data -p 127.0.0.1:8080:8080 \
-  -p 5061:5061/tcp -p 10000-10199:10000-10199/udp \
-  -v /path/fullchain.pem:/run/secrets/sip_tls_cert:ro \
-  -v /path/privkey.pem:/run/secrets/sip_tls_key:ro \
-  -e SIP_SERVER_NAME=sip.example.com -e PUBLIC_IP=203.0.113.10 \
+  -p 3478:3478/udp -p 3478:3478/tcp -p 49160-49259:49160-49259/udp \
+  -e PUBLIC_IP=203.0.113.10 \
   ghcr.io/kirikira/gsm2sip:main
 ```
 
-- 首次启动自动生成数据库密码与 `SECRETS_ENCRYPTION_KEY`，保存在数据卷的 `/data/secrets/`；
-  没有挂载证书时自动生成自签 SIP 证书并下发给手机。备份时备份整个数据卷，并把
-  `docker exec gsm2sip cat /data/secrets/secrets_encryption_key` 另存一份。
-  也可以用 `-e SECRETS_ENCRYPTION_KEY=...` 自己提供，但之后不能再更换。
-- 挂载的是公网可信证书时无需其他设置；挂载私有 CA 签发的证书时加 `-e SIP_CA_PEM_FILE=/run/secrets/sip_tls_cert`。
+明文 `http://` 时短信和令牌不加密（通话音频始终是 DTLS-SRTP），只在你信任的网络里使用；对公网提供服务时
+在前面放 HTTPS 反向代理。
+
 - 管理命令：`docker exec gsm2sip gsm2sip-admin owner create --name Home`，配对码同下。
 - 升级：`docker pull ghcr.io/kirikira/gsm2sip:main`，然后删除并用同样参数重建容器（数据在卷里）。
-- 证书续期后 `docker restart gsm2sip`。
+- 从 0.4 之前升级：删掉旧的 `SIP_*`、`ARI_*`、`RTC_MEDIA_ENABLED`、`RTC_CONTROL_ENABLED` 参数和 SIP/RTP 端口映射
+  （留着也只会在日志里提示被忽略），加上 TURN 端口。回退见 [release-0.4.md](release-0.4.md)。
 
 ## 分镜像：Docker Compose
-
-### 部署
 
 ```sh
 mkdir -p /opt/gsm2sip && cd /opt/gsm2sip
@@ -78,30 +63,22 @@ chmod 600 .env
 
 按 `.env` 里的注释填写：
 
-- `POSTGRES_PASSWORD`、`ARI_PASSWORD`：`openssl rand -hex 24`。
+- `POSTGRES_PASSWORD`：`openssl rand -hex 24`。
 - `SECRETS_ENCRYPTION_KEY`：`openssl rand -base64 32`，生成后不能再改，和数据库一起备份。
-- `SIP_SERVER_NAME` 与证书文件 `ASTERISK_TLS_CERT_FILE`/`ASTERISK_TLS_KEY_FILE`：证书的 SAN 必须包含该名字。
-  公网可信证书时 `SIP_CA_PEM_FILE` 留空；自签证书时设为 `/run/secrets/sip_tls_cert`。
-- 对外提供通话：`SIP_BIND_ADDR=0.0.0.0`，两个 `ASTERISK_EXTERNAL_*_ADDRESS` 填公网 IP，
-  防火墙放行 5061/tcp 与 10000–10199/udp。只收发短信的节点保持默认的
-  `127.0.0.1`，自签证书即可：
-
-  ```sh
-  openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout sip.key -out sip.crt \
-    -subj /CN=sip.localhost -addext subjectAltName=DNS:sip.localhost
-  ```
+- 通话需要两部手机都能到达的 TURN：`RTC_TURN_URLS`、`RTC_TURN_SHARED_SECRET`，以及 TURN 中继的
+  `TURN_PUBLIC_IP`/`TURN_PRIVATE_IP`/`TURN_REALM`。用同一个 `.env` 启动 [deploy/turn](../deploy/turn/compose.yaml)：
+  `docker compose --env-file .env -f turn/compose.yaml up -d`（Linux 主机网络）。
 
 启动并检查：
 
 ```sh
 docker compose up -d
 curl http://127.0.0.1:8080/readyz
-curl http://127.0.0.1:8080/v1/capabilities     # 输出应包含 "mesh"
+curl http://127.0.0.1:8080/v1/capabilities     # 应包含 "mesh" 和 "rtc_call_control": true
 ```
 
 API 默认只监听 `127.0.0.1:8080`，由 HTTPS 反向代理对外提供；要让手机在局域网或 Tailscale 内用
-`http://` 直连，设 `HTTP_BIND_ADDR=0.0.0.0`（或局域网/Tailscale IP）。不需要证书时设 `SIP_TRANSPORT=udp`、
-`SIP_PORT=5060`，两个证书路径设为 `/dev/null`。ARI（8088）不对外开放。
+`http://` 直连，设 `HTTP_BIND_ADDR=0.0.0.0`（或局域网/Tailscale IP）。
 
 ### 账户与配对码
 
@@ -116,6 +93,7 @@ $A pairing-code create --owner-id OWNER_UUID --role client --ttl 60m
 
 ### 升级与维护
 
-- 升级：`docker compose pull && docker compose up -d`。要固定版本，把 `GSM2SIP_VERSION` 设为 `sha-xxxxxxx`。
-- 证书续期后执行 `docker compose restart asterisk`（Asterisk 只在启动时读取证书）。
+- 升级：`docker compose pull && docker compose up -d`。要固定版本，把 `GSM2SIP_VERSION` 设为 `sha-xxxxxxx` 或 `v0.4.0`。
+- 从 0.4 之前升级：换成新的 `compose.yaml` 后执行 `docker compose up -d --remove-orphans`，停掉旧的 asterisk 容器；
+  数据库原样保留。
 - 不要执行 `docker compose down -v`，它会删除数据库卷。备份见 [operations.md](operations.md)。

@@ -1,4 +1,23 @@
-# Independent Go call control, version 1
+# RTC call control, version 1
+
+From 0.4 every call uses Go business call control and native
+ICE/DTLS-SRTP/Opus; SIP, Asterisk and ARI were removed. Logs on API, Host and
+Gateway include `call_id`, `call_control=rtc`, and the media transport. Failed
+calls end without a second modem dispatch or a new call ID.
+
+An incoming call rings every client that currently advertises call control
+(renewed every 25 seconds, fresh for 90 seconds). A client that has not
+advertised it, for example an app that only spoke SIP, does not see the call. With
+no ready client the gateway's report is refused with `GATEWAY_UNAVAILABLE`.
+Calls a SIP release left unfinished are ended once at API startup with reason
+`sip_removed`, releasing their cellular slot.
+
+Existing pairing, SIM mappings, encryption keys, SMS feeds and node identities
+stay in their existing stores; preserve the database and stable encryption key
+on upgrade. Upgrade and rollback: [release-0.4.md](release-0.4.md).
+
+<details>
+<summary>Migration notes from before 0.4 (history)</summary>
 
 With `RTC_CONTROL_ENABLED=true` and `RTC_MEDIA_ENABLED=true`, the upgraded Host
 WebRTC switch selects Go business call control and native ICE/DTLS-SRTP/Opus.
@@ -24,6 +43,8 @@ PJSUA2 or read SIP credentials. Existing pairing, SIM mappings, encryption keys,
 SMS feeds and node identities stay in their existing stores. This is not a new
 pairing protocol; preserve the database and stable encryption key on upgrade.
 
+</details>
+
 ## HTTPS operations
 
 All requests use the existing paired bearer session under `/v1`, with version
@@ -32,7 +53,6 @@ All requests use the existing paired bearer session under `/v1`, with version
 | Method and path | Meaning |
 | --- | --- |
 | `POST /rtc/control/capability` | Explicit `{version:1, enabled:true|false}`; renew every 25 seconds, fresh for 90 seconds |
-| `GET /rtc/control/incoming-policy` | Gateway reads whole-fork adapter choice; incoming creation rechecks it |
 | `POST /rtc/control/calls` | Host reserves an outgoing call, without dialing |
 | `POST /rtc/control/incoming` | Gateway reports a genuine ringing cellular call to each eligible node |
 | `GET /rtc/control/calls` | At most 32 device-scoped snapshots; suggested poll interval 750 ms |
@@ -73,12 +93,10 @@ dispatched calls become `unknown` with end requested; their server slot remains
 occupied until the Gateway reports genuine cellular END. An undispatched
 outgoing reservation can safely end and release its slot. Terminal/unknown
 calls cannot resume or dispatch again. Only the Gateway can resolve unknown by
-confirmed END. SIP reconciliation, fail-closed cleanup and preemption never
-retire RTC slots.
+confirmed END. Fail-closed cleanup and preemption never retire RTC slots.
 
 Gateway SQLite retains an installation-wide cellular slot, per-call dispatch
-ledger, immutable winner and durable per-node terminal queue. Legacy SIP
-dispatch also checks this slot. Restart with an uncertain modem effect does
+ledger, immutable winner and durable per-node terminal queue. Restart with an uncertain modem effect does
 not redial; confirmed cellular END atomically clears local occupancy and queues
 node cleanup. An active call stays on its original node when a higher-priority
 node returns. Idle selection can fail back after health recovery.
@@ -86,8 +104,7 @@ node returns. Idle selection can fail back after health recovery.
 ## Configurable network ports
 
 Call control, SDP and ICE signaling reuse the existing HTTPS API port. No new
-TCP signaling listener is required. With SIP disabled, no SIP or SIP RTP ports
-are required. During compatibility, retain the configured SIP and RTP ports.
+TCP signaling listener is required, and no SIP or RTP ports remain.
 
 TURN is recommended for mobile NATs. All additional supplied TURN listeners
 are configurable:
@@ -110,9 +127,9 @@ template does not enable TURN TLS. Details: [WebRTC media](webrtc-audio.md).
 
 ## Validation boundary
 
-Server tests use real PostgreSQL with no SIP bindings or ARI controller for
-independent control, durable retry/restart, concurrent accept and dispatch,
-revocation, unknown-slot retention and isolation from SIP cleanup. Joint KVM
+Server tests use real PostgreSQL for call control, durable retry/restart,
+concurrent accept and dispatch, revocation, unknown-slot retention and the
+one-time cleanup of calls left by SIP releases. Joint KVM
 tests use real Android UI, virtual modem/Telecom and native WebRTC. The debug
 instrumentation's synthetic PCM replaces only physical call-audio hardware.
 Passing those tests does not establish physical handset HAL audio; that last

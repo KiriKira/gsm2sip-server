@@ -5,6 +5,5 @@
   "access_token": "fixture-access-token",
   "access_expires_at": "2026-10-03T12:15:00Z",
   "refresh_token": "fixture-refresh-token",
-  "refresh_expires_at": "2026-11-02T12:00:00Z",
-  "sip": {"available": false, "reason": "sip_not_configured"}
+  "refresh_expires_at": "2026-11-02T12:00:00Z"
 }

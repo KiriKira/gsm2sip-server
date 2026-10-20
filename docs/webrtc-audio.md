@@ -1,30 +1,22 @@
-# WebRTC voice and optional SIP compatibility
+# WebRTC voice
 
-The upgraded Host **WebRTC 语音** switch in Settings selects native
-ICE / DTLS-SRTP / Opus. With `RTC_CONTROL_ENABLED=true`, it also selects
-independent Go call control, without a SIP or Asterisk prerequisite. See
-[control protocol, migration and pure RTC deployment](rtc-call-control-v1.md).
+Every call uses native ICE / DTLS-SRTP / Opus between the Host and the Gateway,
+controlled by Go call control. See [control protocol](rtc-call-control-v1.md).
+The selected media is shown per call and logged by all three endpoints; a
+failed call never silently falls back.
 
-Keep `SIP_COMPATIBILITY_ENABLED=true` while supporting existing clients.
-The switch off setting retains original SIP calls. On older servers without
-independent control, WebRTC audio can still use the existing SIP-controlled
-transition adapter. The actual selected control and media are shown per call
-and logged by all three endpoints; a failed RTC call never silently falls back.
-
-For the all-in-one image, enable RTC_CONTROL_ENABLED and RTC_MEDIA_ENABLED.
-The image automatically supervises coturn, derives its stable authentication
+The all-in-one image supervises coturn, derives its stable authentication
 secret from the existing install encryption key, listens on 0.0.0.0 and discovers
 the relay address. No extra node ID, TURN secret, IP, realm or URL is required.
 TURN_LISTEN_PORT / TURN_RELAY_MIN_PORT / TURN_RELAY_MAX_PORT remain optional
 port overrides; forward/open the chosen ports in your firewall and NAT.
 When public STUN discovery is unavailable behind NAT, the image also reuses
 an existing PUBLIC_IP; TURN_PUBLIC_IP remains an optional advanced override.
+Setting RTC_TURN_URLS selects an external relay instead.
 
 For a separately managed external TURN service, configure:
 
 ```dotenv
-RTC_CONTROL_ENABLED=true
-RTC_MEDIA_ENABLED=true
 RTC_STUN_URLS=stun:turn.example.com:3478
 RTC_TURN_URLS=turn:turn.example.com:3478?transport=udp,turn:turn.example.com:3478?transport=tcp
 RTC_TURN_SHARED_SECRET=<private-shared-secret>
@@ -33,22 +25,14 @@ RTC_TURN_SHARED_SECRET=<private-shared-secret>
 RTC reuses the existing owner, paired device, session, call, gateway and SIM
 identities. Servers need no extra RTC node ID, including for mesh failover.
 Keep the TURN shared secret private and equal in its API and coturn. Compose and the all-in-one
-container forward these variables. RTC media is disabled by default.
-
-For the older SIP-controlled WebRTC adapter, deploy both updated API and
-Asterisk images. Its negotiated peer renews only its authorized SIP channel's
-bounded 12-second `GSM2SIP_RTC_UNTIL` lease, without raising the normal RTP
-watchdog timeout. **Independent Go/RTC calls never renew this ARI lease and do
-not need Asterisk.**
+container forward these variables.
 
 ## Network ports
 
 | Port | Purpose | Required when |
 | --- | --- | --- |
 | Existing HTTPS TCP 443 | Authenticated SDP/ICE relay and call APIs | Always; no additional signaling port |
-| Existing SIP TLS TCP 5061 (or configured UDP 5060) | Optional legacy call control | Only with SIP compatibility |
-| Existing UDP RTP range, default 10000–10199 | Existing SIP audio | SIP audio remains supported |
-| TURN UDP **and** TCP `TURN_LISTEN_PORT` (default 3478) | STUN and authenticated TURN allocation | Recommended for phones behind NAT |
+| TURN UDP **and** TCP `TURN_LISTEN_PORT` (default 3478) | STUN and authenticated TURN allocation | Phones behind NAT, in practice always |
 | TURN UDP `TURN_RELAY_MIN_PORT`–`TURN_RELAY_MAX_PORT` (default 49160–49259) | Bounded TURN media relay | Required with the supplied TURN deployment |
 | Optional TCP 5349 | TURN over TLS | Only if separately configured with a valid certificate |
 
@@ -58,7 +42,7 @@ adds the ports shown above; API HTTPS alone does not relay audio. A TCP TURN
 client connection still needs the server's UDP relay range. TURN/TLS is not
 enabled by the supplied template and is not implied by opening TCP 5349.
 
-`deploy/turn/compose.yaml` is an optional, digest-pinned coturn deployment using
+`deploy/turn/compose.yaml` is a digest-pinned coturn deployment using
 Linux host networking and a 100-port relay range. Add `TURN_PUBLIC_IP`,
 `TURN_PRIVATE_IP` (the host interface address) and `TURN_REALM` to the private
 env file. For EC2 public IPv4 NAT use the actual public/private address pair;
@@ -98,7 +82,7 @@ All paths use the existing paired bearer session under `/v1`:
 | Method and path | Scope |
 | --- | --- |
 | `POST /devices/self/rtc-capability` | Gateway advertises native SDK version 1; renewed by normal heartbeats |
-| `POST /calls/{call_id}/media` | Host selects `{"media_transport":"webrtc"}` before SIP dial/answer; retry returns the same leg |
+| `POST /calls/{call_id}/media` | Host creates its media leg (`{"media_transport":"webrtc"}`) before the call is dialed or answered; retry returns the same leg |
 | `GET /calls/{call_id}/media` | Bound host/gateway reads the immutable choice; gateway waits for an incoming winner |
 | `GET /rtc/legs/{leg_id}` | Bound peer reads committed signals and renews authorization against the current session and business lease |
 | `POST /rtc/legs/{leg_id}` | Strict RTC v1 offer/answer/candidate/EOC/close command; durable ACK before publication |
@@ -115,12 +99,11 @@ start another GSM attempt or switch audio transport inside that call.
 
 ## Logs and acceptance scope
 
-Host and gateway log `GsmRtc media=webrtc call_control=sip call_id=...` with
+Host and gateway log `GsmRtc media=webrtc call_control=rtc call_id=...` with
 selection, committed SDP operation types, ICE/DTLS state, audio gating,
 packet/PCM counters and selected candidate types. The API records the same
 call/leg IDs and authorized operations. SDP, credentials and DTMF digits are
-not included in these diagnostics. UI displays the frozen media transport;
-SIP registration status describes call control and does not prove audio mode.
+not included in these diagnostics. UI displays the frozen media transport.
 
 An emulator can prove real native encrypted media with synthetic PCM replacing
 physical audio hardware, along with Telecom call events and application call

@@ -60,12 +60,9 @@ func TestPostgresMultipleClientsHaveIndependentSessionsSMSAndReceipts(t *testing
 
 	cipher, err := securestore.New(bytes.Repeat([]byte{0x42}, 32))
 	if err != nil {
-		t.Fatal("create SIP credential cipher")
+		t.Fatal("create secret cipher")
 	}
-	handler := NewWithOptions(database.db, nil, Options{
-		SecretCipher: cipher,
-		SIP:          SIPSettings{ServerName: "sip.example.test", Port: 5061},
-	}).Handler()
+	handler := NewWithOptions(database.db, nil, Options{SecretCipher: cipher}).Handler()
 	claim := func(code, name, platform string) PairingClaimResponse {
 		t.Helper()
 		payload := map[string]string{"pairing_code": code, "device_name": name}
@@ -78,7 +75,7 @@ func TestPostgresMultipleClientsHaveIndependentSessionsSMSAndReceipts(t *testing
 		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 			t.Fatal("decode client pairing response")
 		}
-		if result.OwnerID != ownerID || result.Role != "client" || result.DeviceID == "" || !result.SIP.Available {
+		if result.OwnerID != ownerID || result.Role != "client" || result.DeviceID == "" {
 			t.Fatalf("unexpected multi-client pairing response: %+v", result)
 		}
 		return result
@@ -179,43 +176,20 @@ func TestPostgresMultipleClientsHaveIndependentSessionsSMSAndReceipts(t *testing
 		t.Fatalf("expected separate idempotency rows for both clients: count=%d err=%v", idempotencyRecordCount, err)
 	}
 
-	// The SIP bootstrap identity and AOR are per device; neither client shares
-	// an Asterisk contact slot with the other.
-	getSIPConfig := func(token string) sipConfiguration {
-		t.Helper()
-		response := requestJSON(t, handler, http.MethodGet, "/v1/devices/self/sip-config", token, nil, "")
-		requireStatus(t, response, http.StatusOK)
-		var config sipConfiguration
-		if err := json.Unmarshal(response.Body.Bytes(), &config); err != nil {
-			t.Fatal("decode SIP config")
+	// SIP logins provisioned by releases before 0.4 stay in the database until
+	// their device is revoked.
+	for _, device := range []string{clientA.DeviceID, clientB.DeviceID} {
+		endpoint := "dev_" + strings.ReplaceAll(device, "-", "")
+		for _, statement := range []string{
+			`INSERT INTO sip_endpoint_bindings(device_id,endpoint_id,auth_username,aor) SELECT $1::uuid,$2,$2,$2`,
+			`INSERT INTO ps_endpoints(id) SELECT $2 WHERE $1::uuid IS NOT NULL`,
+			`INSERT INTO ps_auths(id,username,password_digest) SELECT $2,$2,'MD5:'||md5('legacy') WHERE $1::uuid IS NOT NULL`,
+			`INSERT INTO ps_aors(id) SELECT $2 WHERE $1::uuid IS NOT NULL`,
+		} {
+			if _, err := database.db.Exec(statement, device, endpoint); err != nil {
+				t.Fatalf("seed legacy SIP login: %v", err)
+			}
 		}
-		if !config.Available || config.EndpointID == "" || config.AOR == "" {
-			t.Fatalf("paired client has no per-device SIP identity: %+v", config)
-		}
-		return config
-	}
-	sipA, sipB := getSIPConfig(clientA.AccessToken), getSIPConfig(clientB.AccessToken)
-	if sipA.EndpointID == sipB.EndpointID || sipA.Username == sipB.Username || sipA.AOR == sipB.AOR {
-		t.Fatalf("paired clients shared SIP identities: A=%+v B=%+v", sipA, sipB)
-	}
-	rotateSIP := func(token, key string) sipConfiguration {
-		t.Helper()
-		response := requestJSON(t, handler, http.MethodPost, "/v1/devices/self/sip-credentials/rotate", token, struct{}{}, key)
-		requireStatus(t, response, http.StatusOK)
-		var config sipConfiguration
-		if err := json.Unmarshal(response.Body.Bytes(), &config); err != nil {
-			t.Fatal("decode rotated SIP credentials")
-		}
-		return config
-	}
-	rotatedSIPA := rotateSIP(clientA.AccessToken, "sip-credentials-host-a-key-000001")
-	rotatedSIPB := rotateSIP(clientB.AccessToken, "sip-credentials-host-b-key-000001")
-	if rotatedSIPA.Password == "" || rotatedSIPB.Password == "" || rotatedSIPA.Password == rotatedSIPB.Password {
-		t.Fatal("per-device SIP credential rotation shared an auth secret")
-	}
-	var separateAORs int
-	if err := database.db.QueryRow(`SELECT count(*) FROM ps_aors WHERE id IN ($1,$2)`, sipA.EndpointID, sipB.EndpointID).Scan(&separateAORs); err != nil || separateAORs != 2 {
-		t.Fatalf("expected independent Asterisk AORs: count=%d err=%v", separateAORs, err)
 	}
 
 	refresh := func(token, key string) (SessionTokens, *bytes.Buffer) {
@@ -329,7 +303,7 @@ func TestPostgresMultipleClientsHaveIndependentSessionsSMSAndReceipts(t *testing
 		t.Fatalf("cross-owner cursor was not rejected: %s", foreignReceipt.Body.String())
 	}
 
-	// Revoking A removes only A's session and SIP credentials. B can keep
+	// Revoking A removes only A's session and legacy SIP login. B can keep
 	// reading and sending through the same gateway, and existing SMS remain.
 	revokeA := requestJSON(t, handler, http.MethodPost, "/v1/auth/revoke", "",
 		RefreshRequest{RefreshToken: rotatedA.RefreshToken}, "")
@@ -350,8 +324,13 @@ func TestPostgresMultipleClientsHaveIndependentSessionsSMSAndReceipts(t *testing
 		WHERE a.device_id=$1 AND b.device_id=$2`, clientA.DeviceID, clientB.DeviceID).Scan(&bindingA, &bindingB); err != nil {
 		t.Fatal("read per-device SIP bindings after revocation")
 	}
-	if bindingA != "revoked" || bindingB != "active" {
-		t.Fatalf("revocation crossed SIP device boundary: A=%q B=%q", bindingA, bindingB)
+	var loginsA, loginsB int
+	if err := database.db.QueryRow(`SELECT count(*) FILTER (WHERE id=$1),count(*) FILTER (WHERE id=$2) FROM ps_auths`,
+		"dev_"+strings.ReplaceAll(clientA.DeviceID, "-", ""), "dev_"+strings.ReplaceAll(clientB.DeviceID, "-", "")).Scan(&loginsA, &loginsB); err != nil {
+		t.Fatal("read legacy SIP logins after revocation")
+	}
+	if bindingA != "revoked" || bindingB != "active" || loginsA != 0 || loginsB != 1 {
+		t.Fatalf("revocation crossed SIP device boundary: A=%q/%d B=%q/%d", bindingA, loginsA, bindingB, loginsB)
 	}
 	var messagesAfterRevoke int
 	if err := database.db.QueryRow(`SELECT count(*) FROM messages WHERE owner_id=$1`, ownerID).Scan(&messagesAfterRevoke); err != nil || messagesAfterRevoke != 2 {
