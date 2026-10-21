@@ -54,18 +54,19 @@ func (s *Server) listClients(w http.ResponseWriter, r *http.Request, principal P
 }
 
 type GatewaySummary struct {
-	GatewayID       string     `json:"gateway_id"`
-	DeviceName      string     `json:"device_name"`
-	Online          bool       `json:"online"`
-	LastSeenAt      *time.Time `json:"last_seen_at"`
-	MappingRevision int64      `json:"mapping_revision"`
-	Sequence        *int64     `json:"sequence"`
-	ProtocolVersion *int       `json:"protocol_version"`
-	AppVersion      *string    `json:"app_version"`
-	Root            *bool      `json:"root"`
-	SIPRegistered   *bool      `json:"sip_registered"`
-	BatteryPercent  *int       `json:"battery_percent"`
-	Charging        *bool      `json:"charging"`
+	RTCCallControlReady bool       `json:"rtc_call_control_ready"`
+	GatewayID           string     `json:"gateway_id"`
+	DeviceName          string     `json:"device_name"`
+	Online              bool       `json:"online"`
+	LastSeenAt          *time.Time `json:"last_seen_at"`
+	MappingRevision     int64      `json:"mapping_revision"`
+	Sequence            *int64     `json:"sequence"`
+	ProtocolVersion     *int       `json:"protocol_version"`
+	AppVersion          *string    `json:"app_version"`
+	Root                *bool      `json:"root"`
+	SIPRegistered       *bool      `json:"sip_registered"`
+	BatteryPercent      *int       `json:"battery_percent"`
+	Charging            *bool      `json:"charging"`
 	// InstallID is null until a mesh-capable gateway reports it.
 	InstallID *string `json:"install_id"`
 }
@@ -98,7 +99,8 @@ func (s *Server) listGateways(w http.ResponseWriter, r *http.Request, principal 
 		SELECT g.device_id::text, d.name, g.last_seen_at, g.mapping_revision,
 		g.heartbeat_sequence, g.protocol_version, g.app_version, g.rooted,
 		g.sip_registered, g.battery_percent, g.charging, g.install_id::text,
-		(g.last_seen_at IS NOT NULL AND g.last_seen_at > now() - interval '90 seconds')
+		(g.last_seen_at IS NOT NULL AND g.last_seen_at > now() - interval '90 seconds'),
+        EXISTS(SELECT 1 FROM rtc_control_capabilities rc WHERE rc.device_id=g.device_id AND rc.enabled AND rc.last_seen_at>clock_timestamp()-interval '90 seconds')
 		FROM gateways g JOIN devices d ON d.id=g.device_id
 		WHERE d.owner_id=$1 AND d.state='active'`
 	args := []any{principal.OwnerID}
@@ -124,10 +126,11 @@ func (s *Server) listGateways(w http.ResponseWriter, r *http.Request, principal 
 		var rooted, sipRegistered, charging sql.NullBool
 		var installID sql.NullString
 		if err := rows.Scan(&item.GatewayID, &item.DeviceName, &lastSeen, &item.MappingRevision,
-			&sequence, &protocol, &appVersion, &rooted, &sipRegistered, &battery, &charging, &installID, &item.Online); err != nil {
+			&sequence, &protocol, &appVersion, &rooted, &sipRegistered, &battery, &charging, &installID, &item.Online, &item.RTCCallControlReady); err != nil {
 			writeDBUnavailable(w)
 			return
 		}
+		item.RTCCallControlReady = item.RTCCallControlReady && s.rtc != nil && s.rtc.options.ControlEnabled
 		if lastSeen.Valid {
 			value := lastSeen.Time
 			item.LastSeenAt = &value

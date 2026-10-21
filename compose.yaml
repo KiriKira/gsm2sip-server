@@ -76,6 +76,11 @@ services:
       SIP_TRANSPORT: ${SIP_TRANSPORT:-tls}
       SIP_CA_PEM_FILE: ${SIP_CA_PEM_FILE:-}
       SIP_ENABLE_OPUS: ${SIP_ENABLE_OPUS:-false}
+      RTC_MEDIA_ENABLED: ${RTC_MEDIA_ENABLED:-false}
+      RTC_NODE_ID: ${RTC_NODE_ID:-local}
+      RTC_STUN_URLS: ${RTC_STUN_URLS:-}
+      RTC_TURN_URLS: ${RTC_TURN_URLS:-}
+      RTC_TURN_SHARED_SECRET: ${RTC_TURN_SHARED_SECRET:-}
       SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:?set a stable base64-encoded 32-byte key in .env}
       NO_PROXY: "${NO_PROXY:-},asterisk,postgres,localhost,127.0.0.1"
       no_proxy: "${no_proxy:-},asterisk,postgres,localhost,127.0.0.1"

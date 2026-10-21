@@ -4,8 +4,9 @@ info:
   version: 1.0.0
   description: >-
     HTTP and WebSocket contract for gsm2sip protocol v1. See docs/protocol-v1.md
-    and docs/server-wire-addendum.md. /ws is a wake-only channel; call and SIP
-    capabilities require configured SIP TLS, credentials, and a connected ARI coordinator.
+    and docs/server-wire-addendum.md. /ws is a wake-only channel. Independent
+    RTC call control uses paired HTTPS sessions and WebRTC media; SIP/ARI is an
+    optional compatibility adapter. See docs/rtc-call-control-v1.md.
 servers:
   - url: https://{apiHost}/v1
     variables:
@@ -14,6 +15,121 @@ servers:
 security:
   - bearerAuth: []
 paths:
+  /rtc/control/capability:
+    post:
+      operationId: advertiseRTCCallControl
+      description: Advertise this authenticated device's protocol choice. Renew every 25 seconds; expires after 90 seconds. Does not change an existing call's adapter.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RTCControlCapability'}
+      responses:
+        '200': {description: Capability recorded.}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /rtc/control/incoming-policy:
+    get:
+      operationId: getRTCIncomingPolicy
+      description: Gateway-only read-only preflight. The whole authorized incoming participant set must advertise RTC; otherwise the entire fork requires the optional SIP adapter. Create rechecks policy.
+      responses:
+        '200':
+          description: Whole-fork adapter selection, before any invitation.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, call_control]
+                properties:
+                  version: {const: 1}
+                  call_control: {enum: [rtc, sip]}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /rtc/control/incoming:
+    post:
+      operationId: createRTCIncomingCall
+      description: Gateway reports a genuine ringing cellular call. A shared call_id identifies all node offers; no cellular answer follows from this request or a client's accept reservation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RTCIncomingCall'}
+      responses:
+        '201': {$ref: '#/components/responses/RTCControlSnapshot'}
+        '200': {$ref: '#/components/responses/RTCControlSnapshot'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /rtc/control/calls:
+    post:
+      operationId: createRTCOutgoingReservation
+      description: Client-only durable reservation. Exact operation replay returns its committed ACK; a different payload conflicts. This request does not dial the modem. No SIP URI or credentials are returned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RTCOutgoingCall'}
+      responses:
+        '201': {$ref: '#/components/responses/RTCControlSnapshot'}
+        '200': {$ref: '#/components/responses/RTCControlSnapshot'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+    get:
+      operationId: listRTCControlCalls
+      description: Authenticated device-scoped snapshot polling. At most 32 calls, live calls first, terminal calls retained in the list for 15 minutes. Polling renews only this participant's control lease and cannot extend an invitation or revive unknown.
+      responses:
+        '200':
+          description: Scoped calls and suggested poll interval.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, calls, poll_after_ms]
+                properties:
+                  version: {const: 1}
+                  poll_after_ms: {const: 750}
+                  calls:
+                    type: array
+                    maxItems: 32
+                    items: {$ref: '#/components/schemas/RTCControlSnapshot'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /rtc/control/calls/{call_id}:
+    parameters:
+      - {name: call_id, in: path, required: true, schema: {type: string, format: uuid}}
+    get:
+      operationId: getRTCControlCall
+      responses:
+        '200': {$ref: '#/components/responses/RTCControlSnapshot'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /rtc/control/calls/{call_id}/operations:
+    parameters:
+      - {name: call_id, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      operationId: operateRTCControlCall
+      description: >-
+        Durable operation deduplication precedes revision CAS, while current
+        credentials are always reauthorized. Gateway-only winner follows the
+        installation-wide local winner CAS and negotiated media. Gateway-only
+        dispatch follows media negotiation and precedes its durable local modem
+        dispatch ledger. Only genuine cellular ACTIVE plus started PCM authorizes
+        active. Only genuine gateway cellular END releases a dispatched slot.
+        A failure never authorizes SIP fallback or a new cellular call_id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RTCControlOperation'}
+      responses:
+        '200': {$ref: '#/components/responses/RTCControlSnapshot'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /capabilities:
     get:
       operationId: getCapabilities
@@ -493,6 +609,11 @@ components:
       required: true
       schema: {type: string, minLength: 16, maxLength: 128}
   responses:
+    RTCControlSnapshot:
+      description: Committed independent call snapshot, scoped to the authenticated participant.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/RTCControlSnapshot'}
     BadRequest:
       description: Invalid request, query parameter, or missing WebSocket upgrade.
       content:
@@ -534,6 +655,61 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/ErrorResponse'}
   schemas:
+    RTCControlCapability:
+      type: object
+      additionalProperties: false
+      required: [version, enabled]
+      properties:
+        version: {type: integer, const: 1}
+        enabled: {type: boolean}
+    RTCControlCreate:
+      type: object
+      required: [version, operation_id, call_id, gateway_id, sim_id, mapping_revision, to]
+      properties:
+        version: {type: integer, const: 1}
+        operation_id: {$ref: '#/components/schemas/UUID'}
+        call_id: {$ref: '#/components/schemas/UUID'}
+        gateway_id: {$ref: '#/components/schemas/UUID'}
+        sim_id: {$ref: '#/components/schemas/UUID'}
+        mapping_revision: {type: integer, minimum: 1}
+        to: {type: string, maxLength: 64, pattern: '^[^\r\n]*$'}
+        from: {type: string, maxLength: 64, pattern: '^[^\r\n]*$'}
+    RTCOutgoingCall:
+      allOf:
+        - {$ref: '#/components/schemas/RTCControlCreate'}
+        - type: object
+          properties:
+            to: {type: string, minLength: 1}
+            from: {const: ''}
+      unevaluatedProperties: false
+    RTCIncomingCall:
+      allOf: [{$ref: '#/components/schemas/RTCControlCreate'}]
+      unevaluatedProperties: false
+    RTCControlOperation:
+      type: object
+      additionalProperties: false
+      required: [version, operation_id, revision, kind]
+      properties:
+        version: {type: integer, const: 1}
+        operation_id: {$ref: '#/components/schemas/UUID'}
+        revision: {type: integer, minimum: 1}
+        kind:
+          type: string
+          enum: [start, accept, release, winner, dispatch, ringing, active, reject, cancel, hangup, ended, answered_elsewhere]
+        candidate_client_id: {$ref: '#/components/schemas/UUID'}
+    RTCControlSnapshot:
+      allOf:
+        - {$ref: '#/components/schemas/RemoteCall'}
+        - type: object
+          required: [version, call_control, end_requested, dispatched]
+          properties:
+            version: {type: integer, const: 1}
+            call_control: {const: rtc}
+            end_requested: {type: boolean}
+            dispatched: {type: boolean}
+            candidate_client_id: {$ref: '#/components/schemas/UUID'}
+            candidate_until: {type: string, format: date-time}
+            winner_client_id: {$ref: '#/components/schemas/UUID'}
     WakeSyncRequired:
       type: object
       additionalProperties: false
@@ -835,6 +1011,9 @@ components:
       required: [protocol_version, extensions]
       properties:
         protocol_version: {type: integer, const: 1}
+        rtc_call_control: {type: boolean, description: Independent Go/RTC control is enabled.}
+        sip_call_control: {type: boolean, description: Optional SIP/ARI call coordinator is configured and ready.}
+        rtc_audio: {type: boolean}
         extensions:
           type: array
           items: {type: string}
@@ -1052,6 +1231,7 @@ components:
               app_version: {type: [string, 'null']}
               root: {type: [boolean, 'null']}
               sip_registered: {type: [boolean, 'null']}
+              rtc_call_control_ready: {type: boolean, description: Fresh authenticated RTC control capability, independent of SIP registration.}
               battery_percent: {type: [integer, 'null']}
               charging: {type: [boolean, 'null']}
               install_id:

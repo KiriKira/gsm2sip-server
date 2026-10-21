@@ -1,0 +1,9 @@
+{
+  "coturn_image": "coturn/coturn:4.6.3@sha256:71c3c990283385567f11794ee692e3a47b66fd9b0bb39e42afbe776e331dd888",
+  "pion_webrtc": "v4.1.6",
+  "pion_commit": "f35dc4efd0ac74d45119b0d91c73a35c91bef0c4",
+  "fixtures": {
+    "opus-1000.json": "aaad712aabd046d6061f6771bdcb3952f0ff4ea34006fa7777de6f440b0233ff",
+    "opus-1500.json": "be1dd118d5f62acd756b79d0d85d66e85f053787a0e39b9ef9af8d7582e4d441"
+  }
+}

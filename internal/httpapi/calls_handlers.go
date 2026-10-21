@@ -65,11 +65,12 @@ func (s *Server) createCallIntent(w http.ResponseWriter, r *http.Request, princi
 }
 
 func (s *Server) listCalls(w http.ResponseWriter, r *http.Request, principal Principal) {
+	controller := s.callHistoryController()
 	if principal.Role != "client" {
 		writeError(w, http.StatusForbidden, "CLIENT_REQUIRED", "Only a paired client can read call records.", false)
 		return
 	}
-	if s.calls == nil {
+	if controller == nil {
 		writeError(w, http.StatusServiceUnavailable, "CALLING_NOT_CONFIGURED", "SIP calling is not configured.", false)
 		return
 	}
@@ -77,7 +78,7 @@ func (s *Server) listCalls(w http.ResponseWriter, r *http.Request, principal Pri
 		writeError(w, http.StatusBadRequest, "INVALID_QUERY", "Call query parameters may appear once.", false)
 		return
 	}
-	items, next, err := s.calls.ListCalls(r.Context(), principal.OwnerID, principal.DeviceID, r.URL.Query().Get("cursor"), queryLimit(r))
+	items, next, err := controller.ListCalls(r.Context(), principal.OwnerID, principal.DeviceID, r.URL.Query().Get("cursor"), queryLimit(r))
 	if err != nil {
 		writeCallError(w, err)
 		return
@@ -90,16 +91,17 @@ func (s *Server) listCalls(w http.ResponseWriter, r *http.Request, principal Pri
 }
 
 func (s *Server) getCall(w http.ResponseWriter, r *http.Request, principal Principal) {
+	controller := s.callHistoryController()
 	if principal.Role != "client" {
 		writeError(w, http.StatusForbidden, "CLIENT_REQUIRED", "Only a paired client can read call records.", false)
 		return
 	}
-	if s.calls == nil {
+	if controller == nil {
 		writeError(w, http.StatusServiceUnavailable, "CALLING_NOT_CONFIGURED", "SIP calling is not configured.", false)
 		return
 	}
 	callID := strings.ToLower(r.PathValue("call_id"))
-	item, err := s.calls.GetCall(r.Context(), principal.OwnerID, principal.DeviceID, callID)
+	item, err := controller.GetCall(r.Context(), principal.OwnerID, principal.DeviceID, callID)
 	if err != nil {
 		writeCallError(w, err)
 		return
@@ -173,4 +175,17 @@ func writeCallError(w http.ResponseWriter, err error) {
 	default:
 		writeDBUnavailable(w)
 	}
+}
+
+// Asterisk is optional for reading shared call records. A nonconfigured Manager
+// is only used as the existing SQL history reader, never run or advertised ready.
+func (s *Server) callHistoryController() CallController {
+	if s.calls != nil {
+		return s.calls
+	}
+	if s.rtc != nil && s.rtc.options.ControlEnabled {
+		reader, _ := callsvc.NewManager(s.db, callsvc.Config{})
+		return reader
+	}
+	return nil
 }

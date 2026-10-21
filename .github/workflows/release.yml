@@ -8,6 +8,14 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
+      build_only:
+        description: Compile and package without validation jobs
+        type: boolean
+        default: false
+      debug:
+        description: Preserve debug symbols and disable compiler optimizations
+        type: boolean
+        default: false
       publish:
         description: Publish a GitHub Release (only when run from main)
         type: boolean
@@ -64,6 +72,7 @@ jobs:
           printf 'publish=%s\n' "$publish" >> "$GITHUB_OUTPUT"
 
   validate:
+    if: ${{ !inputs.build_only }}
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -134,6 +143,7 @@ jobs:
           python scripts/check_contract.py
 
   build:
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && (needs.validate.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.build_only && needs.validate.result == 'skipped')) }}
     needs:
       - prepare
       - validate
@@ -160,6 +170,7 @@ jobs:
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
           SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
           TARGET_ARCH: ${{ matrix.arch }}
+          DEBUG_BUILD: ${{ inputs.debug }}
         run: |
           set -euo pipefail
           bundle_name="gsm2sip-server-${RELEASE_VERSION}-linux-${TARGET_ARCH}"
@@ -173,9 +184,13 @@ jobs:
             ':(exclude)artifacts/**' \
             | tar -xf - -C "$bundle"
 
+          flags=(-trimpath -buildvcs=true -ldflags='-s -w -buildid=')
+          if [[ "$DEBUG_BUILD" == true ]]; then
+            flags=(-trimpath -buildvcs=true -gcflags='all=-N -l')
+          fi
           for target in api worker admin; do
             CGO_ENABLED=0 GOOS=linux GOARCH="$TARGET_ARCH" \
-              go build -trimpath -buildvcs=true -ldflags='-s -w -buildid=' \
+              go build "${flags[@]}" \
               -o "$bundle/bin/gsm2sip-$target" "./cmd/$target"
             chmod 0755 "$bundle/bin/gsm2sip-$target"
           done
@@ -196,7 +211,7 @@ jobs:
           SOURCE_DATE_EPOCH=$(git show -s --format=%ct "$SOURCE_COMMIT")
           SOURCE_COMMIT_TIME=$(git show -s --format=%cI "$SOURCE_COMMIT")
           GO_TOOLCHAIN=$(go version)
-          export RELEASE_VERSION SOURCE_COMMIT TARGET_ARCH SOURCE_COMMIT_TIME GO_TOOLCHAIN BUNDLE_PATH="$bundle"
+          export RELEASE_VERSION SOURCE_COMMIT TARGET_ARCH SOURCE_COMMIT_TIME GO_TOOLCHAIN DEBUG_BUILD BUNDLE_PATH="$bundle"
           python3 - <<'PY'
           import datetime
           import json
@@ -211,6 +226,7 @@ jobs:
               "target": {"os": "linux", "arch": os.environ["TARGET_ARCH"]},
               "go_toolchain": os.environ["GO_TOOLCHAIN"],
               "cgo_enabled": False,
+              "debug_build": os.environ.get("DEBUG_BUILD") == "true",
           }
           Path(os.environ["BUNDLE_PATH"], "manifest.json").write_text(
               json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -233,6 +249,7 @@ jobs:
           retention-days: 7
 
   assemble:
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.build.result == 'success' }}
     needs:
       - prepare
       - build

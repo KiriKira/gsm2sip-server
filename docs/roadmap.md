@@ -17,7 +17,12 @@
 
 本地软件测试、官方 Android Emulator 与 Asterisk 探针用于初步验证；没有执行真实短信、计费拨号或公网生产部署。结果以验证产物及三份 PR 的对应提交记录为准。
 
-## 之后：替换 Asterisk
+## 后续：三端 WebRTC 迁移
 
-在 M3 真机通话验收通过后，按 [plan-native-sip.md](plan-native-sip.md) 分阶段用 Go 实现 SIP 信令和 RTP 中继，
-以 `SIP_ENGINE` 开关与 Asterisk 并行验证，再移除 Asterisk。
+后续实施按 [三端 WebRTC 通话迁移计划](plan-webrtc.md) 的 W0–W6 进行；以上 M0–M5 保留为
+原有功能和验收背景。直接从现有 SIP/Asterisk 迁移，不先实现自研 SIP/B2BUA。
+
+先冻结 UI 与外围行为、验证网关蜂窝 PCM 接入和 TURN，再完成兼容接口、独立信令、单节点通话、
+原拓扑下的多节点/混合版本恢复、灰度与回退，最后满足门槛后移除旧引擎。
+现有 UI、短信、配对、SIM、备份、节点选择和后台行为不得退化；节点间信令转发不在本次范围内。
+WebRTC 任一阶段尚未完成，不以现有 SIP 测试通过代替新媒体和真机验收。

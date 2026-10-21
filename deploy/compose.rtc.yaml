@@ -1,0 +1,49 @@
+# Independent RTC deployment: API + PostgreSQL + outbox worker, no SIP/ARI or
+# Asterisk image, ports, credentials, certificate or health dependency.
+# docker compose --env-file .env -f compose.rtc.yaml up -d
+# Optional TURN: deploy/turn/compose.yaml uses the same private env file.
+name: gsm2sip
+services:
+  postgres:
+    image: postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
+    environment:
+      POSTGRES_DB: gsm2sip
+      POSTGRES_USER: gsm2sip
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gsm2sip -d gsm2sip"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  api:
+    image: ghcr.io/kirikira/gsm2sip-server:${GSM2SIP_VERSION:-main}
+    environment:
+      DATABASE_URL: postgresql://gsm2sip:${POSTGRES_PASSWORD}@postgres:5432/gsm2sip?sslmode=disable
+      HTTP_ADDR: :8080
+      SIP_COMPATIBILITY_ENABLED: "false"
+      RTC_CONTROL_ENABLED: "true"
+      RTC_MEDIA_ENABLED: "true"
+      RTC_STUN_URLS: ${RTC_STUN_URLS:-}
+      RTC_TURN_URLS: ${RTC_TURN_URLS:-}
+      RTC_TURN_SHARED_SECRET: ${RTC_TURN_SHARED_SECRET:-}
+      SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:?keep the existing stable encryption key}
+    ports:
+      - "${HTTP_BIND_ADDR:-127.0.0.1}:${HTTP_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+  worker:
+    image: ghcr.io/kirikira/gsm2sip-server:${GSM2SIP_VERSION:-main}
+    entrypoint: ["/usr/local/bin/gsm2sip-worker"]
+    environment:
+      DATABASE_URL: postgresql://gsm2sip:${POSTGRES_PASSWORD}@postgres:5432/gsm2sip?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  postgres-data:

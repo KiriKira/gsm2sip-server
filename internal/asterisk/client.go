@@ -166,6 +166,11 @@ func (c *Client) GetChannelVariable(ctx context.Context, channelID, variable str
 	return result.Value, err
 }
 
+func (c *Client) SetChannelVariable(ctx context.Context, channelID, variable, value string) error {
+	query := url.Values{"variable": []string{variable}, "value": []string{value}}
+	return c.request(ctx, http.MethodPost, "channels/"+url.PathEscape(channelID)+"/variable", query, nil, nil)
+}
+
 func (c *Client) CreateChannel(ctx context.Context, request OriginateRequest) (Channel, error) {
 	if request.Endpoint == "" || request.App == "" {
 		return Channel{}, errors.New("ARI channel endpoint and app are required")

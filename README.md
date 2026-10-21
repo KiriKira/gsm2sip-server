@@ -1,5 +1,13 @@
 # gsm2sip-server
 
+一体镜像启用 RTC 后自动管理 TURN：密钥从已有安装密钥派生、realm 使用默认值、监听 0.0.0.0、自动探测中继地址。无需填写 TURN secret/IP/realm 或 RTC 节点 ID，也无需额外 coturn 容器。端口仍可指定；云安全组/路由器需要放行对应端口。
+
+RTC 部署无需额外节点 ID：沿用原有配对、会话、Call ID、网关和 SIM 身份；多服务端故障转移也不需要手动分配 RTC 节点编号。旧 `RTC_NODE_ID` 环境变量可删除。
+
+2026-10-19 更新：WebRTC 熄屏保活已修复，三端按本批一起更新；同版本备用切换与实际通话已验证。[本批验收与 Debug 下载](docs/webrtc-screenoff-validation-20261019.md)。
+
+2026-10-19：独立 Go/HTTPS 呼叫控制与原生 WebRTC 已完成两台持续运行的 KVM 模拟器、三个真实 Docker 节点联合验收，并发布沿用原签名的 Debug Release。纯模式三节点不运行 Asterisk，SIP/ARI 抓包为 0；呼入/呼出双向测试 PCM、呼叫事件、TURN UDP/TCP、控制/媒体故障与 A→B→C→A 切换通过。WebRTC 开关关闭时的 SIP 来电、开启时的混合来电事件另行通过。物理蜂窝 HAL 和真实手机音频仍待真机验收。 [独立控制验收与下载](docs/webrtc-independent-validation-20261019.md)。
+
 [自动构建与 Release](docs/releases.md)：`main` 推送发布预览版，版本标签发布正式版，包含 Linux amd64/arm64 部署包。
 
 [用预构建镜像部署](docs/deploy-images.md)：服务器不需要编译。一体镜像 `ghcr.io/kirikira/gsm2sip` 一条 `docker run` 即可（含 PostgreSQL），也可用 `deploy/compose.yaml` 分镜像部署（amd64/arm64）。
@@ -8,7 +16,7 @@ Go + PostgreSQL 转发服务，把主机的短信任务投递到旧手机网关�
 
 `GET /v1/clients` 让 client 查看同 owner 已配对设备及 `platform/state/is_self`。`POST /pairings/claim` 的平台标签是开放展示标识（如 `android`、`windows`、`linux`），不构成系统白名单或能力声明。`GET /v1/ws` 仍是 authenticated wake-only WebSocket，只发 `{"protocol_version":1,"type":"sync_required"}`；owner 的短信事件变化唤醒 owner clients，呼入 participant 变化只唤醒对应 client。客户端分别通过 HTTPS 恢复短信游标和读取自己的 `/calls` 视图。frame 不带事件、命令、来电数据或游标；FCM/APNs、呼入 push 与完整背压仍待实现。
 
-SIP 凭据配置/加密恢复、一次性呼叫意图、Asterisk ARI/Stasis 编排、设备通话占位、呼入 pending/ready/expiry 和呼叫历史已接入。一个蜂窝呼入可为多个 active client 快照各自的 participant 状态；只有真正到达 Up 的已认证 SIP channel 决定 winner，其他 host 得到 `ended/answered_elsewhere`。拒接一台设备不会结束其它候选，所有候选结束或呼入超时才释放 gateway 通话 slot。配置缺失或 ARI 未连接时拒绝创建呼叫；实际双 SIM 音频和公网联调仍需真机验收。参见 [运行说明](docs/operations.md)。
+可选 SIP 兼容路径保留凭据配置/加密恢复、一次性呼叫意图、Asterisk ARI/Stasis 编排、设备通话占位、呼入 pending/ready/expiry 和呼叫历史。一个蜂窝呼入可为多个 active client 快照各自的 participant 状态；只有真正到达 Up 的已认证 SIP channel 决定 winner，其他 host 得到 `ended/answered_elsewhere`。拒接一台设备不会结束其它候选，所有候选结束或呼入超时才释放 gateway 通话 slot。SIP 兼容路径配置缺失或 ARI 未连接时拒绝创建 SIP 呼叫；独立 Go/RTC 的业务状态、winner 和占用由 Go/PostgreSQL 直接维护，不依赖该注册或 ARI 状态；实际双 SIM 音频和公网联调仍需真机验收。参见 [运行说明](docs/operations.md)。
 
 平台标签不会授予 host root、短信或蜂窝控制权限。Windows 的 host UI 与媒体验证尚未实现；`windows` 可用于未来版本配对识别，但不能当作 Windows 客户端已交付。MagiskVM 或其他 Android 运行环境也必须单独验证 SIM/Telecom 账户与实际媒体路径；当前契约不承诺 raw PCM、特定 root 接口或短信必达。
 
@@ -19,6 +27,7 @@ SIP 凭据配置/加密恢复、一次性呼叫意图、Asterisk ARI/Stasis 编�
 - [服务端 wire addendum](docs/server-wire-addendum.md)
 - [OpenAPI](openapi/openapi.yaml)
 - [跨端路线图](docs/roadmap.md)
+- [三端 WebRTC 通话迁移计划（保持 UI 与外围行为）](docs/plan-webrtc.md)
 - [功能缺口与弱网恢复审查](docs/network-and-feature-status.md)
 - [两端 KVM 界面截图与原始验证结果](docs/ui-verification/README.md)
 - [Android 虚拟机使用指南：启动、停止、截图与 Magisk 验证](https://github.com/KiriKira/gsm2sip/blob/main/docs/android-virtual-machine.md)

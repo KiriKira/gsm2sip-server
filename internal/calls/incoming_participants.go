@@ -248,7 +248,7 @@ func (m *Manager) reconcileIncomingParticipants(ctx context.Context, channels []
 	         AND EXISTS(SELECT 1 FROM sessions s WHERE s.device_id=d.id
 	                    AND (s.access_expires_at>clock_timestamp() OR s.refresh_expires_at>clock_timestamp())))
 		FROM call_participants p JOIN call_sessions c ON c.call_id=p.call_id
-		WHERE c.direction='incoming' AND c.state<>'ended'`)
+		WHERE c.control_transport='sip' AND c.direction='incoming' AND c.state<>'ended'`)
 	if err != nil {
 		return err
 	}

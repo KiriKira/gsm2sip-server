@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -65,14 +66,21 @@ jobs:
           done
       - name: Backup and restore integration tests
         run: python -m unittest discover -s scripts -p 'test_db_backup.py'
+      - name: TURN port configuration validation
+        run: python -m unittest discover -s scripts -p 'test_turn_config.py'
       - name: Go tests
         run: go test -race ./...
+      - name: Bounded WebRTC channel lease regression
+        run: |
+          cc -Wall -Wextra -Werror deploy/asterisk/rtc_media_lease_test.c -o /tmp/rtc-media-lease-test
+          /tmp/rtc-media-lease-test
       - name: Go vet
         run: go vet ./...
       - name: Contract validation
         run: |
           python -m pip install -r requirements-contract.txt
           python scripts/check_contract.py
+          python scripts/check_rtc_contract.py
       - name: Container build
         run: docker build --tag gsm2sip-server:ci .
       - name: Asterisk runtime and safety probe
@@ -90,3 +98,48 @@ jobs:
           else
             echo 'Skipping Compose cleanup because the local probe did not initialize its Compose environment'
           fi
+
+  debug-binaries:
+    name: Debug binaries (${{ matrix.arch }})
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: true
+      - name: Build unstripped debug executables
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          mkdir -p debug-dist
+          for command in api worker admin; do
+            go build -trimpath -gcflags='all=-N -l' -o "debug-dist/gsm2sip-$command" "./cmd/$command"
+          done
+          cp -r migrations debug-dist/
+          cp DEBUG-BATCH.md debug-dist/
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          info = json.loads(Path('debug-batch.json').read_text())
+          info.update(source_commit=os.environ['GITHUB_SHA'], architecture=os.environ['GOARCH'], run_url=os.environ['GITHUB_SERVER_URL'] + '/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + os.environ['GITHUB_RUN_ID'])
+          info['sha256'] = {str(p.relative_to('debug-dist')): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(Path('debug-dist').rglob('*')) if p.is_file()}
+          Path('debug-dist/BUILD-INFO.json').write_text(json.dumps(info, indent=2) + '\n')
+          PY
+          tar -czf "gsm2sip-server-debug-linux-$GOARCH.tar.gz" -C debug-dist .
+          sha256sum gsm2sip-server-debug-linux-*.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gsm2sip-server-debug-linux-${{ matrix.arch }}
+          path: |
+            gsm2sip-server-debug-linux-*.tar.gz
+            SHA256SUMS
+          if-no-files-found: error

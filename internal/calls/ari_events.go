@@ -540,10 +540,10 @@ func (m *Manager) acceptIncoming(ctx context.Context, endpointID string, channel
 }
 
 func (m *Manager) preemptOrRejectSlot(ctx context.Context, tx *sql.Tx, gatewayID string) error {
-	var callID, state string
+	var callID, state, transport string
 	var expires sql.NullTime
-	err := tx.QueryRowContext(ctx, `SELECT c.call_id::text,c.state,c.expires_at FROM gateway_call_slots s JOIN call_sessions c ON c.call_id=s.call_id WHERE s.gateway_id=$1 FOR UPDATE OF s,c`, gatewayID).
-		Scan(&callID, &state, &expires)
+	err := tx.QueryRowContext(ctx, `SELECT c.call_id::text,c.state,c.expires_at,c.control_transport FROM gateway_call_slots s JOIN call_sessions c ON c.call_id=s.call_id WHERE s.gateway_id=$1 FOR UPDATE OF s,c`, gatewayID).
+		Scan(&callID, &state, &expires, &transport)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -554,7 +554,7 @@ func (m *Manager) preemptOrRejectSlot(ctx context.Context, tx *sql.Tx, gatewayID
 		_, err := tx.ExecContext(ctx, `DELETE FROM gateway_call_slots WHERE gateway_id=$1 AND call_id=$2`, gatewayID, callID)
 		return err
 	}
-	if state != "reserved" {
+	if state != "reserved" || transport != "sip" {
 		return ErrBusy
 	}
 	var ownerID, clientID string
@@ -982,7 +982,7 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	           AND EXISTS(SELECT 1 FROM sip_endpoint_bindings b WHERE b.device_id=d.id AND b.endpoint_id=c.gateway_endpoint_id AND b.state='active')
 	           AND EXISTS(SELECT 1 FROM sessions s WHERE s.device_id=d.id AND (s.access_expires_at>clock_timestamp() OR s.refresh_expires_at>clock_timestamp()))
 	       ) AS gateway_valid
-		FROM call_sessions c WHERE c.state<>'ended'`)
+		FROM call_sessions c WHERE c.control_transport='sip' AND c.state<>'ended'`)
 	if err != nil {
 		return err
 	}
@@ -1196,7 +1196,7 @@ func (m *Manager) failClosed(ctx context.Context, reason string) error {
 	rows, err := m.db.QueryContext(ctx, `
 		SELECT call_id::text,state,COALESCE(client_channel_id,''),COALESCE(gateway_channel_id,''),
 		       COALESCE(ari_wrapper_channel_id,''),COALESCE(bridge_id,'')
-		FROM call_sessions WHERE state NOT IN ('ended','reserved')`)
+		FROM call_sessions WHERE control_transport='sip' AND state NOT IN ('ended','reserved')`)
 	if err != nil {
 		return err
 	}
@@ -1288,7 +1288,7 @@ func (m *Manager) expireDueCalls(ctx context.Context) error {
 	rows, err := m.db.QueryContext(ctx, `
 		SELECT call_id::text,owner_id::text,client_device_id::text,gateway_id::text,state,state_revision,
 		       COALESCE(gateway_channel_id,''),COALESCE(client_channel_id,''),COALESCE(ari_wrapper_channel_id,'')
-		FROM call_sessions WHERE state IN ('reserved','pending_wakeup','ringing') AND expires_at<=clock_timestamp()`)
+		FROM call_sessions WHERE control_transport='sip' AND state IN ('reserved','pending_wakeup','ringing') AND expires_at<=clock_timestamp()`)
 	if err != nil {
 		return err
 	}
