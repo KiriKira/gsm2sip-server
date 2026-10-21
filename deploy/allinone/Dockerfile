@@ -13,7 +13,7 @@ RUN --mount=type=secret,id=proxy_ca,required=false \
     set -eu; \
     if [ -s /run/secrets/proxy_ca ]; then \
       install -d /usr/local/share/ca-certificates; \
-      cp /run/secrets/proxy_ca /usr/local/share/ca-certificates/build-proxy.crt; \
+      install -m 0644 /run/secrets/proxy_ca /usr/local/share/ca-certificates/build-proxy.crt; \
       echo 'Acquire::https::CAInfo "/etc/ssl/certs/ca-certificates.crt";' > /etc/apt/apt.conf.d/99build-proxy; \
     fi; \
     DEBIAN_FRONTEND=noninteractive apt-get update; \

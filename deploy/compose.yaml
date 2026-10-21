@@ -35,6 +35,11 @@ services:
     environment:
       DATABASE_URL: postgresql://gsm2sip:${POSTGRES_PASSWORD}@postgres:5432/gsm2sip?sslmode=disable
       HTTP_ADDR: :8080
+      # Ignored by 0.4. A release before 0.4 reads them, so rolling back
+      # only GSM2SIP_VERSION keeps calls on RTC without Asterisk.
+      RTC_MEDIA_ENABLED: ${RTC_MEDIA_ENABLED:-true}
+      RTC_CONTROL_ENABLED: ${RTC_CONTROL_ENABLED:-true}
+      SIP_COMPATIBILITY_ENABLED: ${SIP_COMPATIBILITY_ENABLED:-false}
       RTC_STUN_URLS: ${RTC_STUN_URLS:-}
       RTC_TURN_URLS: ${RTC_TURN_URLS:-}
       RTC_TURN_SHARED_SECRET: ${RTC_TURN_SHARED_SECRET:-}

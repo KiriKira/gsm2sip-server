@@ -104,6 +104,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/rtc/control/calls", s.authenticated(s.rtcControlCreate))
 	mux.HandleFunc("POST /v1/rtc/control/incoming", s.authenticated(s.rtcControlCreate))
 	mux.HandleFunc("GET /v1/rtc/control/calls", s.authenticated(s.rtcControlRead))
+	mux.HandleFunc("GET /v1/rtc/control/incoming-policy", s.authenticated(s.rtcIncomingPolicy))
 	mux.HandleFunc("GET /v1/rtc/control/calls/{call_id}", s.authenticated(s.rtcControlRead))
 	mux.HandleFunc("POST /v1/rtc/control/calls/{call_id}/operations", s.authenticated(s.rtcControlOperate))
 	return requestIDMiddleware(recoverMiddleware(s.logger, mux))

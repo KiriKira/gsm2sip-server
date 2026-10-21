@@ -774,6 +774,20 @@ func (s *Server) sweepRTCControl(ctx context.Context) error {
 	return tx.Commit()
 }
 
+// rtcIncomingPolicy keeps gateways older than 0.4 working, so a gateway can
+// be rolled back on its own: they ask before every incoming call and would
+// otherwise fall back to SIP, which no longer exists.
+func (s *Server) rtcIncomingPolicy(w http.ResponseWriter, r *http.Request, p Principal) {
+	if !s.requireRTCControl(w) {
+		return
+	}
+	if p.Role != "gateway" {
+		writeCallError(w, calls.ErrForbidden)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"version": 1, "call_control": "rtc"})
+}
+
 // EndLegacySIPCalls ends calls a SIP release left unfinished. Nothing advances
 // them any more, and the cellular slot they hold would block every new call.
 func (s *Server) EndLegacySIPCalls(ctx context.Context) (int64, error) {

@@ -1,5 +1,7 @@
 # 熄屏与同版本备用切换验证
 
+> **0.4.0 起**：服务器改名 SoulGem，SIP、Asterisk 与 ARI 已移除，通话只走 RTC 呼叫控制与 WebRTC。本文有关 SIP 的内容为历史记录；当前行为见 [rtc-call-control-v1.md](rtc-call-control-v1.md) 与 [release-0.4.md](release-0.4.md)。
+
 状态：PASS。Host `918ac34702778830b4a6441695238cf060e17e3c`；Gateway `740ca46bdf60fdae71d1059ccd6fa75513467a93`；Server `751f1a1540c62102811ae56fe3106c556e15f226`。
 
 本批修复 Go/RTC 轮询缺少 CPU 唤醒锁的问题。按三端一起升级、备用节点运行相同服务端版本验收；所有源码包含复核的 main。

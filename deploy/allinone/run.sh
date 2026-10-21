@@ -32,9 +32,10 @@ DB_PASSWORD="$(secret_file db_password 'openssl rand -hex 24')"
 if [ -z "${SECRETS_ENCRYPTION_KEY:-}" ]; then
     SECRETS_ENCRYPTION_KEY="$(secret_file secrets_encryption_key 'openssl rand -base64 32')"
 fi
-for name in SIP_COMPATIBILITY_ENABLED SIP_SERVER_NAME SIP_TRANSPORT ARI_PORT; do
+for name in SIP_SERVER_NAME SIP_TRANSPORT ARI_PORT; do
     [ -z "${!name:-}" ] || log "SIP calling was removed in 0.4; ignoring $name"
 done
+[ "${SIP_COMPATIBILITY_ENABLED:-false}" != true ] || log "SIP calling was removed in 0.4; ignoring SIP_COMPATIBILITY_ENABLED"
 printf 'PG_PORT=%s\nHTTP_ADDR=%s\n' "$PG_PORT" "$HTTP_ADDR" > "$RUN_DIR/ports"
 DATABASE_URL="postgresql://gsm2sip:${DB_PASSWORD}@127.0.0.1:${PG_PORT}/gsm2sip?sslmode=disable"
 

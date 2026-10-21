@@ -1,5 +1,7 @@
 # 三端联合实施顺序
 
+> **0.4.0 起**：服务器改名 SoulGem，SIP、Asterisk 与 ARI 已移除，通话只走 RTC 呼叫控制与 WebRTC。本文有关 SIP 的内容为历史记录；当前行为见 [rtc-call-control-v1.md](rtc-call-control-v1.md) 与 [release-0.4.md](release-0.4.md)。
+
 更新：2026-10-04。这里列的是开发和验收顺序，不代表任何阶段已完成。三份仓库计划和 [protocol-v1.md](protocol-v1.md) 配合使用。
 
 | 阶段 | 网关 gsm2sip | server | 主机 client-android | 完成门槛 |

@@ -79,6 +79,24 @@ paths:
                     maxItems: 32
                     items: {$ref: '#/components/schemas/RTCControlSnapshot'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+  /rtc/control/incoming-policy:
+    get:
+      operationId: getRTCIncomingPolicy
+      deprecated: true
+      description: Gateway only. Kept so a gateway older than 0.4 can be rolled back on its own; it always selects RTC.
+      responses:
+        '200':
+          description: Incoming calls use RTC call control.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, call_control]
+                properties:
+                  version: {const: 1}
+                  call_control: {const: rtc}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /rtc/control/calls/{call_id}:
     parameters:
       - {name: call_id, in: path, required: true, schema: {type: string, format: uuid}}

@@ -1,5 +1,7 @@
 # 功能与弱网恢复状态
 
+> **0.4.0 起**：服务器改名 SoulGem，SIP、Asterisk 与 ARI 已移除，通话只走 RTC 呼叫控制与 WebRTC。本文有关 SIP 的内容为历史记录；当前行为见 [rtc-call-control-v1.md](rtc-call-control-v1.md) 与 [release-0.4.md](release-0.4.md)。
+
 更新：2026-10-05。代码实现与真机验收分别记录；模拟器无法验收运营商或 Magisk 音频。
 
 | 功能 | 实现与验收边界 |

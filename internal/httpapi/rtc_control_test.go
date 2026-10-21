@@ -292,3 +292,13 @@ func TestIndependentRTCConcurrentAcceptReservesOneCandidate(t *testing.T) {
 	}
 	controlOp(t, api, f.gatewayToken, out, "ended", 200)
 }
+
+func TestIncomingPolicyAlwaysAnswersRTCForOlderGateways(t *testing.T) {
+	_, f, api := controlFixture(t)
+	reply := requestJSON(t, api.Handler(), "GET", "/v1/rtc/control/incoming-policy", f.gatewayToken, nil, "")
+	requireStatus(t, reply, 200)
+	if !strings.Contains(reply.Body.String(), `"call_control":"rtc"`) {
+		t.Fatalf("incoming policy did not select RTC: %s", reply.Body.String())
+	}
+	requireStatus(t, requestJSON(t, api.Handler(), "GET", "/v1/rtc/control/incoming-policy", f.clientToken, nil, ""), 403)
+}

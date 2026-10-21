@@ -33,10 +33,15 @@ func main() {
 	}
 	defer database.Close()
 	options := httpapi.Options{}
-	for _, name := range []string{"ARI_URL", "SIP_SERVER_NAME", "SIP_COMPATIBILITY_ENABLED"} {
+	for _, name := range []string{"ARI_URL", "SIP_SERVER_NAME"} {
 		if strings.TrimSpace(os.Getenv(name)) != "" {
 			logger.Warn("SIP calling was removed in 0.4; ignoring the setting", "setting", name)
 		}
+	}
+	// SIP_COMPATIBILITY_ENABLED=false is kept in deployments so a rollback
+	// to an older release stays on RTC; only asking for SIP is worth a warning.
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("SIP_COMPATIBILITY_ENABLED")), "true") {
+		logger.Warn("SIP calling was removed in 0.4; ignoring the setting", "setting", "SIP_COMPATIBILITY_ENABLED")
 	}
 	options.RTC.STUNURLs = strings.FieldsFunc(os.Getenv("RTC_STUN_URLS"), func(c rune) bool { return c == ',' || c == ' ' })
 	options.RTC.TURNURLs = strings.FieldsFunc(os.Getenv("RTC_TURN_URLS"), func(c rune) bool { return c == ',' || c == ' ' })

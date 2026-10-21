@@ -1,5 +1,7 @@
 # 移除 Asterisk：独立控制实现与联合验收
 
+> **0.4.0 起**：服务器改名 SoulGem，SIP、Asterisk 与 ARI 已移除，通话只走 RTC 呼叫控制与 WebRTC。本文有关 SIP 的内容为历史记录；当前行为见 [rtc-call-control-v1.md](rtc-call-control-v1.md) 与 [release-0.4.md](release-0.4.md)。
+
 2026-10-19。目标仍是：新 WebRTC 路径不依赖 SIP、PJSUA2、Asterisk 或 ARI。原 SIP 仅可作为明确选择的兼容路径，不能成为 WebRTC 模式的运行前提。
 
 已发布的 `debug-webrtc-joint-20261019` 只替换了音频：ICE/DTLS-SRTP/Opus 与测试 PCM 已经联合验证，但邀请、响铃、接听、拒接、挂断及业务通话状态仍通过 SIP/Asterisk。关掉 Asterisk 后该版本不能完成呼叫；本次媒体联测通过不代表原迁移目标完成。当前日志中的 `call_control=sip` 正是实际情况，不能只改显示文字冒充去除了依赖。
