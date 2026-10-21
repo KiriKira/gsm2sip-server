@@ -4,14 +4,15 @@
 
 ## 被测版本
 
-| 组件 | 仓库与分支 | 说明 |
+| 组件 | 0.4（被测） | 上一版（升级起点与回退目标） |
 | --- | --- | --- |
-| SoulGem | `KiriKira/gsm2sip-server` `claude/charming-franklin-8piri8` | 先合并 WebRTC PR（#28）后再测，以合并后的 head 为准 |
-| Homura | `KiriKira/gsm2sip` `claude/charming-franklin-8piri8` | 同上（#19） |
-| Madoka | `KiriKira/gsm2sip-client-android` `claude/charming-franklin-8piri8` | 同上（#19） |
-| 上一版（回退目标） | 三个仓库 WebRTC PR 合并后的 `main` 构建 | 服务器镜像 `sha-…`；两个 APK 的 versionCode 都是 `1000000000` |
+| SoulGem | `KiriKira/gsm2sip-server` 分支 `claude/charming-franklin-8piri8`（`3453784` 或更新） | `main` 的 `bf41e9e`（WebRTC 合并） |
+| Homura | `KiriKira/gsm2sip` 分支 `claude/charming-franklin-8piri8`（`74a5d5f` 或更新） | `main` 的 `dee22f9` |
+| Madoka | `KiriKira/gsm2sip-client-android` 分支 `claude/charming-franklin-8piri8`（`016b9ec` 或更新） | `main` 的 `fee2e2d` |
 
-记录每个组件的完整提交 SHA、镜像 digest、APK SHA-256 与签名证书指纹。两个 APK 必须是同一固定签名（Debug 发布与正式发布签名不同，**同一轮测试只用一种**），否则覆盖安装与回退用例无效。
+开测时取分支最新 head，并记录每个组件的完整提交 SHA、镜像 digest、APK SHA-256 与签名证书指纹。
+
+**签名与 versionCode**：覆盖安装和回退用例要求两个版本签名相同、versionCode 相同。联测 instrumentation 也要求测试 APK 与被测 App 同一签名。因此两个版本都在同一台机器上用同一个 debug keystore 本地构建，并设置 `GSM_RELEASE_VERSION_CODE=1000000000`（与正式版一致），不要混用 CI 下载的正式签名 APK。
 
 ## 环境
 
@@ -22,14 +23,19 @@
 
 ### 构建
 
+每个仓库分别检出“上一版”和“0.4”两个提交各构建一次（建议用 `git worktree`），产物按版本分目录保存：
+
 ```bash
-# 服务器
-docker build -t soulgem-aio:0.4 -f deploy/allinone/Dockerfile .
-docker build -t soulgem-api:0.4 .
-# 网关与主机（各自仓库根目录）
-./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -PrtcLabRunner=com.callagent.lab.GatewayJointInstrumentation   # Homura
-./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -PrtcLabRunner=com.callagent.lab.HostJointInstrumentation      # Madoka
+# 服务器（每个提交各一次，标签区分版本）
+docker build -t soulgem-aio:<ver> -f deploy/allinone/Dockerfile .
+docker build -t soulgem-api:<ver> .
+# 网关与主机（各自仓库根目录；两个版本用同一个 ~/.android/debug.keystore）
+export GSM_RELEASE_VERSION_CODE=1000000000
+GSM_RELEASE_VERSION_NAME=<ver>-joint ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -PrtcLabRunner=com.callagent.lab.GatewayJointInstrumentation   # Homura
+GSM_RELEASE_VERSION_NAME=<ver>-joint ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -PrtcLabRunner=com.callagent.lab.HostJointInstrumentation      # Madoka
 ```
+
+Homura 的 Magisk 模块用 `SKIP_INSTALL=1 bash build.sh debug` 生成，同样两个版本各一份。
 
 ### 联测 instrumentation（与 10-19 相同的文件协议）
 
@@ -85,7 +91,7 @@ docker build -t soulgem-api:0.4 .
 
 | 场景 | 操作 | 判定 |
 | --- | --- | --- |
-| 仅服务器回退 | 只把 `GSM2SIP_VERSION` 改回上一版 `sha-…` 重启（用 0.4 的 `deploy/compose.yaml`）；一体镜像按 release-0.4.md 加 3 个 `-e` | 0.4 Homura/Madoka 短信与双向通话正常；不需要 Asterisk |
+| 仅服务器回退 | 只把镜像换回上一版（compose 中改镜像标签）重启（用 0.4 的 `deploy/compose.yaml`）；一体镜像按 release-0.4.md 加 3 个 `-e` | 0.4 Homura/Madoka 短信与双向通话正常；不需要 Asterisk |
 | 仅 Homura 回退 | `adb install -r` 上一版 APK（不卸载）；Magisk 刷上一版 ZIP | 配对与 SIM 保留；**来电**可接通（依赖 0.4 服务器的 `incoming-policy` 兼容接口），去电正常 |
 | 仅 Madoka 回退 | `adb install -r` 上一版 APK | 配对、短信历史保留；WebRTC 开关为开时通话正常 |
 | 全部前滚回 0.4 | 再次覆盖安装/换镜像 | 数据仍完整，用例 2 抽测拨出与来电各一次通过 |
