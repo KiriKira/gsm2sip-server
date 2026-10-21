@@ -278,10 +278,10 @@ func TestLegacySIPCallsGetNoMediaAndAreEnded(t *testing.T) {
 		t.Fatal(err)
 	}
 	legacy := newUUID()
-	if _, err := database.db.Exec(`INSERT INTO call_sessions(call_id,owner_id,client_device_id,gateway_id,sim_id,mapping_revision,direction,to_address,state,gateway_endpoint_id,client_endpoint_id) VALUES($1,$2,$3,$4,$5,1,'incoming','+12025550100','active','gw','host')`, legacy, f.ownerID, f.clientID, f.gatewayID, f.simID); err != nil {
+	if _, err := database.db.Exec(`INSERT INTO call_sessions(call_id,owner_id,client_device_id,gateway_id,sim_id,mapping_revision,direction,to_address,state,reason,gateway_endpoint_id,client_endpoint_id) VALUES($1,$2,$3,$4,$5,1,'incoming','+12025550100','unknown','ari_reconciliation_uncertain','gw','host')`, legacy, f.ownerID, f.clientID, f.gatewayID, f.simID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.db.Exec(`INSERT INTO call_participants(call_id,owner_id,client_device_id,endpoint_id,wake_nonce,state,accepted_at) VALUES($1,$2,$3,'host','legacy-wake','accepted',clock_timestamp())`, legacy, f.ownerID, f.clientID); err != nil {
+	if _, err := database.db.Exec(`INSERT INTO call_participants(call_id,owner_id,client_device_id,endpoint_id,wake_nonce,state,reason,accepted_at) VALUES($1,$2,$3,'host','legacy-wake','accepted','legacy_participant_reason',clock_timestamp())`, legacy, f.ownerID, f.clientID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.db.Exec(`INSERT INTO gateway_call_slots(gateway_id,call_id) VALUES($1,$2)`, f.gatewayID, legacy); err != nil {
@@ -293,13 +293,13 @@ func TestLegacySIPCallsGetNoMediaAndAreEnded(t *testing.T) {
 	if err != nil || count != 1 {
 		t.Fatalf("ended %d legacy calls: %v", count, err)
 	}
-	var state, participant string
+	var state, reason, participant, participantReason string
 	var slots int
-	if err := database.db.QueryRow(`SELECT c.state,p.state,(SELECT count(*) FROM gateway_call_slots) FROM call_sessions c JOIN call_participants p ON p.call_id=c.call_id WHERE c.call_id=$1`, legacy).Scan(&state, &participant, &slots); err != nil {
+	if err := database.db.QueryRow(`SELECT c.state,c.reason,p.state,p.reason,(SELECT count(*) FROM gateway_call_slots) FROM call_sessions c JOIN call_participants p ON p.call_id=c.call_id WHERE c.call_id=$1`, legacy).Scan(&state, &reason, &participant, &participantReason, &slots); err != nil {
 		t.Fatal(err)
 	}
-	if state != "ended" || participant != "ended" || slots != 0 {
-		t.Fatalf("legacy call left state=%s participant=%s slots=%d", state, participant, slots)
+	if state != "ended" || reason != "sip_removed" || participant != "ended" || participantReason != "sip_removed" || slots != 0 {
+		t.Fatalf("legacy call left state=%s reason=%s participant=%s participant_reason=%s slots=%d", state, reason, participant, participantReason, slots)
 	}
 	if count, err = api.EndLegacySIPCalls(context.Background()); err != nil || count != 0 {
 		t.Fatal("a second pass changed ended calls")

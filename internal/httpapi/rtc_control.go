@@ -796,11 +796,11 @@ func (s *Server) EndLegacySIPCalls(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, `UPDATE call_participants p SET state='ended',reason=COALESCE(p.reason,'sip_removed'),ended_at=COALESCE(p.ended_at,clock_timestamp()),state_revision=p.state_revision+1,updated_at=clock_timestamp()
+	if _, err = tx.ExecContext(ctx, `UPDATE call_participants p SET state='ended',reason='sip_removed',ended_at=COALESCE(p.ended_at,clock_timestamp()),state_revision=p.state_revision+1,updated_at=clock_timestamp()
       FROM call_sessions c WHERE p.call_id=c.call_id AND c.control_transport='sip' AND c.state<>'ended' AND p.state<>'ended'`); err != nil {
 		return 0, err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE call_sessions SET state='ended',reason=COALESCE(reason,'sip_removed'),state_revision=state_revision+1,ended_at=clock_timestamp(),updated_at=clock_timestamp()
+	result, err := tx.ExecContext(ctx, `UPDATE call_sessions SET state='ended',reason='sip_removed',state_revision=state_revision+1,ended_at=clock_timestamp(),updated_at=clock_timestamp()
       WHERE control_transport='sip' AND state<>'ended'`)
 	if err != nil {
 		return 0, err
