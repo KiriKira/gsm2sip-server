@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | SoulGem | `KiriKira/gsm2sip-server` 分支 `claude/charming-franklin-8piri8`（`3453784` 或更新） | `main` 的 `bf41e9e`（WebRTC 合并） |
 | Homura | `KiriKira/gsm2sip` 分支 `claude/charming-franklin-8piri8`（`74a5d5f` 或更新） | `main` 的 `dee22f9` |
-| Madoka | `KiriKira/gsm2sip-client-android` 分支 `claude/charming-franklin-8piri8`（`016b9ec` 或更新） | `main` 的 `fee2e2d` |
+| Madoka | `KiriKira/gsm2sip-client-android` 分支 `claude/charming-franklin-8piri8`（`a1c03ab` 或更新） | 分支 `ci/webrtc-sip-debug-20261017` 的 `e5cf86f`（即 `0.3.0-debug-build-40`：`main` 的 `fee2e2d` 加唤醒修复） |
 
 开测时取分支最新 head，并记录每个组件的完整提交 SHA、镜像 digest、APK SHA-256 与签名证书指纹。
 
@@ -70,6 +70,7 @@ Homura 的 Magisk 模块用 `SKIP_INSTALL=1 bash build.sh debug` 生成，同样
 | 虚拟来电，Madoka 接听，≥ 95 秒 | 同上；接听前两端 PCM 为 0 |
 | 静音/恢复（两端）、DTMF、任一端挂断、对方挂断 | 状态与结束原因正确，账本终态 `completed` |
 | Madoka 拒接、来电方取消 | 蜂窝挂断，无残留占用 |
+| 唤醒丢失：阻断 Madoka 到 `/v1/ws` 的连接后来电 | 8 秒兜底轮询内开始振铃，仍可接听；轮询中注入一次网络错误后轮询继续 |
 | 没有就绪的 Madoka 时来电 | 服务器 503 `GATEWAY_UNAVAILABLE`，网关拒接 GSM，无通话记录残留 |
 | 屏蔽 UDP 后（只剩 TURN/TCP） | 仍能接通并双向音频 |
 | 熄屏 ≥ 75 秒后来电，通知接听、熄屏通话、通知挂断 | 同 10-19 熄屏用例 |
