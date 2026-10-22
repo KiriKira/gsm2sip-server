@@ -774,9 +774,10 @@ func (s *Server) sweepRTCControl(ctx context.Context) error {
 	return tx.Commit()
 }
 
-// rtcIncomingPolicy keeps gateways older than 0.4 working, so a gateway can
-// be rolled back on its own: they ask before every incoming call and would
-// otherwise fall back to SIP, which no longer exists.
+// rtcIncomingPolicy answers gateways older than 0.4, which ask before every
+// incoming call, so they are never told to use SIP. It does not make running
+// an older gateway against this server supported: those gateways still try
+// to register SIP. Upgrade and roll back all three apps together.
 func (s *Server) rtcIncomingPolicy(w http.ResponseWriter, r *http.Request, p Principal) {
 	if !s.requireRTCControl(w) {
 		return

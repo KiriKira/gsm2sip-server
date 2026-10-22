@@ -83,7 +83,7 @@ paths:
     get:
       operationId: getRTCIncomingPolicy
       deprecated: true
-      description: Gateway only. Kept so a gateway older than 0.4 can be rolled back on its own; it always selects RTC.
+      description: Gateway only. Answered for gateways older than 0.4 so they are never told to use SIP; it always selects RTC. Older gateways are still not supported against 0.4.
       responses:
         '200':
           description: Incoming calls use RTC call control.

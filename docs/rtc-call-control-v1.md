@@ -58,7 +58,7 @@ All requests use the existing paired bearer session under `/v1`, with version
 | `GET /rtc/control/calls` | At most 32 device-scoped snapshots; suggested poll interval 750 ms |
 | `GET /rtc/control/calls/{id}` | Current authenticated snapshot and participant lease renewal |
 | `POST /rtc/control/calls/{id}/operations` | Durable operation UUID, expected revision and operation kind |
-| `GET /rtc/control/incoming-policy` | Gateway only, kept for gateways older than 0.4: always `{"version":1,"call_control":"rtc"}` |
+| `GET /rtc/control/incoming-policy` | Gateway only, answered for gateways older than 0.4: always `{"version":1,"call_control":"rtc"}`. An older gateway is still not supported against this server |
 
 Create includes `operation_id`, installation-wide `call_id`, node `gateway_id`,
 stable `sim_id`, `mapping_revision`, and `to`. Only incoming creation may report

@@ -32,13 +32,13 @@
 
 所有正式版共用固定 versionCode（Madoka 与 Homura 都是 `1000000000`），Android 允许直接覆盖安装相同 versionCode 的旧版本，**不需要卸载、不丢数据**。数据库与本地存储都保持兼容：0.4 没有删除任何表或列（旧 SIP 凭据行在设备撤销时照常清理）。
 
-| 回退对象 | 方法 | 注意 |
-| --- | --- | --- |
-| 服务器 | 镜像标签换回上一版（WebRTC 合并后的 main 构建 `sha-…`），重启 | 上一版需 `RTC_MEDIA_ENABLED=true`、`RTC_CONTROL_ENABLED=true` 才能与 0.4 手机通话；保持 `SIP_COMPATIBILITY_ENABLED=false` 时不需要恢复 Asterisk。0.4 的 `deploy/compose.yaml` 已按这组默认值传入，只改 `GSM2SIP_VERSION` 即可；一体镜像回退时在 `docker run` 加上 `-e RTC_MEDIA_ENABLED=true -e RTC_CONTROL_ENABLED=true -e SIP_COMPATIBILITY_ENABLED=false`。0.4 期间结束的旧 SIP 通话保持 ended |
-| Homura | 覆盖安装上一版 APK / Magisk ZIP | 0.4 服务器保留旧网关来电前查询的 `incoming-policy`（固定返回 RTC），单独回退网关也能接来电。只能回退到同样使用 versionCode `1000000000` 的构建（WebRTC 合并之后）；更早的按 `10000 + run` 编号的构建需卸载重装。上一版保留的 SIP 设置项为空，会按 RTC 运行 |
-| Madoka | 覆盖安装上一版 APK | 上一版的 WebRTC 开关保留在升级前的状态；若曾关闭需重新打开，否则会尝试已不存在的 SIP |
+**三端一起回退**，顺序与升级相同：
 
-回退单个组件即可，不需要三端同时回退：上一版服务器、Homura、Madoka 在 RTC 模式下与 0.4 互通（这是联合测试计划中的回退用例）。
+1. **服务器**：镜像换回上一版（WebRTC 合并后的 `main` 构建），重启。上一版需 `RTC_MEDIA_ENABLED=true`、`RTC_CONTROL_ENABLED=true` 才能与手机通话，保持 `SIP_COMPATIBILITY_ENABLED=false` 时不需要恢复 Asterisk。0.4 的 `deploy/compose.yaml` 已按这组默认值传入，只改 `GSM2SIP_VERSION` 即可；一体镜像回退时在 `docker run` 加上 `-e RTC_MEDIA_ENABLED=true -e RTC_CONTROL_ENABLED=true -e SIP_COMPATIBILITY_ENABLED=false`。这一步之后 0.4 的两个 App 仍能收发短信和通话（联测已验证）。0.4 期间结束的旧 SIP 通话保持 ended。
+2. **Homura**：覆盖安装上一版 APK / Magisk ZIP。只能回退到同样使用 versionCode `1000000000` 的构建（WebRTC 合并之后）；更早的按 `10000 + run` 编号的构建需卸载重装。
+3. **Madoka**：覆盖安装上一版 APK。上一版的 WebRTC 开关保留在升级前的状态；若曾关闭需重新打开。
+
+**不要单独回退 Homura 而让服务器留在 0.4**：上一版网关把 0.4 服务器没有声明的 `sip_call_control` 当作开启，会去注册已不存在的 SIP 并在重连时打断来电（联测中该组合的来电失败）。服务器先回到上一版即可避免。0.4 服务器保留的 `GET /v1/rtc/control/incoming-policy` 无法弥补这一点。
 
 ## 已知限制
 
