@@ -13,6 +13,7 @@ import fcntl
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -35,7 +36,7 @@ def plan():
             'failure': 'stop testing; confirm idle before attempting forward recovery in server/Gateway/Host order'}
 
 
-def make_workflow(root):
+def make_workflow(root, r3_phase=R3_PHASE):
     spec = importlib.util.spec_from_file_location('round2_retention_library', root / 'scripts/rollback-cases.py')
     base = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(base)
@@ -43,6 +44,7 @@ def make_workflow(root):
     class Synchronized(base.Case5):
         def __init__(self):
             self.components = ORDER
+            self.r3_phase = r3_phase
             self.driver = base.load_module('round2_sync_driver', root / 'scripts/driver.py')
             self.core = base.load_module('round2_sync_core', root / 'scripts/core-calls.py')
             if self.driver.SERIALS != base.EXPECTED_SERIALS or self.driver.PACKAGES != base.EXPECTED_PACKAGES:
@@ -156,15 +158,15 @@ def make_workflow(root):
 
         def run(self):
             self.assert_server_flags()
-            r3_capture = root / 'private/captures' / R3_PHASE
-            r3_audit_path = root / 'evidence' / (R3_PHASE + '-negative-audit.json')
+            r3_capture = root / 'private/captures' / self.r3_phase
+            r3_audit_path = root / 'evidence' / (self.r3_phase + '-negative-audit.json')
             try:
                 r3_audit = json.loads(r3_audit_path.read_text())
                 captures = r3_audit['captures']
                 flushed = (
                     r3_capture.is_dir() and not r3_capture.is_symlink()
                     and r3_audit_path.is_file() and not r3_audit_path.is_symlink()
-                    and r3_audit['capture_phase'] == R3_PHASE
+                    and r3_audit['capture_phase'] == self.r3_phase
                     and all(r3_audit['assertions'][key] is True for key in (
                         'capture_manifest_matches_three_bridges',
                         'actual_tcpdump_children_sigint_flushed',
@@ -227,9 +229,13 @@ def make_workflow(root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--execute', action='store_true')
+    parser.add_argument('--r3-phase', default=R3_PHASE,
+                        help='completed R3 capture phase this run must verify')
     args = parser.parse_args()
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,79}', args.r3_phase):
+        parser.error('invalid R3 capture phase')
     if not args.execute:
-        print(json.dumps(plan(), sort_keys=True))
+        print(json.dumps({**plan(), 'r3_phase': args.r3_phase}, sort_keys=True))
         return 0
     root = Path(__file__).resolve().parents[1]
     if not (root / 'private/round2-marker.json').is_file():
@@ -237,7 +243,7 @@ def main():
     os.umask(0o077)
     workflow = None
     try:
-        workflow = make_workflow(root)
+        workflow = make_workflow(root, args.r3_phase)
         result = workflow.run()
         print(json.dumps({'status': result['status'], 'report': str(workflow.report_path), 'final_stage': 'candidate'}, sort_keys=True))
     except Exception as failure:

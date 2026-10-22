@@ -172,3 +172,104 @@ Host 最终修复将认证刷新锁从全局范围缩小到 pairing session，�
 最终 head 证据来自远程运行目录 `/home/ubuntu/gsm-webrtc-validation/joint-0.4/round2/r2-retest-f2680de-20261022T0535Z/evidence`。打包器检查通过的 13 个文件及校验索引作为 Release 附件 `final-head-partial-evidence-20261022T0535Z.zip` 和 `final-head-partial-evidence-index-20261022T0535Z.json`；ZIP SHA-256 为 `66107f50ee40068f89e4945c74958b5e95b0c7a150fe359e531c189983ba9b74`。附件不包含 APK、私有目录、原始日志、数据库或 pcap。原始 pcap 留在服务器私有运行目录，仅经审计的计数与哈希进入证据包。
 
 停止时没有测试或抓包 worker 在运行；Gateway `emulator-5554`（API 36）与 Host `emulator-5556`（API 29）均保持 booted，未冷启动。R3、R4、R5 的最终 head 未完成项交由后续代理按 `plan-0.4-joint-test.md` 与 `scripts/joint-validation-0.4-round2/README.md` 续跑。任何模拟器结果仍只代表 Android Telecom、真实 RTC 媒体栈和虚拟 modem；不声称真机蜂窝 HAL 音频通过。
+
+## 续测（2026-10-22 12:00–13:30Z）：R2 修复、R3 未完成与实验室阻塞
+
+本节由续测代理在同一最终 head 上追加。三端版本与上一节相同（Server 代码 `c6e6013`、Gateway `15e9ac7`、Host `f2680de`），直接复用实验机已有构建；未重新构建、未卸载、未清应用数据。上一节及更早轮次的 FAIL 原样保留，本节不把任何未完成项改判为 PASS。
+
+### 续测起点
+
+- 交接时 `emulator-5554`（API 36）与 `emulator-5556`（API 29）均 booted，无测试或抓包 worker。
+- 安装包复核：Gateway base.apk `9aeef51e…f57dfb4`、Host base.apk `6d6b82a5…df3467aa`，与最终构建 manifest 一致；两端 instrumentation 重新启动并到 `READY`（`mapping_revision=9`，与只读 `sim_bindings/gateways` 一致）。
+
+### R2 helper Broken pipe：根因、修复与最终 head 重跑
+
+`idle-failover-hold-failback` 记录的最终 FAIL 不是行为失败，而是完成记录边界错误：
+
+| 项 | 事实 |
+| --- | --- |
+| 触发 | `core-calls.py` 的 `pass_()` 先落盘 `PASS` 再向 stdout 打印摘要；读取端已关闭管道时 `print` 抛 `BrokenPipeError` |
+| 放大 | `multi-node.run()` 的通用 `except` 捕获该异常，把已落盘的 PASS 改写成 `status=FAIL, error="[Errno 32] Broken pipe"` |
+| 修复 | `pass_()` 先落盘再输出，捕获 `BrokenPipeError/OSError` 并把 stdout 指向 `/dev/null`（避免解释器退出刷新再次失败）；`multi-node.run()` 在通用失败分支前单独处理 `BrokenPipeError` |
+| 回归 | `helper-epipe-regression.json`：闭合读端的子进程下，修复前 `exit=1`、记录 `FAIL [Errno 32] Broken pipe`；修复后 `exit=0`、记录 `PASS`（core-calls 修复前后 SHA-256 见该文件） |
+
+最终 head 上两次独立完整重跑（未改产品、未放宽超时）：
+
+| run | 结果 | 事实 |
+| --- | --- | --- |
+| `r2-resume-20261022T1211Z` | **PASS** | active_node=B；双向合成 PCM `12.81 s`；实际 Telecom **1 通**；账本 1 行 `completed`、占用槽 0；服务端 `ended|cellular_ended|rtc|f`；A 恢复后仍保持 B（`consecutiveSuccesses>=3`）；挂断后空闲回切 A |
+| `r2-gate-20261022T1229Z` | **PASS** | `13.28 s`；Telecom 1 通；拨号就绪 `8.69 s`（期间两次 `dial_disabled:正在检查服务器通话能力…`）；其余断言同上 |
+
+### R3 窗口：两次尝试均未走完（不构成 R3 PASS）
+
+两次都使用新的 run 目录与新的 capture phase，未覆盖既有证据；两次的抓包收尾审计本身通过。
+
+| 尝试 | run / phase | 已通过 | 中断点 |
+| --- | --- | --- | --- |
+| 第一次 | `r3-r4-resume-20261022T1217Z` / `r3-all-candidate-resume-20261022T1220Z`（12:18:47–12:24:29Z） | 抓包启动、短信收发（inbound `received`、outbound `delivered`，两端口径与归档均匹配）、R1 三通（95.76 / 96.40 / 11.32 s，Telecom 各 1 通）、R2 partial-node **PASS** | R2 idle-failover `failed_before_active` |
+| 第二次 | `r3-r4-resume2-20261022T1234Z` / `r3-all-candidate-resume2-20261022T1240Z`（12:35:09–12:40:07Z） | preflight（三端版本/APK SHA/服务端能力）、抓包启动、短信收发、R1 三通（96.34 / 96.31 / 10.73 s，Telecom 各 1 通） | R2 partial-node `B_exclusion_not_evidenced`（后续 R2 idle-failover、重启、R5、空闲均未执行） |
+
+两次窗口的最终审计（`*-negative-audit.json`）均为 PASS：三桥 manifest 匹配、只对实际 tcpdump 子进程 SIGINT、pcap flush/可读/哈希、无 netem、无故障 iptables、无 Asterisk，A/B/C 的 5060、5061、8088 计数**全部为 0**。这只证明该时段，不证明完整 R3。
+
+两次中断的定性（证据见对应 evidence）：
+
+1. 第一次的 R2 idle-failover：故障后约 9 s 拨号，Host 在本地拒绝（`dial_disabled:远程网关当前离线`），A/B/C 都没有新建 `call_sessions` 行；网关直到 12:24:37 才记录 `CONTROL: NETWORK_ERROR` 与 `MESH: healthy secondary keeps control polling at 30s`，即故障窗口短于产品 30 s 控制轮询节拍。属接线时序问题，不是通话行为失败。
+2. 第二次的 R2 partial-node：网关日志为 `event=incoming_offered nodes=2`（B 在 offer 前被排除），没有 `incoming_offer_failed`；C 仍 `answered_elsewhere`、A 接通 `14.09 s`。产品对已知不可达节点选择"不 offer"而不是"尝试后失败"，原断言只接受后者，属断言过窄。
+
+### 实验室阻塞：已接通通话在控制过期后不可恢复（本次中断的原因）
+
+第二次窗口在 `B_exclusion` 断言处中断时通话已接通但未执行挂断，留下通话 `8aab9419-fe70-4350-95e3-6abc295bb38b`：
+
+- A（`12:39:41` 创建，incoming，媒体 active）在控制过期后为 `unknown|control_expired`、`end_requested=t`、`media cellular_active=t`、winner 已设置、slot 占用=t；
+- 网关 SQLite 中 `call_ledger` 为 `unknown/incoming`、`gateway_call_slots` 占用=1。
+
+该状态无法由产品自身或既有 fixture 解除：
+
+| 尝试 | 结果 |
+| --- | --- |
+| final APK 的 `recover_idle_call` | `IllegalStateException:unknown_op`（最终 fixture 无此 op） |
+| 旧 recovery fixture（androidTest SHA-256 `ad9c6814e5de…e2201f24`） | `recovery_precondition_or_operation_failed` |
+| host / gateway 的 `hangup`（带 `call_id`）、`reject`、`clear` | `hangup` 返回 OK 但不终结；`reject` 返回命令失败；`clear` 不改变服务端与槽状态 |
+| force-stop 后重启 instrumentation | 不变 |
+| 整机 `adb reboot`（`sys.boot_completed=1`） | 不变 |
+
+实测后果：新的去电在授权阶段被拒（Host `FAILED`、`runtime_status=通话服务暂不可用，请刷新服务器状态后重试`、`call_id=pending`），`12:39:45` 之后 A 没有新建任何 `call_sessions` 行；来电不再振铃（`emu gsm call` 返回 OK、`emu gsm list` 仅 `OK`、Host 20 s 内无 `INCOMING_RINGING`）。
+
+判定：本例由测试在断言处中断触发，但"已接通的通话收不到任何终态信号"在正常使用中同样可达（网关 App 被系统杀死 / OOM / 电池优化暂停同步——产品设置页自身提示电池优化会暂停同步；断电等），最终 APK 没有恢复路径且跨 App 重启与整机重启都不消失，等于该网关此后既不能去电也不能来电，除非清应用数据。按用户指示，"正常使用可能出现"的失败即中断测试并记录，因此本轮**不删除该通话、不改数据库、不对实验机做清理动作**；实验室在该状态下无法继续 R3/R4。
+
+### R4 / R5 状态
+
+- R4（三端同步回退再前滚）**未执行**：受上节阻塞。上一轮"回退后入站短信注入失败"的复现与定性需要在旧版本状态下重跑短信路径与通话 smoke，本轮无法安全进行；也没有为旧版本添加任何兼容代码。
+- R5 在最终 head 的正式截图**未采集**。`r5-sms-ui.py` 在实验机上做过一次 dry-run（浅/深色记录页含短信行、详情弹窗字段完整、`uimode` 恢复为 `no`），dry-run 写私有目录，**不算本轮 R5 证据**。
+
+### 本轮 helper 变更（`scripts/joint-validation-0.4-round2/`）
+
+| 文件 | 变更 | 原因 |
+| --- | --- | --- |
+| `core-calls.py` | `pass_()` 先落盘并容忍 EPIPE；`outgoing()` 增加有界拨号就绪闸门（`dial_disabled` 的能力探测与"网关未就绪"两类拒绝都重试，记录 `dial_disabled_reasons`、`dial_ready_seconds`，上限 20 s / 120 s） | 完成记录不被输出管道改写；故障切换后不等网关在目标节点上线就拨号会误报 |
+| `multi-node.py` | `BrokenPipeError` 完成边界；B 排除证据接受"尝试失败"或"offer 前排除（nodes=2，C answered_elsewhere）"；失败路径补挂断 | 同上，并避免再次产生遗留通话 |
+| `round2-sync.py` | 新增 `--r3-phase`，R3 phase 不再硬编码 `r3-all-candidate-final` | 新 run 必须使用新 phase |
+| `r3-window.py`（新增） | 单窗口编排：preflight 记录三端版本/APK SHA/服务端能力 → 抓包 → 短信 → R1 → R2（含 B 扰动后的 settle）→ 两端重启 → R5 → ≥15 min 空闲 → 收尾审计；失败也会收尾抓包 | 让一个窗口可完整覆盖 R3，且中断时留下有界证据 |
+| `r5-sms-ui.py`（新增） | 真实 `input tap/swipe` 的 R5 采集：记录页浅/深色 + 短信详情弹窗，缺短信行即 FAIL | R5 需要可重复、可验收的采集 |
+| `r4-sms-injection-diagnose.py`（新增，未执行） | 旧版本入站短信注入的分层判定：模拟器控制台应答 → 网关本地归档 → 三节点 messages → logcat → SMS provider | R4 需先判断"旧版产品问题"还是"模拟器/注入脚本问题" |
+| `SHA256SUMS` | 同步更新 | — |
+
+### 证据位置
+
+本轮证据根目录（远程，未打包、未提交仓库）：
+
+- `/home/ubuntu/gsm-webrtc-validation/joint-0.4/round2/r2-resume-20261022T1211Z/`
+- `/home/ubuntu/gsm-webrtc-validation/joint-0.4/round2/r2-gate-20261022T1229Z/`
+- `/home/ubuntu/gsm-webrtc-validation/joint-0.4/round2/r3-r4-resume-20261022T1217Z/`
+- `/home/ubuntu/gsm-webrtc-validation/joint-0.4/round2/r3-r4-resume2-20261022T1234Z/`
+- `/home/ubuntu/gsm-webrtc-validation/joint-0.4/round2/r2-verify-20261022T1247Z/`（helper 验证与遗留通话只读诊断，含 `orphan-recovery-*` 失败记录）
+
+### 本节结论
+
+| 计划组 | 状态 |
+| --- | --- |
+| R1 | 最终 head 在两个 R3 窗口内各通过三通（Telecom 各 1 通、双向 PCM 增长、账本 `completed`、槽释放）；窗口未完成，不作为 R3 通过 |
+| R2 | Broken pipe 修复后在最终 head **完整重跑 PASS ×2**；窗口内两次失败已定性为接线/断言问题，原证据保留 |
+| R3 | **INCOMPLETE**：两次窗口都在 R2 阶段中断；两次抓包审计通过（A/B/C 5060、5061、8088 全 0），但没有覆盖"短信 + R1 + R2 + 两端各重启 + R5 + ≥15 min 空闲"的完整窗口 |
+| R4 | **NOT RUN**（实验室被遗留通话阻塞） |
+| R5 | **NOT RUN**（最终 head 无正式证据） |

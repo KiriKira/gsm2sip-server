@@ -82,3 +82,12 @@ The helper set is lab-specific and contains topology addresses and paths, but
 no private keys, environment files, access tokens, or live SMS credentials.
 Runtime secrets remain in the lab's private directory and are excluded from
 GitHub and evidence packages.
+
+## 续测接手记录（2026-10-22 13:30Z）
+
+上一节之后由续测代理在最终 head 上继续，未重新构建或覆盖既有证据：
+
+- R2 `idle-failover-hold-failback` 的 `Broken pipe` 已定位为完成记录边界错误并修复（先落盘再输出、容忍 EPIPE、失败分支不再改写已完成结果），最终 head 上两次独立重跑 **PASS**（实际 Telecom 各 1 通）。回归与证据见报告新节。
+- R3 两次新窗口（`r3-all-candidate-resume-20261022T1220Z`、`r3-all-candidate-resume2-20261022T1240Z`）都在 R2 阶段中断：第一次是故障后拨号早于网关在 B 上线，第二次是"B 在 offer 前被排除"未被旧断言接受。两次抓包审计本身通过（A/B/C 5060、5061、8088 全 0），但窗口不完整，R3 记 **INCOMPLETE**。
+- 第二次中断时用例在断言处未挂断，留下已接通的 `8aab9419-fe70-4350-95e3-6abc295bb38b`。该通话控制过期后 A 与网关各留占用槽，**final APK 无恢复路径**（无 `recover_idle_call`；旧 recovery fixture 报 `recovery_precondition_or_operation_failed`；hangup/reject/clear、App 重启、整机重启均无效），此后去电在授权阶段被拒、来电不振铃。该终态在正常使用中可达（App 被杀 / 电池优化暂停同步），按用户指示中断测试并记录，未删除通话、未改数据库。
+- 因此 R4、R5 未在最终 head 上执行；实验室需先决定如何处理该遗留通话。helper 变更见 `ROUND2-HELPERS.md` 与报告新节。

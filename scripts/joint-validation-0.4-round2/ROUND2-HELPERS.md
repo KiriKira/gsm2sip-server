@@ -131,3 +131,12 @@ python3 scripts/package-evidence.py \
 保留原 JSON/XML/JSONL/PNG 结构与凭据检查、媒体白名单、ZIP CRC/内容哈希检查，
 输出必须显式使用与第一轮不同的路径。默认拒绝覆盖 ZIP/index。
 报告只能根据实际执行证据追加；这些 helper 的本地参数/模拟验证不构成 R1–R5 PASS。
+
+## 续测新增工具与两个就绪闸门（2026-10-22）
+
+- `r3-window.py --phase <phase> [--idle-seconds 900]`：一个窗口内按序执行 preflight（记录三端版本/APK SHA/服务端能力）→ 抓包 → 短信 → R1 → R2（B 扰动后 settle 20 s）→ Gateway/Host 各重启一次 → R5 → 空闲 → 收尾审计；任一步失败即停止，但仍会收尾抓包并把状态写入 `private/<phase>-status.json`。
+- `r5-sms-ui.py --out DIR`：真实 `input tap/swipe` 采集记录页浅/深色与短信详情弹窗；找不到短信行或详情弹窗即 FAIL。
+- `r4-sms-injection-diagnose.py`：旧版本入站短信注入的分层判定（模拟器控制台应答 → 网关本地归档 → 三节点 messages → logcat → SMS provider），只读且有明确 verdict；未在本轮执行。
+- `round2-sync.py --r3-phase <phase>`：R3 phase 不再硬编码，R4 校验对应窗口的审计。
+- `core-calls.py` 的拨号就绪闸门：`dial_disabled` 的两类拒绝（能力探测、网关尚未在目标节点上线）都会在有限时间内重试并记录 `dial_disabled_reasons`/`dial_ready_seconds`；不改变产品超时，也不放宽通话断言。
+- `multi-node.py`：完成记录以证据文件为准（`BrokenPipeError` 不改写 PASS）；B 不可达的证据接受"尝试后失败"或"offer 前排除（`nodes=2` 且 C `answered_elsewhere`）"；失败路径补发挂断，避免留下占用槽的遗留通话。

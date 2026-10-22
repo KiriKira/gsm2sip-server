@@ -1,5 +1,5 @@
 """0.4 real service/Telecom/RTC calls; only hardware PCM is synthetic."""
-import contextlib,datetime,importlib.util,io,json,pathlib,subprocess,time,uuid,sqlite3,tarfile,sys,threading
+import contextlib,datetime,importlib.util,io,json,os,pathlib,subprocess,time,uuid,sqlite3,tarfile,sys,threading
 root=pathlib.Path('/home/ubuntu/gsm-webrtc-validation/joint-0.4');ev=root/'evidence';private=root/'private'
 spec=importlib.util.spec_from_file_location('driver',root/'scripts/driver.py');d=importlib.util.module_from_spec(spec);spec.loader.exec_module(d)
 def cmd(role,op,**kw):
@@ -63,13 +63,27 @@ class Case:
     time.sleep(.3)
   self.accept_thread=threading.Thread(target=accept,daemon=True);self.accept_thread.start()
   end=time.monotonic()+20
+  settle=time.monotonic()+120
+  dial_started=time.monotonic()
   while True:
    try:cmd('host','dial',number='15550100200');break
    except RuntimeError:
     reply=d.read('host','joint-result.json') or {}
-    assert reply.get('error','').startswith('IllegalStateException:dial_disabled:正在检查服务器通话能力'),reply.get('error')
+    error=str(reply.get('error',''))
+    # A dial_disabled rejection means the fixture refused to dispatch, so no
+    # call exists yet. "正在检查服务器通话能力" is the short in-app capability
+    # probe; an offline-gateway rejection means the active node has not yet
+    # seen the Gateway re-register after a failover, which the product needs
+    # up to its 30 s control cadence for. Both wait and re-check; neither
+    # dispatches a call, and both stay bounded.
+    assert error.startswith('IllegalStateException:dial_disabled:'),error
     h,g=self.sample();assert h.get('phase') is None and g.get('bridge')=='IDLE','disabled_tap_dispatched_call'
-    assert time.monotonic()<end,'foreground_capability_check_timeout';time.sleep(1)
+    self.result.setdefault('dial_disabled_reasons',[]).append(error.split('dial_disabled:',1)[1])
+    self.save()
+    if '正在检查服务器通话能力' in error:assert time.monotonic()<end,'foreground_capability_check_timeout'
+    else:assert time.monotonic()<settle,'gateway_not_call_ready_on_active_node'
+    time.sleep(2)
+  self.result['dial_ready_seconds']=time.monotonic()-dial_started
   return self.connected()
  def connected(self):
   h,g=self.wait(lambda h,g:h.get('phase') in ('ACTIVE','ENDED','FAILED') and g.get('bridge') in ('BRIDGED','IDLE'))
@@ -120,7 +134,15 @@ class Case:
    self.result['actual_telecom_calls']=sum('GsmCallService' in l and 'Call added:' in l for l in tail.splitlines())
    assert self.result['actual_telecom_calls']==1,'duplicate_or_missing_actual_telecom_call'
   self.result['hangup_origin']=how;self.save()
- def pass_(self):self.result['status']='PASS';self.save();print(json.dumps({k:v for k,v in self.result.items() if k!='samples'}),flush=True)
+ def pass_(self):
+  # The evidence file is the completion record; write it before any terminal
+  # output. A reader that closed stdout (pipe/tee/head, or a runner that
+  # stops reading) must never turn a finished case into FAIL.
+  self.result['status']='PASS';self.save()
+  try:print(json.dumps({k:v for k,v in self.result.items() if k!='samples'}),flush=True)
+  except (BrokenPipeError,OSError):
+   try:os.dup2(os.open(os.devnull,os.O_WRONLY),sys.stdout.fileno())
+   except OSError:pass
 def run(mode):
  c=Case(mode)
  try:

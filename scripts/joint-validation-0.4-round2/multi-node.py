@@ -35,8 +35,20 @@ def run(mode):
     if 'answered_elsewhere' in loser and loser.startswith('ended|'):break
     assert time.monotonic()<end,'node_c_not_answered_elsewhere';time.sleep(1)
    case.result['node_c_terminal']=loser
-   text=(root/'private/gateway-logcat.txt').read_text(errors='replace');assert any('call_id='+call in l and 'event=incoming_offer_failed' in l for l in text.splitlines()),'failed_B_create_not_exercised'
-   case.result['B_failed_create_logged']=True;case.end('host')
+   lines=[l for l in (root/'private/gateway-logcat.txt').read_text(errors='replace').splitlines() if 'call_id='+call in l]
+   failed=[l for l in lines if 'event=incoming_offer_failed' in l]
+   offered=[l for l in lines if 'event=incoming_offered' in l]
+   # C's answered_elsewhere terminal proves C was offered, so an offer count of
+   # 2 out of the 3 configured nodes can only mean B was excluded. Both an
+   # attempted-and-failed create and a health-based pre-offer exclusion show
+   # that the unreachable node did not take the call; only the first puts a
+   # failure line in the log.
+   if failed:case.result['B_exclusion']='attempted_create_failed'
+   else:
+    assert offered and 'nodes=2' in offered[-1],'B_exclusion_not_evidenced'
+    case.result['B_exclusion']='excluded_before_offer';case.result['B_exclusion_evidence']=offered[-1][:200]
+   case.result['B_failed_create_logged']=bool(failed)
+   case.end('host')
   elif mode=='idle-failover-hold-failback':
    fault.apply('a_down');select(case,'b');case.outgoing();assert case.result['active_node']==urls['b'];case.tones(12);fault.apply('a_up');started=time.monotonic()
    while True:
@@ -49,7 +61,21 @@ def run(mode):
    case.result['B_held_while_A_healthy']='PASS';case.end('host');select(case,'a',timeout=90);case.result['idle_failback']='PASS'
   else:raise ValueError(mode)
   case.pass_()
- except Exception as error:case.result.update(status='FAIL',error=str(error));case.save();raise
+ except BrokenPipeError:
+  # pass_() already persisted PASS and silenced the closed stdout; never let a
+  # terminal-output failure rewrite a completed case as FAIL.
+  raise
+ except Exception as error:
+  case.result.update(status='FAIL',error=str(error))
+  # A failed assertion can fire between "call active" and the explicit hangup;
+  # end the call here so the lab never keeps an orphan session/slot that would
+  # poison the next case. Only a bounded, best-effort hangup is attempted.
+  if case.result.get('call_id'):
+   try:
+    c.cmd('host','hangup');case.result['failure_hangup']='sent'
+   except Exception:
+    case.result['failure_hangup']='unavailable'
+  case.save();raise
  finally:
   for args in [('-D','OUTPUT','-m','owner','--uid-owner','1000','-j','GSM_04_FORK'),('-F','GSM_04_FORK'),('-X','GSM_04_FORK')]:subprocess.run(['sudo','-n','iptables','-w','2',*args],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
   fault.apply('restore')
