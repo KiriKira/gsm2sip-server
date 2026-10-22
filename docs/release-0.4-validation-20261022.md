@@ -173,7 +173,7 @@ Host 最终修复将认证刷新锁从全局范围缩小到 pairing session，�
 
 停止时没有测试或抓包 worker 在运行；Gateway `emulator-5554`（API 36）与 Host `emulator-5556`（API 29）均保持 booted，未冷启动。R3、R4、R5 的最终 head 未完成项交由后续代理按 `plan-0.4-joint-test.md` 与 `scripts/joint-validation-0.4-round2/README.md` 续跑。任何模拟器结果仍只代表 Android Telecom、真实 RTC 媒体栈和虚拟 modem；不声称真机蜂窝 HAL 音频通过。
 
-## 续测（2026-10-22 12:00–13:30Z）：R2 修复、R3 未完成与实验室阻塞
+## 续测（2026-10-22 12:00–13:05Z）：R2 修复、R3 未完成与实验室阻塞
 
 本节由续测代理在同一最终 head 上追加。三端版本与上一节相同（Server 代码 `c6e6013`、Gateway `15e9ac7`、Host `f2680de`），直接复用实验机已有构建；未重新构建、未卸载、未清应用数据。上一节及更早轮次的 FAIL 原样保留，本节不把任何未完成项改判为 PASS。
 
