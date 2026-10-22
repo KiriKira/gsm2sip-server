@@ -143,3 +143,32 @@ run `20261021T190324Z-a2129c52` 的 fresh SMS 与 Server-baseline 去电通过�
 | R5：短信记录与详情浅深色 UI | **PASS** | `evidence/r5-sms-ui/` 中的 `records-light`、`records-dark`、`detail-light`、`detail-dark` PNG/XML 已采集；详情与脱敏文本匹配。 |
 
 第二轮证据根目录为远程 `/home/ubuntu/gsm-webrtc-validation/joint-0.4/round2/r2-20261022/evidence`。R4 根日志只保留摘要。上述 R1/R2/R4 失败与未执行步骤保持原状态；本轮没有据此扩大 SIP 兼容范围或恢复单组件混合版本回退矩阵。物理蜂窝 HAL 音频与真机省电策略仍不在模拟器通过范围内。
+
+## 最终 head 补验与交接（2026-10-22）
+
+用户要求停止测试并把可续跑材料同步到 GitHub。以下是前述第二轮报告之后，修复最新 Host 缺陷、从三个分支最新 head 重新构建并覆盖安装后取得的结果。先前轮次的 FAIL、R3/R4/R5 结果和证据均原样保留；本节不把旧 APK 的结果移植到最终 APK，也不表示 R1–R5 已全部完成。完整测试方法与本轮 helper 已加入 `scripts/joint-validation-0.4-round2/`。
+
+最终 Android 构建均使用同一本地 debug keystore、`GSM_RELEASE_VERSION_CODE=1000000000`，通过 `adb install -r` 覆盖安装，没有卸载或清除数据；两端安装证据中的 `fixture_retained` 为 true。证书和 APK SHA-256 见 Release 附件中的 `final-build-manifest.json`。
+
+| 组件 | 分支 head / 构建来源 |
+| --- | --- |
+| SoulGem Server | 分支 head `b8575f65438f7f4bdc5e44d12b39dac75c943692`；当前 0.4 镜像的代码来源 `c6e6013c44cb8d01df586bd53e98e1da55e8f157`（后续服务器提交只改验证文档） |
+| Homura Gateway | `15e9ac7e3ad8a7168ba51ccaeda6b00325a32b0d` |
+| Madoka Host | `f2680de748381fd09cc23d84c99d723b6ffb903a`，包含此前的已移除 SIM 选择修复 `264a0b2a18f10a6ee0b4197ab4bf117811ac6343` |
+
+Host 最终修复将认证刷新锁从全局范围缩小到 pairing session，并让节点探测并行执行、短信历史刷新独立 single-flight，避免一个慢节点的刷新/探测阻塞其他节点。节点健康阈值和超时没有放宽。该提交的聚焦回归为 16 项通过（包含新增隔离回归），主 APK 与 androidTest APK 构建通过。
+
+| 最终 head 用例 | 结果 | 记录 |
+| --- | --- | --- |
+| R1：95 秒去电 | **PASS** | 双向合成 PCM 持续 `95.730 s`；Host 挂断；实际 Telecom 1 通；Gateway 账本一条 `completed`，占用槽为 0；Host `ENDED`。 |
+| R1：95 秒来电与正常挂断 | **PASS** | 双向合成 PCM 持续 `96.361 s`；Gateway 挂断；振铃延迟 `4.423 s`；接听前 PCM 为 0；实际 Telecom 1 通；账本一条 `completed`、占用槽为 0；Host `ENDED`。 |
+| R1：来电方 10 秒后挂断 | **PASS** | 双向合成 PCM 持续 `10.732 s`；modem 发起挂断；实际 Telecom 1 通；账本完成且槽释放；Host `ENDED`。 |
+| R2：部分节点不可达时来电 | **PASS** | B 的 create 失败有日志，C 记录 `ended/answered_elsewhere`，经 A 接通；双向合成 PCM `12.736 s`；实际 Telecom 1 通；账本完成且槽释放。 |
+| R2：空闲 failover、通话保持及 failback | **FAIL（helper 原样保留）** | 结果文件记录通话在 B、A 恢复后仍保持 B、挂断后 idle failback 到 A 三项行为断言均 PASS；双向合成 PCM `12.801 s`、实际 Telecom 1 通、账本完成且槽释放。helper 最终状态仍为 FAIL，错误为 `[Errno 32] Broken pipe`。因此不将完整 R2 用例改判 PASS，续测代理应先复核输出管道/完成记录边界，再依据计划决定是否重跑。 |
+| R3：最终 head 零 SIP/ARI 抓包 | **INCOMPLETE** | phase `r3-all-candidate-final` 起于 `2026-10-22T05:35:33Z`，最终审计于 `05:45:27Z` 完成。审计本身 PASS：A/B/C 各自的 5060、5061、8088 计数均为 0，三份 pcap 均 flush、可读并记录 SHA-256；Asterisk 为 0，netem、HTTP/network 故障配置及 GSM04 iptables 规则均为空。该约 9 分 55 秒窗口覆盖了本节 R1/R2 活动，但没有覆盖一次新短信收发、Homura 与 Madoka 各重启一次、R5 截图或至少 15 分钟空闲，不满足完整 R3。 |
+| R4：同步回退再前滚 | **未在最终 head 上重跑** | 前一候选版本的 R4 结果仍按上节原样保留；不能代表 `15e9ac7`/`f2680de` 最终构建。 |
+| R5：短信记录行与详情截图 | **未在最终 head 上重跑** | 前一候选版本的截图结果仍按上节保留；最终 head 尚无新的 R5 证据。 |
+
+最终 head 证据来自远程运行目录 `/home/ubuntu/gsm-webrtc-validation/joint-0.4/round2/r2-retest-f2680de-20261022T0535Z/evidence`。打包器检查通过的 13 个文件及校验索引作为 Release 附件 `final-head-partial-evidence-20261022T0535Z.zip` 和 `final-head-partial-evidence-index-20261022T0535Z.json`；ZIP SHA-256 为 `66107f50ee40068f89e4945c74958b5e95b0c7a150fe359e531c189983ba9b74`。附件不包含 APK、私有目录、原始日志、数据库或 pcap。原始 pcap 留在服务器私有运行目录，仅经审计的计数与哈希进入证据包。
+
+停止时没有测试或抓包 worker 在运行；Gateway `emulator-5554`（API 36）与 Host `emulator-5556`（API 29）均保持 booted，未冷启动。R3、R4、R5 的最终 head 未完成项交由后续代理按 `plan-0.4-joint-test.md` 与 `scripts/joint-validation-0.4-round2/README.md` 续跑。任何模拟器结果仍只代表 Android Telecom、真实 RTC 媒体栈和虚拟 modem；不声称真机蜂窝 HAL 音频通过。
