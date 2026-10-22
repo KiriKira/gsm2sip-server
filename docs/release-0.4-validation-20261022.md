@@ -117,3 +117,29 @@ run `20261021T190324Z-a2129c52` 的 fresh SMS 与 Server-baseline 去电通过�
 | 清理与最终负向审计 | `device-revoke-cleanup.json`、`aio-supervision.json`、`final-negative-audit.json`、`docker-no-asterisk-audit.json`；`no-sip-midpoint-20261021.json` 仅为中途零计数证明，不能替代最终非零结果 |
 | 历史失败与恢复 | 早期用例 FAIL、混合回退探索 `case5-single-component-rollback-*.json`、`baseline-orphan-cleanup-verified.json`、`emulator-retained-sim-recovery.json` |
 | 聚焦回归 | `artifacts/regression-*.xml`、`artifacts/incoming-fork-regression.xml`、`artifacts/backend-regression.log` |
+
+## 第二轮补验（2026-10-22）
+
+本节追加第二轮已完成结果，第一轮原文、FAIL 与证据保持不变。第二轮整体仍为 **FAIL / PARTIAL**：新抓包时段与短信 UI 验证通过，但来电、多节点通话唯一性及同步回退后的功能验证没有全部通过。第一轮尚未完成的 Fold 等项目不因本节而改判为 PASS。
+
+第二轮候选使用以下重建提交；上一版仍固定为 Server `bf41e9e`、Gateway `dee22f9`、Host `e5cf86f`。
+
+| 组件 | 第二轮候选完整提交 SHA |
+| --- | --- |
+| SoulGem Server | `c6e6013c44cb8d01df586bd53e98e1da55e8f157` |
+| Homura Gateway | `e6b3bd724c51ca3954b3ffc3489bcb19e5d6bd03` |
+| Madoka Host | `453fc009267aa4b288facab356827aebc0c2cb1e` |
+
+| 补验项 | 结果 | 已完成事实与限制 |
+| --- | --- | --- |
+| R1：95 秒去电 | **PASS** | 双向媒体持续 95.776 秒。 |
+| R1：95 秒来电及严格重试 | **FAIL** | Host 已发起接听流程，WebRTC peer 与 ICE 接通，但 Gateway 蜂窝通话仍为 `RINGING`，约 7.36 秒后变为 `DISCONNECTED/INCOMING_MISSED`。严格重试未收到振铃，不能认定来电通过。 |
+| R1：10 秒来电方挂断 | **FAIL** | 未取得 `call_id`，未出现对应 Telecom/RIL call 事件。结合来电严格重试的结果，目前不能定性 R1 的原因。 |
+| R2：部分节点不可达时来电 | **FAIL** | `incoming-partial-node-unreachable` 返回 `call_state_timeout`。 |
+| R2：空闲 failover、通话保持与 failback | **FAIL（完整 helper）** | A 不可达后切至 B 并通话、A 恢复后保持 B、挂断后独立 idle 观察回到 A，这些步骤通过；但日志有三条实际 `onCallAdded` 回调，Telecom count 为 3，完整 helper 因此失败。证据不足以将其认定为纯统计误报，通话唯一性不能标为通过。 |
+| R3：全候选独立时段抓包与最终审计 | **PASS（该时段）** | capture phase `r3-all-candidate-final` 从 03:06:35Z 开始，覆盖 R1、R2、短信、R5，以及 Gateway/Host 的 force-stop 后冷启动；还覆盖 03:29:58–03:45:04Z 的 idle 观察。最终审计确认三桥 manifest、capture flush/read/hash、无 netem/故障 iptables 规则、无 Asterisk；A/B/C 的 5060、5061、8088 计数全部为 0。这只证明第二轮该独立时段，不覆盖第一轮全程非零结果。 |
+| R4：三端同步回退与恢复 | **FAIL（功能验证未完成）** | 按 Server → Gateway → Host 完成回退；各步骤的版本、配对、SIM、节点与历史留存快照通过，全旧版本时段的 capture final audit 也通过。首次 baseline fresh SMS 的 outbound 已提交，但 inbound injection 失败；按计划停止并恢复，未执行 baseline 通话或前滚后功能 smoke。 |
+| R4：停止后恢复状态 | **PASS（状态核验范围）** | 按 Server → Gateway → Host 恢复全部 0.4 版本；A/B/C active slots 均为 0，Gateway 为 `IDLE`，Host 保持 listening，身份保持。此状态核验不替代尚未执行的 baseline 通话或前滚 smoke。 |
+| R5：短信记录与详情浅深色 UI | **PASS** | `evidence/r5-sms-ui/` 中的 `records-light`、`records-dark`、`detail-light`、`detail-dark` PNG/XML 已采集；详情与脱敏文本匹配。 |
+
+第二轮证据根目录为远程 `/home/ubuntu/gsm-webrtc-validation/joint-0.4/round2/r2-20261022/evidence`。R4 根日志只保留摘要。上述 R1/R2/R4 失败与未执行步骤保持原状态；本轮没有据此扩大 SIP 兼容范围或恢复单组件混合版本回退矩阵。物理蜂窝 HAL 音频与真机省电策略仍不在模拟器通过范围内。
