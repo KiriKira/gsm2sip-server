@@ -16,6 +16,9 @@ type PairingClaimRequest struct {
 	PairingCode string `json:"pairing_code"`
 	DeviceName  string `json:"device_name"`
 	Platform    string `json:"platform,omitempty"`
+	// Role is required for a join code, which pairs either phone; a
+	// pairing code fixes the role itself and ignores this field.
+	Role string `json:"role,omitempty"`
 }
 
 type RefreshRequest struct {

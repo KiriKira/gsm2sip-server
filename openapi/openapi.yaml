@@ -495,6 +495,45 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RemoteCall'}
         '404': {description: Call is unavailable to this client.}
+  /devices/self/push-token:
+    put:
+      operationId: putPushToken
+      description: >-
+        Client only. Registers the device's FCM token after FCM accepts a
+        validate-only request for it, so only deliverable tokens are stored.
+        Each later wake-up is a high-priority data message holding only type,
+        kind (sms or call) and this device's ID on the node; the phone then
+        synchronises over HTTPS. Registering does not announce earlier events.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token]
+              properties:
+                token: {type: string, minLength: 1, maxLength: 4096}
+      responses:
+        '200':
+          description: Token stored; wake-ups will follow new events.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [push]
+                properties:
+                  push: {type: string, const: ready}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {description: 'PUSH_TOKEN_REJECTED: FCM cannot deliver to this token from this server.'}
+        '503': {description: 'PUSH_UNAVAILABLE: this node does not send push; retryable only for transient FCM failures.'}
+    delete:
+      operationId: deletePushToken
+      responses:
+        '204': {description: Token removed; no further wake-ups.}
+        '403': {$ref: '#/components/responses/Forbidden'}
 components:
   securitySchemes:
     bearerAuth:
@@ -629,6 +668,13 @@ components:
       properties:
         pairing_code: {type: string, minLength: 20, maxLength: 128}
         device_name: {type: string, minLength: 1, maxLength: 100}
+        role:
+          type: string
+          enum: [gateway, client]
+          description: >-
+            The pairing device's kind. Required for a join code, which pairs one
+            gateway and one client. A pairing code fixes its role; a different
+            role here is rejected without using the code.
         platform:
           type: string
           pattern: '^\s*(?:[a-z][a-z0-9_-]{0,31})?\s*$'
@@ -868,6 +914,7 @@ components:
         protocol_version: {type: integer, const: 1}
         rtc_call_control: {type: boolean, description: RTC call control is available.}
         rtc_audio: {type: boolean}
+        push: {type: boolean, description: This node currently sends FCM wake-ups; clients register a token only where true.}
         extensions:
           type: array
           items: {type: string}

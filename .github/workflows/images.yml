@@ -119,7 +119,7 @@ jobs:
           assert not any('sip' in key for key in c), c
           PY
           test "$(docker compose ps --services --status running | wc -l)" -eq 3
-          docker compose run --rm --no-deps --entrypoint /usr/local/bin/gsm2sip-admin api \
+          docker compose run --rm --no-deps --entrypoint /usr/local/bin/mahogsm-admin api \
             owner create --name ci-smoke >/dev/null
           docker compose down -v
 
@@ -164,12 +164,12 @@ jobs:
           assert not any('sip' in key for key in c), c
           PY
           docker logs aio 2>&1 | grep 'managed TURN listens on 0.0.0.0:3478' >/dev/null
-          docker exec aio gsm2sip-admin owner create --name ci-smoke >/dev/null
+          docker exec aio mahogsm-admin owner create --name ci-smoke >/dev/null
           wait_healthy
           docker restart aio
           wait_ready
           wait_healthy
-          docker exec aio gsm2sip-admin owner create --name ci-smoke-after-restart >/dev/null
+          docker exec aio mahogsm-admin owner create --name ci-smoke-after-restart >/dev/null
           # `docker restart` allows the default 10 seconds: PostgreSQL must
           # have shut down cleanly instead of needing crash recovery.
           if docker logs aio 2>&1 | grep 'not properly shut down' >/dev/null; then
@@ -220,7 +220,7 @@ jobs:
           curl --fail --silent --show-error http://127.0.0.1:18082/v1/capabilities | grep -E '"rtc_audio":[[:space:]]*true'
           # The relay answers STUN binding requests on its configured port.
           docker exec aio-auto turnutils_stunclient -p 13478 127.0.0.1 | grep -q 'UDP reflexive addr'
-          docker exec aio-auto gsm2sip-admin owner create --name ci-auto >/dev/null
+          docker exec aio-auto mahogsm-admin owner create --name ci-auto >/dev/null
           docker rm -f -v aio-auto
           docker image ls --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep ci-smoke
 

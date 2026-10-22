@@ -14,6 +14,7 @@ import (
 
 	"github.com/kirikira/gsm2sip-server/internal/db"
 	"github.com/kirikira/gsm2sip-server/internal/httpapi"
+	"github.com/kirikira/gsm2sip-server/internal/push"
 	"github.com/kirikira/gsm2sip-server/internal/securestore"
 )
 
@@ -72,6 +73,23 @@ func main() {
 		if err != nil {
 			logger.Error("secret cipher configuration invalid")
 			os.Exit(2)
+		}
+	}
+	if path := strings.TrimSpace(os.Getenv("FCM_SERVICE_ACCOUNT_FILE")); path != "" {
+		// A missing or wrong key disables push only; phones keep their
+		// normal wake channel, so the API still starts.
+		fcm, loadErr := push.LoadFCM(path)
+		if loadErr != nil {
+			logger.Error("push wake-ups disabled: FCM_SERVICE_ACCOUNT_FILE is unusable", "error", loadErr)
+		} else {
+			checkCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			if checkErr := fcm.Check(checkCtx); checkErr != nil {
+				logger.Warn("push wake-ups unavailable until the FCM key works; retrying every 10 minutes", "project", fcm.Project(), "error", checkErr)
+			} else {
+				logger.Info("push wake-ups enabled", "project", fcm.Project())
+			}
+			cancel()
+			options.Push = fcm
 		}
 	}
 	api := httpapi.NewWithOptions(database, logger, options)

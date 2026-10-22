@@ -47,7 +47,7 @@ docker run -d --name gsm2sip --restart unless-stopped \
 明文 `http://` 时短信和令牌不加密（通话音频始终是 DTLS-SRTP），只在你信任的网络里使用；对公网提供服务时
 在前面放 HTTPS 反向代理。
 
-- 管理命令：`docker exec gsm2sip gsm2sip-admin owner create --name Home`，配对码同下。
+- 管理命令：`docker exec gsm2sip mahogsm-admin owner create --name Home`，配对码同下。
 - 升级：`docker pull ghcr.io/kirikira/gsm2sip:main`，然后删除并用同样参数重建容器（数据在卷里）。
 - 从 0.4 之前升级：删掉旧的 `SIP_*`、`ARI_*`、`RTC_MEDIA_ENABLED`、`RTC_CONTROL_ENABLED` 参数和 SIP/RTP 端口映射
   （留着也只会在日志里提示被忽略），加上 TURN 端口。回退见 [release-0.4.md](release-0.4.md)。
@@ -80,16 +80,37 @@ curl http://127.0.0.1:8080/v1/capabilities     # 应包含 "mesh" 和 "rtc_call_
 API 默认只监听 `127.0.0.1:8080`，由 HTTPS 反向代理对外提供；要让手机在局域网或 Tailscale 内用
 `http://` 直连，设 `HTTP_BIND_ADDR=0.0.0.0`（或局域网/Tailscale IP）。
 
-### 账户与配对码
+### 让两部手机加入
 
-一体镜像把下面的 `$A` 换成 `docker exec gsm2sip gsm2sip-admin`。
+一体镜像把下面的 `$A` 换成 `docker exec -it gsm2sip mahogsm-admin`。
 
 ```sh
-A="docker compose run --rm --no-deps --entrypoint /usr/local/bin/gsm2sip-admin api"
-$A owner create --name Home
-$A pairing-code create --owner-id OWNER_UUID --role gateway --ttl 60m
-$A pairing-code create --owner-id OWNER_UUID --role client --ttl 60m
+A="docker compose run --rm --no-deps --entrypoint /usr/local/bin/mahogsm-admin api"
+$A join create --url https://手机访问这台服务器的地址
 ```
+
+命令打印一个 `mahogsm://join` 链接和终端二维码（深色终端背景下扫）：旧手机（Homura）和主手机（Madoka）各扫一次，
+各自以自己的身份加入；同一个码每种手机只能用一次，默认 15 分钟过期（`--ttl` 1m–1h）。服务器还没有账户时自动创建
+（`--name` 设名称），只有一个账户时直接使用，有多个时要 `--owner-id`。也可设环境变量 `PUBLIC_API_URL` 代替 `--url`。
+
+多节点：先在其他节点上各运行一次 `join create`，再在优先级最高的节点上把它们并进同一个二维码：
+`$A join create --url https://a.example.com --also https://b.example.com=B节点的join_code`。
+已配对的手机扫码后把其余节点加为节点。链接和二维码在码用掉或过期前属于机密。
+
+仍可用 `owner create` 与 `pairing-code create --role gateway|client` 为单部手机生成配对码。
+
+### 推送唤醒（FCM，可选）
+
+把 Firebase 服务账号 JSON 放到服务器上，只读挂入容器，并设 `FCM_SERVICE_ACCOUNT_FILE` 为容器内路径：
+
+- 一体镜像：文件权限 600 即可（容器启动时以 root 读取后交给 API），compose 里加
+  `volumes: ["/opt/mahogsm/fcm-service-account.json:/run/secrets/fcm.json:ro"]` 与
+  `environment: {FCM_SERVICE_ACCOUNT_FILE: /run/secrets/fcm.json}`；`docker run` 用相同的 `-v` 和 `-e`。
+- 分镜像：API 以 nonroot（uid 65532）运行，先 `chown 65532:65532` 并 `chmod 400` 这个文件，再在 api 服务里加同样的挂载，
+  `.env` 里设 `FCM_SERVICE_ACCOUNT_FILE=/run/secrets/fcm.json`。
+
+所有节点用同一个服务账号。启动日志出现 `push wake-ups enabled` 即生效，`/v1/capabilities` 的 `push` 为 `true`；
+文件缺失或密钥错误时只记录错误并关闭推送，主手机照常使用原来的唤醒通道，不会多耗电。
 
 ### 升级与维护
 

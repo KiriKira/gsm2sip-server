@@ -60,20 +60,15 @@ curl http://127.0.0.1:8080/healthz
 curl http://127.0.0.1:8080/readyz
 ```
 
-创建 owner，再分别生成给旧手机 gateway 和主机 client 的短时配对码：
+生成一个让两部手机加入的链接和二维码（没有账户时自动创建）：
 
 ```sh
-docker compose run --rm --no-deps --entrypoint /usr/local/bin/gsm2sip-admin api \
-  owner create --name "Home"
-
-docker compose run --rm --no-deps --entrypoint /usr/local/bin/gsm2sip-admin api \
-  pairing-code create --owner-id OWNER_UUID --role gateway --ttl 10m
-
-docker compose run --rm --no-deps --entrypoint /usr/local/bin/gsm2sip-admin api \
-  pairing-code create --owner-id OWNER_UUID --role client --ttl 10m
+docker compose run --rm --no-deps --entrypoint /usr/local/bin/mahogsm-admin api \
+  join create --url http://手机访问这台服务器的地址:8080
 ```
 
-CLI 只会在创建配对码时显示一次明文 code；服务端只保存其 SHA-256。把 gateway code 输入旧手机，把 client code 输入主机。两端配对后会通过 HTTPS 完成 SIM 本地确认和短信任务；配对码的作用时间由 `--ttl` 限制。不要把 `.env` 或配对码提交到版本库。
+旧手机和主机各扫一次，各自以自己的身份加入；码只显示一次，服务端只保存其 SHA-256，每种手机只能用一次，默认 15 分钟过期。
+两端配对后会通过 HTTPS 完成 SIM 本地确认和短信任务。不要把 `.env`、链接或码提交到版本库。
 
 `docker compose logs -f api worker` 查看本地服务日志。`docker compose down` 保留本地数据库卷；`docker compose down -v` 会删除它。
 
@@ -87,7 +82,7 @@ go test ./...
 go run ./cmd/api
 ```
 
-运行 `go run ./cmd/worker` 启动未领取短信任务的 TTL 清理器；运行 `go run ./cmd/admin owner create --name Home` 或 `go run ./cmd/admin pairing-code create --owner-id UUID --role client` 管理 owner 与一次性配对码。
+运行 `go run ./cmd/worker` 启动未领取短信任务的 TTL 清理器；运行 `go run ./cmd/admin join create --url http://127.0.0.1:8080` 生成两部手机共用的加入链接，或用 `owner create`、`pairing-code create --role gateway|client` 单独管理。
 
 PostgreSQL 集成测试会在 `TEST_DATABASE_URL` 指定的测试数据库中为每个测试创建随机 schema，并在结束时删除。它不会清空数据库或使用 `DATABASE_URL`：
 
