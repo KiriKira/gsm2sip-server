@@ -1,5 +1,7 @@
 # gsm2sip 多设备协议 v1（实现与验收目标）
 
+> **0.4.0 起**：服务器改名 SoulGem，SIP、Asterisk 与 ARI 已移除，通话只走 RTC 呼叫控制与 WebRTC。本文有关 SIP 的内容为历史记录；当前行为见 [rtc-call-control-v1.md](rtc-call-control-v1.md) 与 [release-0.4.md](release-0.4.md)。
+
 更新：2026-10-04。权威源在 `KiriKira/gsm2sip-server/docs/protocol-v1.md`；另两仓库用链接和固定协议提交号引用，不独立修改副本。`openapi/openapi.yaml` 与 `docs/server-wire-addendum.md` 给出可执行的 HTTP 契约；具体功能状态见仓库 README。平台标识可为未来系统扩展，但不代表对应客户端 UI、推送或通话能力已经实现。
 
 ## 1. 固定架构与边界

@@ -10,10 +10,10 @@
       "protocol_version": 1,
       "app_version": "1.0.0",
       "root": true,
-      "sip_registered": false,
       "battery_percent": 87,
       "charging": true,
-      "install_id": "e9000000-0000-4000-8000-000000000001"
+      "install_id": "e9000000-0000-4000-8000-000000000001",
+      "rtc_call_control_ready": true
     }
   ]
 }

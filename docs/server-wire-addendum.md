@@ -1,5 +1,7 @@
 # Server v1 wire addendum
 
+> **0.4.0 起**：服务器改名 SoulGem，SIP、Asterisk 与 ARI 已移除，通话只走 RTC 呼叫控制与 WebRTC。本文有关 SIP 的内容为历史记录；当前行为见 [rtc-call-control-v1.md](rtc-call-control-v1.md) 与 [release-0.4.md](release-0.4.md)。
+
 Updated 2026-10-04. This addendum fills request/response shapes omitted from
 `protocol-v1.md`; it does not change the protocol's authority or its safety
 rules. `openapi/openapi.yaml` is the machine-readable counterpart. All paths

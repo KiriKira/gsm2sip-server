@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
-  title: gsm2sip server API
-  version: 1.0.0
+  title: SoulGem server API
+  version: 0.4.0
   description: >-
     HTTP and WebSocket contract for gsm2sip protocol v1. See docs/protocol-v1.md
-    and docs/server-wire-addendum.md. /ws is a wake-only channel. Independent
-    RTC call control uses paired HTTPS sessions and WebRTC media; SIP/ARI is an
-    optional compatibility adapter. See docs/rtc-call-control-v1.md.
+    and docs/server-wire-addendum.md. /ws is a wake-only channel. Calls use
+    RTC call control over paired HTTPS sessions and WebRTC media; SIP was
+    removed in 0.4. See docs/rtc-call-control-v1.md.
 servers:
   - url: https://{apiHost}/v1
     variables:
@@ -28,23 +28,6 @@ paths:
         '200': {description: Capability recorded.}
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
-  /rtc/control/incoming-policy:
-    get:
-      operationId: getRTCIncomingPolicy
-      description: Gateway-only read-only preflight. The whole authorized incoming participant set must advertise RTC; otherwise the entire fork requires the optional SIP adapter. Create rechecks policy.
-      responses:
-        '200':
-          description: Whole-fork adapter selection, before any invitation.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [version, call_control]
-                properties:
-                  version: {const: 1}
-                  call_control: {enum: [rtc, sip]}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
   /rtc/control/incoming:
     post:
       operationId: createRTCIncomingCall
@@ -64,7 +47,7 @@ paths:
   /rtc/control/calls:
     post:
       operationId: createRTCOutgoingReservation
-      description: Client-only durable reservation. Exact operation replay returns its committed ACK; a different payload conflicts. This request does not dial the modem. No SIP URI or credentials are returned.
+      description: Client-only durable reservation. Exact operation replay returns its committed ACK; a different payload conflicts. This request does not dial the modem.
       requestBody:
         required: true
         content:
@@ -96,6 +79,24 @@ paths:
                     maxItems: 32
                     items: {$ref: '#/components/schemas/RTCControlSnapshot'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+  /rtc/control/incoming-policy:
+    get:
+      operationId: getRTCIncomingPolicy
+      deprecated: true
+      description: Gateway only. Answered for gateways older than 0.4 so they are never told to use SIP; it always selects RTC. Older gateways are still not supported against 0.4.
+      responses:
+        '200':
+          description: Incoming calls use RTC call control.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, call_control]
+                properties:
+                  version: {const: 1}
+                  call_control: {const: rtc}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /rtc/control/calls/{call_id}:
     parameters:
       - {name: call_id, in: path, required: true, schema: {type: string, format: uuid}}
@@ -117,7 +118,7 @@ paths:
         dispatch follows media negotiation and precedes its durable local modem
         dispatch ledger. Only genuine cellular ACTIVE plus started PCM authorizes
         active. Only genuine gateway cellular END releases a dispatched slot.
-        A failure never authorizes SIP fallback or a new cellular call_id.
+        A failure never authorizes a new cellular call_id.
       requestBody:
         required: true
         content:
@@ -219,39 +220,6 @@ paths:
       responses:
         '204': {description: Session revoked.}
         '401': {$ref: '#/components/responses/Unauthorized'}
-  /devices/self/sip-config:
-    get:
-      operationId: getSipConfig
-      responses:
-        '200':
-          description: Explicit SIP capability status.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/SipConfiguration'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-  /devices/self/sip-credentials/rotate:
-    post:
-      operationId: rotateSipCredentials
-      parameters:
-        - {$ref: '#/components/parameters/IdempotencyKey'}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {type: object, additionalProperties: false}
-      responses:
-        '200':
-          description: Provision or rotate this device's TLS/SRTP endpoint. Password is returned only here; an identical current key recovers the same response for five minutes. Old generation keys conflict. Rotation during a call is rejected.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/SipCredentialResult'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '503':
-          description: SIP has not been configured; no credentials are issued.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/ErrorResponse'}
   /clients:
     get:
       operationId: listClients
@@ -261,7 +229,7 @@ paths:
         Platform is open descriptive metadata; it does not grant OS capabilities.
       responses:
         '200':
-          description: Owner-scoped paired clients, with no credentials or SIP fields.
+          description: Owner-scoped paired clients, with no credentials.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ClientList'}
@@ -512,7 +480,6 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/CallPage'}
-        '503': {$ref: '#/components/responses/CallingNotReady'}
   /calls/{call_id}:
     get:
       operationId: getCall
@@ -523,74 +490,11 @@ paths:
           description: >-
             This authenticated client's view of the business call. For incoming
             calls client_id is the requesting client device. A pending participant
-            may receive only its own wake_nonce; SIP Call-ID is a separate identifier.
+            may see only its own participant state.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RemoteCall'}
         '404': {description: Call is unavailable to this client.}
-        '503': {$ref: '#/components/responses/CallingNotReady'}
-  /call-intents:
-    post:
-      operationId: createCallIntent
-      parameters:
-        - {$ref: '#/components/parameters/IdempotencyKey'}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [gateway_id, sim_id, mapping_revision, to]
-              properties:
-                gateway_id: {type: string, format: uuid}
-                sim_id: {type: string, format: uuid}
-                mapping_revision: {type: integer, minimum: 1}
-                to: {type: string, minLength: 1, maxLength: 64}
-                call_id:
-                  type: string
-                  format: uuid
-                  description: Mesh extension. A client-minted call_id kept when the same call is retried through another server node; the gateway dials one call_id at most once. A call_id already used on this server returns 409 CALL_ID_CONFLICT.
-      responses:
-        '202':
-          description: Short-lived intent, including an identical idempotency replay. Cellular dialing is dispatched after an authenticated SIP INVITE consumes it once.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/CallIntentResult'}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '503': {$ref: '#/components/responses/CallingNotReady'}
-  /call-intents/{intent_id}:
-    delete:
-      operationId: cancelCallIntent
-      parameters:
-        - {name: intent_id, in: path, required: true, schema: {type: string, format: uuid}}
-      responses:
-        '204': {description: Unconsumed intent cancelled. A consumed intent requires SIP hangup.}
-        '409': {$ref: '#/components/responses/Conflict'}
-  /clients/{client_id}/ready:
-    post:
-      operationId: clientReady
-      parameters:
-        - {name: client_id, in: path, required: true, schema: {type: string, format: uuid}}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [call_id, wake_nonce]
-              properties:
-                call_id: {type: string, format: uuid}
-                wake_nonce: {type: string, minLength: 16}
-      responses:
-        '200':
-          description: Authenticated registered host is ready within the 25-second incoming deadline.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RemoteCall'}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '503': {$ref: '#/components/responses/CallingNotReady'}
 components:
   securitySchemes:
     bearerAuth:
@@ -646,11 +550,6 @@ components:
           schema: {$ref: '#/components/schemas/ErrorResponse'}
     PayloadTooLarge:
       description: Batch exceeds event count or byte limits.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/ErrorResponse'}
-    CallingNotReady:
-      description: M3 SIP/ARI capability is not implemented or configured.
       content:
         application/json:
           schema: {$ref: '#/components/schemas/ErrorResponse'}
@@ -764,12 +663,11 @@ components:
       allOf:
         - {$ref: '#/components/schemas/SessionTokens'}
         - type: object
-          required: [owner_id, device_id, role, sip]
+          required: [owner_id, device_id, role]
           properties:
             owner_id: {$ref: '#/components/schemas/UUID'}
             device_id: {$ref: '#/components/schemas/UUID'}
             role: {type: string, enum: [gateway, client]}
-            sip: {$ref: '#/components/schemas/SipCapability'}
     SessionTokens:
       type: object
       required: [access_token, access_expires_at, refresh_token, refresh_expires_at]
@@ -784,40 +682,6 @@ components:
       required: [refresh_token]
       properties:
         refresh_token: {type: string}
-    SipCapability:
-      type: object
-      required: [available]
-      properties:
-        available: {type: boolean}
-        reason: {type: string, enum: [sip_not_configured]}
-    SipConfiguration:
-      allOf:
-        - {$ref: '#/components/schemas/SipCapability'}
-        - type: object
-          properties:
-            endpoint_id: {type: string, pattern: '^dev_[0-9a-f]{32}$'}
-            auth_username: {type: string}
-            auth_realm: {type: string, const: gsm2sip}
-            aor: {type: string}
-            registrar_uri: {type: string, pattern: '^sips?:', description: 'sips: for transport tls, sip: for transport udp.'}
-            outbound_proxy_uri: {type: string, pattern: '^sips?:'}
-            server_name: {type: string}
-            ca_pem: {type: string, description: Optional private CA from authenticated HTTPS. Otherwise Android trusted CAs are used. Absent for transport udp.}
-            transport:
-              type: string
-              enum: [tls, udp]
-              description: SIP transport. Absent from older servers, meaning tls. udp is plain SIP for a trusted LAN or VPN.
-            media_encryption:
-              type: string
-              enum: [sdes, none]
-              description: sdes (SRTP) with tls; none (plain RTP) with udp. Absent means sdes.
-    SipCredentialResult:
-      allOf:
-        - {$ref: '#/components/schemas/SipConfiguration'}
-        - type: object
-          required: [password]
-          properties:
-            password: {type: string, minLength: 32, readOnly: true}
     ClientEventReceipt:
       type: object
       additionalProperties: false
@@ -826,23 +690,15 @@ components:
         durable_cursor: {type: string}
         confirmed_at: {type: string, format: date-time}
         events_retained: {type: boolean, const: true}
-    CallIntentResult:
-      type: object
-      additionalProperties: false
-      required: [intent_id, call_id, sip_uri, expires_at]
-      properties:
-        intent_id: {type: string, format: uuid}
-        call_id: {type: string, format: uuid}
-        sip_uri: {type: string, pattern: '^sips?:', description: Sensitive authorization-bearing URI (sips:...;transport=tls, or sip:...;transport=udp on a UDP server). Never log or persist in call history.}
-        expires_at: {type: string, format: date-time}
     RemoteCall:
       description: >-
         A client-scoped call projection. For incoming calls client_id is the
         authenticated requesting device, and state/state_revision/reason describe
         only its participant. Each participant has an independent nonce and
         monotonic revision for the shared call_id. A losing participant ends with
-        reason answered_elsewhere after another authenticated client SIP channel
-        wins; readiness and local UI state do not select a winner.
+        reason answered_elsewhere after the gateway commits another client as the
+        winner; local UI state does not select a winner. Calls left unfinished by
+        a SIP release end with reason sip_removed.
       type: object
       required: [call_id, gateway_id, client_id, sim_id, mapping_revision, direction, state, state_revision, to, created_at]
       properties:
@@ -865,7 +721,6 @@ components:
         expires_at: {type: string, format: date-time}
         answered_at: {type: string, format: date-time}
         ended_at: {type: string, format: date-time}
-        wake_nonce: {type: string, description: Present only while this participant is pending_wakeup; never shared across clients.}
     CallPage:
       type: object
       required: [items, next_cursor, resync_required]
@@ -877,13 +732,13 @@ components:
         resync_required: {type: boolean}
     HeartbeatRequest:
       type: object
-      required: [sequence, protocol_version, app_version, root, sip_registered, sim_states]
+      required: [sequence, protocol_version, app_version, root, sim_states]
       properties:
         sequence: {type: integer, minimum: 1}
         protocol_version: {type: integer, const: 1}
         app_version: {type: string, maxLength: 64}
         root: {type: boolean}
-        sip_registered: {type: boolean}
+        sip_registered: {type: boolean, deprecated: true, description: Sent by gateways before 0.4; accepted and ignored.}
         battery_percent: {type: [integer, 'null'], minimum: 0, maximum: 100}
         charging: {type: [boolean, 'null']}
         install_id:
@@ -1011,8 +866,7 @@ components:
       required: [protocol_version, extensions]
       properties:
         protocol_version: {type: integer, const: 1}
-        rtc_call_control: {type: boolean, description: Independent Go/RTC control is enabled.}
-        sip_call_control: {type: boolean, description: Optional SIP/ARI call coordinator is configured and ready.}
+        rtc_call_control: {type: boolean, description: RTC call control is available.}
         rtc_audio: {type: boolean}
         extensions:
           type: array
@@ -1219,7 +1073,7 @@ components:
           type: array
           items:
             type: object
-            required: [gateway_id, device_name, online, last_seen_at, mapping_revision, sequence, protocol_version, app_version, root, sip_registered, battery_percent, charging]
+            required: [gateway_id, device_name, online, last_seen_at, mapping_revision, sequence, protocol_version, app_version, root, battery_percent, charging]
             properties:
               gateway_id: {$ref: '#/components/schemas/UUID'}
               device_name: {type: string}
@@ -1230,8 +1084,7 @@ components:
               protocol_version: {type: [integer, 'null']}
               app_version: {type: [string, 'null']}
               root: {type: [boolean, 'null']}
-              sip_registered: {type: [boolean, 'null']}
-              rtc_call_control_ready: {type: boolean, description: Fresh authenticated RTC control capability, independent of SIP registration.}
+              rtc_call_control_ready: {type: boolean, description: Fresh authenticated RTC call control capability.}
               battery_percent: {type: [integer, 'null']}
               charging: {type: [boolean, 'null']}
               install_id:

@@ -239,9 +239,6 @@ func (s *Server) unregisterWakeConnection(conn *websocket.Conn) {
 // ShutdownWebSockets closes hijacked connections, which net/http.Server.Shutdown
 // does not manage. Call it before shutting down the HTTP server.
 func (s *Server) ShutdownWebSockets() {
-	if s.rtc != nil {
-		s.rtc.cancel()
-	}
 	s.wsMu.Lock()
 	s.wsClosing = true
 	connections := make([]*websocket.Conn, 0, len(s.wsConnections))

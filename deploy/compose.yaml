@@ -1,4 +1,5 @@
-# Production stack from prebuilt images: nothing is compiled on the server.
+# SoulGem production stack from prebuilt images: nothing is compiled on the
+# server.
 #
 #   curl -fsSLO https://raw.githubusercontent.com/KiriKira/gsm2sip-server/main/deploy/compose.yaml
 #   curl -fsSL https://raw.githubusercontent.com/KiriKira/gsm2sip-server/main/deploy/env.example -o .env
@@ -6,8 +7,10 @@
 #   docker compose up -d
 #
 # The API listens on ${HTTP_BIND_ADDR:-127.0.0.1}:${HTTP_PORT}; put a reverse
-# proxy in front of it, or bind it to a LAN/Tailscale address
-# and let the phones use http:// directly. See docs/deploy-images.md.
+# proxy in front of it, or bind it to a LAN/Tailscale address and let the
+# phones use http:// directly. Calls need a TURN relay that both phones can
+# reach: run deploy/turn/compose.yaml with the same .env, or use the
+# all-in-one image, which manages one itself. See docs/deploy-images.md.
 name: gsm2sip
 
 services:
@@ -27,66 +30,24 @@ services:
       start_period: 5s
     restart: unless-stopped
 
-  asterisk:
-    image: ghcr.io/kirikira/gsm2sip-asterisk:${GSM2SIP_VERSION:-main}
-    environment:
-      ARI_USERNAME: ${ARI_USERNAME:-gsm2sip}
-      ARI_PASSWORD: ${ARI_PASSWORD:?set ARI_PASSWORD in .env}
-      ASTERISK_ARI_BIND_ADDR: 0.0.0.0
-      ASTERISK_EXTERNAL_MEDIA_ADDRESS: ${ASTERISK_EXTERNAL_MEDIA_ADDRESS:-127.0.0.1}
-      ASTERISK_EXTERNAL_SIGNALING_ADDRESS: ${ASTERISK_EXTERNAL_SIGNALING_ADDRESS:-127.0.0.1}
-      POSTGRES_DB: gsm2sip
-      POSTGRES_HOST: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: gsm2sip
-      RTP_START: ${RTP_START:-10000}
-      RTP_END: ${RTP_END:-10199}
-      SIP_TRANSPORT: ${SIP_TRANSPORT:-tls}
-      SIP_PORT: ${SIP_PORT:-5061}
-    ports:
-      - "${SIP_BIND_ADDR:-127.0.0.1}:${SIP_PORT:-5061}:${SIP_PORT:-5061}/tcp"
-      - "${SIP_BIND_ADDR:-127.0.0.1}:${SIP_PORT:-5061}:${SIP_PORT:-5061}/udp"
-      - "${SIP_BIND_ADDR:-127.0.0.1}:${RTP_START:-10000}-${RTP_END:-10199}:${RTP_START:-10000}-${RTP_END:-10199}/udp"
-    secrets:
-      - source: sip_tls_cert
-        target: sip_tls_cert
-      - source: sip_tls_key
-        target: sip_tls_key
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
-
   api:
     image: ghcr.io/kirikira/gsm2sip-server:${GSM2SIP_VERSION:-main}
     environment:
       DATABASE_URL: postgresql://gsm2sip:${POSTGRES_PASSWORD}@postgres:5432/gsm2sip?sslmode=disable
       HTTP_ADDR: :8080
-      ARI_URL: http://asterisk:8088/ari
-      ARI_USERNAME: ${ARI_USERNAME:-gsm2sip}
-      ARI_PASSWORD: ${ARI_PASSWORD}
-      ARI_APPLICATION: gsm2sip
-      SIP_SERVER_NAME: ${SIP_SERVER_NAME:?set SIP_SERVER_NAME in .env}
-      SIP_PORT: ${SIP_PORT:-5061}
-      SIP_TRANSPORT: ${SIP_TRANSPORT:-tls}
-      SIP_CA_PEM_FILE: ${SIP_CA_PEM_FILE:-}
-      SIP_ENABLE_OPUS: ${SIP_ENABLE_OPUS:-false}
-      RTC_CONTROL_ENABLED: ${RTC_CONTROL_ENABLED:-false}
-      RTC_MEDIA_ENABLED: ${RTC_MEDIA_ENABLED:-false}
+      # Ignored by 0.4. A release before 0.4 reads them, so rolling back
+      # only GSM2SIP_VERSION keeps calls on RTC without Asterisk.
+      RTC_MEDIA_ENABLED: ${RTC_MEDIA_ENABLED:-true}
+      RTC_CONTROL_ENABLED: ${RTC_CONTROL_ENABLED:-true}
+      SIP_COMPATIBILITY_ENABLED: ${SIP_COMPATIBILITY_ENABLED:-false}
       RTC_STUN_URLS: ${RTC_STUN_URLS:-}
       RTC_TURN_URLS: ${RTC_TURN_URLS:-}
       RTC_TURN_SHARED_SECRET: ${RTC_TURN_SHARED_SECRET:-}
       SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:?set a stable base64-encoded 32-byte key in .env}
     ports:
       - "${HTTP_BIND_ADDR:-127.0.0.1}:${HTTP_PORT:-8080}:8080"
-    secrets:
-      - source: sip_tls_cert
-        target: sip_tls_cert
     depends_on:
       postgres:
-        condition: service_healthy
-      asterisk:
         condition: service_healthy
     restart: unless-stopped
 
@@ -102,9 +63,3 @@ services:
 
 volumes:
   postgres-data:
-
-secrets:
-  sip_tls_cert:
-    file: ${ASTERISK_TLS_CERT_FILE:-./sip.crt}
-  sip_tls_key:
-    file: ${ASTERISK_TLS_KEY_FILE:-./sip.key}

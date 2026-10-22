@@ -200,7 +200,8 @@ jobs:
           test -f "$bundle/scripts/restore_quarantine.sql"
           test -f "$bundle/compose.yaml"
           test -f "$bundle/.env.example"
-          test -d "$bundle/deploy/asterisk"
+          test -f "$bundle/deploy/compose.yaml"
+          test ! -e "$bundle/deploy/asterisk"
           test ! -e "$bundle/.git"
           test ! -e "$bundle/docs/ui-verification"
           if find "$bundle" \( -name .git -o -name .local -o -type f \( -name '.env' -o \( -name '.env.*' ! -name '.env.example' \) -o -name '*.dump' -o -name '*.backup' -o -name '*.pgdump' -o -name '*.sql.gz' -o -name '*.p12' -o -name '*.pfx' -o -name '*.key' -o -name '*.pem' \) \) -print -quit | grep -q .; then

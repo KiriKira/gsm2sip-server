@@ -39,8 +39,8 @@ func TestPostgresFirstConnectionSMSBootstrapAndSessionRevocation(t *testing.T) {
 		t.Fatal("decode gateway pairing response")
 	}
 	if gateway.OwnerID != ownerID || gateway.DeviceID == "" || gateway.Role != "gateway" ||
-		gateway.AccessToken == "" || gateway.RefreshToken == "" || gateway.SIP.Available || gateway.SIP.Reason != "sip_not_configured" {
-		t.Fatalf("gateway pairing returned unexpected owner, role, token, or SIP capability: %+v", gateway)
+		gateway.AccessToken == "" || gateway.RefreshToken == "" {
+		t.Fatalf("gateway pairing returned unexpected owner, role, or token: %+v", gateway)
 	}
 	replayGatewayCode := requestJSON(t, handler, http.MethodPost, "/v1/pairings/claim", "",
 		PairingClaimRequest{PairingCode: gatewayCode, DeviceName: "replayed gateway"}, "")

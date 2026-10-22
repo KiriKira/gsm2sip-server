@@ -1,5 +1,7 @@
 # 三仓实施审查与首批边界
 
+> **0.4.0 起**：服务器改名 SoulGem，SIP、Asterisk 与 ARI 已移除，通话只走 RTC 呼叫控制与 WebRTC。本文有关 SIP 的内容为历史记录；当前行为见 [rtc-call-control-v1.md](rtc-call-control-v1.md) 与 [release-0.4.md](release-0.4.md)。
+
 审查基线：gateway `d5fb847`，server `f39b1b5`，client `23fb222`。
 用户目标为旧 root Android 留两张实体 SIM，未 root Android 主机经 VPS
 收发短信、接打蜂窝电话。本次按用户要求使用 GPT-6 Luna（max）分工调研、

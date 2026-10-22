@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -25,23 +26,30 @@ func rtcFixture(t *testing.T, direction string) (*integrationDatabase, integrati
 	t.Helper()
 	database := openIntegrationDatabase(t)
 	f := seedIntegrationFixture(t, database.db)
-	api := NewWithOptions(database.db, nil, Options{RTC: RTCMediaOptions{Enabled: true}})
+	api := NewWithOptions(database.db, nil, Options{})
 	t.Cleanup(api.ShutdownWebSockets)
 	callID := newUUID()
 	state := "reserved"
 	if direction == "incoming" {
 		state = "ringing"
 	}
-	_, err := database.db.Exec(`INSERT INTO call_sessions(call_id,owner_id,client_device_id,gateway_id,sim_id,mapping_revision,direction,to_address,state,expires_at,gateway_endpoint_id,client_endpoint_id) VALUES($1,$2,$3,$4,$5,1,$6,'+12025550100',$7,clock_timestamp()+interval '30 seconds','gw','host')`, callID, f.ownerID, f.clientID, f.gatewayID, f.simID, direction, state)
+	_, err := database.db.Exec(`INSERT INTO call_sessions(call_id,owner_id,client_device_id,gateway_id,sim_id,mapping_revision,direction,to_address,state,expires_at,gateway_endpoint_id,client_endpoint_id,control_transport) VALUES($1,$2,$3,$4,$5,1,$6,'+12025550100',$7,clock_timestamp()+interval '30 seconds','','','rtc')`, callID, f.ownerID, f.clientID, f.gatewayID, f.simID, direction, state)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.db.Exec(`INSERT INTO rtc_control_calls(call_id) VALUES($1)`, callID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = database.db.Exec(`INSERT INTO gateway_call_slots(gateway_id,call_id) VALUES($1,$2)`, f.gatewayID, callID); err != nil {
 		t.Fatal(err)
 	}
 	if direction == "incoming" {
-		_, err = database.db.Exec(`INSERT INTO call_participants(call_id,owner_id,client_device_id,endpoint_id,wake_nonce,state) VALUES($1,$2,$3,'host','fixture-wake','ringing')`, callID, f.ownerID, f.clientID)
+		_, err = database.db.Exec(`INSERT INTO call_participants(call_id,owner_id,client_device_id,endpoint_id,wake_nonce,state) VALUES($1,$2,$3,'',$4,'ringing')`, callID, f.ownerID, f.clientID, newUUID())
 		if err != nil {
+			t.Fatal(err)
+		}
+		// The client accepted: it holds the bounded candidate reservation.
+		if _, err = database.db.Exec(`UPDATE rtc_control_calls SET candidate_client_id=$2,candidate_until=clock_timestamp()+interval '20 seconds' WHERE call_id=$1`, callID, f.clientID); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -92,13 +100,12 @@ func rtcPost(t *testing.T, api *Server, token string, c rtcsignal.Command, statu
 
 func TestRTCMediaAdmissionIsExplicitBoundAndIdempotent(t *testing.T) {
 	database, f, api, callID := rtcFixture(t, "outgoing")
-	old := NewWithOptions(database.db, nil, Options{})
-	requireStatus(t, requestJSON(t, old.Handler(), "POST", "/v1/calls/"+callID+"/media", f.clientToken, map[string]string{"media_transport": "webrtc"}, ""), 503)
 	reply := requestJSON(t, api.Handler(), "GET", "/v1/calls/"+callID+"/media", f.gatewayToken, nil, "")
 	requireStatus(t, reply, 200)
-	if !strings.Contains(reply.Body.String(), `"media_transport":"sip"`) {
-		t.Fatal("legacy calls must retain SIP")
+	if !strings.Contains(reply.Body.String(), `"media_transport":"pending"`) {
+		t.Fatal("a call without a media leg must report pending")
 	}
+	// Without a gateway advertising WebRTC audio, no leg is created.
 	requireStatus(t, requestJSON(t, api.Handler(), "POST", "/v1/calls/"+callID+"/media", f.clientToken, map[string]string{"media_transport": "webrtc"}, ""), 409)
 	requireStatus(t, requestJSON(t, api.Handler(), "POST", "/v1/devices/self/rtc-capability", f.clientToken, map[string]any{"version": 1}, ""), 403)
 	rtcRegister(t, api, f.gatewayToken)
@@ -160,6 +167,11 @@ func TestRTCMediaRelaysCommittedSDPAndSeparatesCellularActive(t *testing.T) {
 	if _, err := database.db.Exec(`UPDATE call_sessions SET state='dialing' WHERE call_id=$1`, callID); err != nil {
 		t.Fatal(err)
 	}
+	// The gateway has not recorded its cellular dispatch yet.
+	requireStatus(t, requestJSON(t, api.Handler(), "POST", activePath, f.gatewayToken, map[string]string{"leg_id": b.LegID}, ""), 409)
+	if _, err := database.db.Exec(`UPDATE rtc_control_calls SET dispatched=true WHERE call_id=$1`, callID); err != nil {
+		t.Fatal(err)
+	}
 	requireStatus(t, requestJSON(t, api.Handler(), "POST", activePath, f.gatewayToken, map[string]string{"leg_id": b.LegID}, ""), 200)
 	if !rtcRead(t, api, f.clientToken, b.LegID, 200).CellularActive {
 		t.Fatal("gateway cellular report was not persisted")
@@ -212,8 +224,12 @@ func TestRTCMediaIncomingWinnerCannotLeakToAnotherCandidate(t *testing.T) {
 		}
 	}
 	a := rtcSelect(t, api, f.clientToken, callID).Binding
+	// B accepts after A released its reservation.
+	if _, err := database.db.Exec(`UPDATE rtc_control_calls SET candidate_client_id=$2 WHERE call_id=$1`, callID, clientB); err != nil {
+		t.Fatal(err)
+	}
 	b := rtcSelect(t, api, tokenB, callID).Binding
-	rtcRead(t, api, f.gatewayToken, a.LegID, 409)
+	rtcRead(t, api, f.gatewayToken, a.LegID, 403)
 	if _, err := database.db.Exec(`UPDATE call_sessions SET incoming_winner_client_device_id=$2,state='connecting' WHERE call_id=$1`, callID, clientB); err != nil {
 		t.Fatal(err)
 	}
@@ -251,4 +267,46 @@ func TestRTCMediaRenewalUsesOneClockInstant(t *testing.T) {
 		t.Fatal("active native leg did not retain its renewed grant")
 	}
 	rtcRead(t, api, f.gatewayToken, b.LegID, 200)
+}
+
+// SIP releases left their calls in the shared tables. They get no media, and
+// the server ends them so their cellular slot does not block new calls.
+func TestLegacySIPCallsGetNoMediaAndAreEnded(t *testing.T) {
+	database, f, api, rtcCall := rtcFixture(t, "outgoing")
+	rtcRegister(t, api, f.gatewayToken)
+	if _, err := database.db.Exec(`DELETE FROM gateway_call_slots WHERE call_id=$1`, rtcCall); err != nil {
+		t.Fatal(err)
+	}
+	legacy := newUUID()
+	if _, err := database.db.Exec(`INSERT INTO call_sessions(call_id,owner_id,client_device_id,gateway_id,sim_id,mapping_revision,direction,to_address,state,reason,gateway_endpoint_id,client_endpoint_id) VALUES($1,$2,$3,$4,$5,1,'incoming','+12025550100','unknown','ari_reconciliation_uncertain','gw','host')`, legacy, f.ownerID, f.clientID, f.gatewayID, f.simID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.db.Exec(`INSERT INTO call_participants(call_id,owner_id,client_device_id,endpoint_id,wake_nonce,state,reason,accepted_at) VALUES($1,$2,$3,'host','legacy-wake','accepted','legacy_participant_reason',clock_timestamp())`, legacy, f.ownerID, f.clientID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.db.Exec(`INSERT INTO gateway_call_slots(gateway_id,call_id) VALUES($1,$2)`, f.gatewayID, legacy); err != nil {
+		t.Fatal(err)
+	}
+	requireStatus(t, requestJSON(t, api.Handler(), "POST", "/v1/calls/"+legacy+"/media", f.clientToken, map[string]string{"media_transport": "webrtc"}, ""), 403)
+	requireStatus(t, requestJSON(t, api.Handler(), "GET", "/v1/calls/"+legacy+"/media", f.gatewayToken, nil, ""), 403)
+	count, err := api.EndLegacySIPCalls(context.Background())
+	if err != nil || count != 1 {
+		t.Fatalf("ended %d legacy calls: %v", count, err)
+	}
+	var state, reason, participant, participantReason string
+	var slots int
+	if err := database.db.QueryRow(`SELECT c.state,c.reason,p.state,p.reason,(SELECT count(*) FROM gateway_call_slots) FROM call_sessions c JOIN call_participants p ON p.call_id=c.call_id WHERE c.call_id=$1`, legacy).Scan(&state, &reason, &participant, &participantReason, &slots); err != nil {
+		t.Fatal(err)
+	}
+	if state != "ended" || reason != "sip_removed" || participant != "ended" || participantReason != "sip_removed" || slots != 0 {
+		t.Fatalf("legacy call left state=%s reason=%s participant=%s participant_reason=%s slots=%d", state, reason, participant, participantReason, slots)
+	}
+	if count, err = api.EndLegacySIPCalls(context.Background()); err != nil || count != 0 {
+		t.Fatal("a second pass changed ended calls")
+	}
+	reply := requestJSON(t, api.Handler(), "GET", "/v1/calls/"+legacy, f.clientToken, nil, "")
+	requireStatus(t, reply, 200)
+	if !strings.Contains(reply.Body.String(), `"state":"ended"`) {
+		t.Fatal("legacy call history is no longer readable")
+	}
 }

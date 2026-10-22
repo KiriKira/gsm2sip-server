@@ -1,5 +1,7 @@
 # 独立 Go/RTC 联合验收
 
+> **0.4.0 起**：服务器改名 SoulGem，SIP、Asterisk 与 ARI 已移除，通话只走 RTC 呼叫控制与 WebRTC。本文有关 SIP 的内容为历史记录；当前行为见 [rtc-call-control-v1.md](rtc-call-control-v1.md) 与 [release-0.4.md](release-0.4.md)。
+
 状态：PASS。Gateway `2ef24b8546314d28ce707756b250f23d3c4f5ad0`，
 Host `0ededb1868253d863c66a0dcf00b225e668a1f82`，Server `f2dc1d162a5af8a8a0052194bdc4ea57b89a61da`。
 

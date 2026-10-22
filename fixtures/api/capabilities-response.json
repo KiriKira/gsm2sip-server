@@ -4,5 +4,7 @@
     "sim_radio",
     "sim_country",
     "mesh"
-  ]
+  ],
+  "rtc_audio": true,
+  "rtc_call_control": true
 }

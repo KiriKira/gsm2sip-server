@@ -1,5 +1,7 @@
 # 三端架构与远程控制链路
 
+> **0.4.0 起**：服务器改名 SoulGem，SIP、Asterisk 与 ARI 已移除，通话只走 RTC 呼叫控制与 WebRTC。本文有关 SIP 的内容为历史记录；当前行为见 [rtc-call-control-v1.md](rtc-call-control-v1.md) 与 [release-0.4.md](release-0.4.md)。
+
 更新：2026-10-11。本文是三仓库的总览入口：目标、组件职责、关键数据流、
 协议演进方式，以及本轮架构/界面审查的结论与后续优先级。协议细节仍以
 [wire addendum](server-wire-addendum.md) 与 [OpenAPI](../openapi/openapi.yaml) 为准。

@@ -1,8 +1,7 @@
 package httpapi
 
-// Independent call control. SIP/ARI is a compatibility adapter and never
-// participates in these transactions. Cellular side effects remain exclusively
-// owned by the gateway's durable, installation-wide dispatch/winner ledger.
+// Call control. Cellular side effects remain exclusively owned by the
+// gateway's durable, installation-wide dispatch/winner ledger.
 import (
 	"bytes"
 	"context"
@@ -47,8 +46,8 @@ type rtcCallOperation struct {
 }
 
 func (s *Server) requireRTCControl(w http.ResponseWriter) bool {
-	if s.rtc == nil || !s.rtc.options.ControlEnabled {
-		writeError(w, 503, "RTC_CONTROL_DISABLED", "Independent call control is not enabled.", false)
+	if s.rtc == nil {
+		writeError(w, 503, "RTC_CONTROL_DISABLED", "Call control is not available.", false)
 		return false
 	}
 	return true
@@ -287,21 +286,18 @@ func (s *Server) rtcControlCreate(w http.ResponseWriter, r *http.Request, p Prin
 		state = "ringing"
 		direction = "incoming"
 		seconds = 25
-		// Freeze the whole incoming fork before dispatch. Unknown/legacy/off
-		// clients require the SIP adapter for this entire call, not a mixed race.
-		rows, e := tx.QueryContext(ctx, `SELECT d.id::text,COALESCE(c.enabled AND c.last_seen_at>clock_timestamp()-interval '90 seconds',false) FROM devices d LEFT JOIN rtc_control_capabilities c ON c.device_id=d.id WHERE d.owner_id=$1 AND d.role='client' AND d.state='active' AND EXISTS(SELECT 1 FROM sessions ss WHERE ss.device_id=d.id AND ss.refresh_expires_at>clock_timestamp()) ORDER BY d.id`, p.OwnerID)
+		// Freeze the whole incoming fork before dispatch: it rings every client
+		// that currently advertises call control. Others never see the call.
+		rows, e := tx.QueryContext(ctx, `SELECT d.id::text FROM devices d JOIN rtc_control_capabilities c ON c.device_id=d.id WHERE d.owner_id=$1 AND d.role='client' AND d.state='active' AND c.enabled AND c.last_seen_at>clock_timestamp()-interval '90 seconds' AND EXISTS(SELECT 1 FROM sessions ss WHERE ss.device_id=d.id AND ss.refresh_expires_at>clock_timestamp()) ORDER BY d.id`, p.OwnerID)
 		if e != nil {
 			fail(e)
 			return
 		}
-		compatible := true
 		for rows.Next() {
 			var id string
-			var ready bool
-			if err = rows.Scan(&id, &ready); err != nil {
+			if err = rows.Scan(&id); err != nil {
 				break
 			}
-			compatible = compatible && ready
 			clients = append(clients, id)
 		}
 		if err == nil {
@@ -310,10 +306,6 @@ func (s *Server) rtcControlCreate(w http.ResponseWriter, r *http.Request, p Prin
 		rows.Close()
 		if err != nil {
 			fail(err)
-			return
-		}
-		if !compatible {
-			writeError(w, 409, "RTC_COMPATIBILITY_REQUIRES_SIP", "The incoming participant set requires SIP compatibility.", false)
 			return
 		}
 		if len(clients) == 0 {
@@ -729,7 +721,7 @@ func (s *Server) rtcControlRead(w http.ResponseWriter, r *http.Request, p Princi
 // Lease expiry fails closed without guessing the modem result. Dispatched calls
 // retain their gateway slot as unknown until the gateway confirms cellular END.
 func (s *Server) sweepRTCControl(ctx context.Context) error {
-	if s.rtc == nil || !s.rtc.options.ControlEnabled {
+	if s.rtc == nil {
 		return nil
 	}
 	tx, err := beginDurable(ctx, s.db)
@@ -782,8 +774,10 @@ func (s *Server) sweepRTCControl(ctx context.Context) error {
 	return tx.Commit()
 }
 
-// Read-only compatibility preflight. The actual incoming create repeats the
-// check transactionally before freezing participants, so a race fails closed.
+// rtcIncomingPolicy answers gateways older than 0.4, which ask before every
+// incoming call, so they are never told to use SIP. It does not make running
+// an older gateway against this server supported: those gateways still try
+// to register SIP. Upgrade and roll back all three apps together.
 func (s *Server) rtcIncomingPolicy(w http.ResponseWriter, r *http.Request, p Principal) {
 	if !s.requireRTCControl(w) {
 		return
@@ -792,11 +786,29 @@ func (s *Server) rtcIncomingPolicy(w http.ResponseWriter, r *http.Request, p Pri
 		writeCallError(w, calls.ErrForbidden)
 		return
 	}
-	var compatible bool
-	err := s.db.QueryRowContext(r.Context(), `SELECT count(*)>0 AND bool_and(COALESCE(c.enabled AND c.last_seen_at>clock_timestamp()-interval '90 seconds',false)) FROM devices d LEFT JOIN rtc_control_capabilities c ON c.device_id=d.id WHERE d.owner_id=$1 AND d.role='client' AND d.state='active' AND EXISTS(SELECT 1 FROM sessions ss WHERE ss.device_id=d.id AND ss.refresh_expires_at>clock_timestamp())`, p.OwnerID).Scan(&compatible)
+	writeJSON(w, 200, map[string]any{"version": 1, "call_control": "rtc"})
+}
+
+// EndLegacySIPCalls ends calls a SIP release left unfinished. Nothing advances
+// them any more, and the cellular slot they hold would block every new call.
+func (s *Server) EndLegacySIPCalls(ctx context.Context) (int64, error) {
+	tx, err := beginDurable(ctx, s.db)
 	if err != nil {
-		writeDBUnavailable(w)
-		return
+		return 0, err
 	}
-	writeJSON(w, 200, map[string]any{"version": 1, "call_control": map[bool]string{true: "rtc", false: "sip"}[compatible]})
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `UPDATE call_participants p SET state='ended',reason='sip_removed',ended_at=COALESCE(p.ended_at,clock_timestamp()),state_revision=p.state_revision+1,updated_at=clock_timestamp()
+      FROM call_sessions c WHERE p.call_id=c.call_id AND c.control_transport='sip' AND c.state<>'ended' AND p.state<>'ended'`); err != nil {
+		return 0, err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE call_sessions SET state='ended',reason='sip_removed',state_revision=state_revision+1,ended_at=clock_timestamp(),updated_at=clock_timestamp()
+      WHERE control_transport='sip' AND state<>'ended'`)
+	if err != nil {
+		return 0, err
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM gateway_call_slots s USING call_sessions c WHERE s.call_id=c.call_id AND c.control_transport='sip'`); err != nil {
+		return 0, err
+	}
+	count, _ := result.RowsAffected()
+	return count, tx.Commit()
 }

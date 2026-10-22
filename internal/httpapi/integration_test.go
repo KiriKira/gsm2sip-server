@@ -510,8 +510,11 @@ func TestPostgresPairingRefreshAndTwoPhaseSIMBinding(t *testing.T) {
 	if err := json.Unmarshal(pairedResponse.Body.Bytes(), &paired); err != nil {
 		t.Fatal(err)
 	}
-	if paired.Role != "gateway" || paired.DeviceID == "" || paired.SIP.Available || paired.SIP.Reason != "sip_not_configured" {
-		t.Fatalf("pairing response claimed unavailable SIP capability: %+v", paired)
+	if paired.Role != "gateway" || paired.DeviceID == "" {
+		t.Fatalf("unexpected gateway pairing response: %+v", paired)
+	}
+	if strings.Contains(pairedResponse.Body.String(), `"sip"`) {
+		t.Fatal("pairing response still advertises SIP")
 	}
 	var gatewayExists bool
 	if err := database.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM gateways WHERE device_id=$1)`, paired.DeviceID).Scan(&gatewayExists); err != nil || !gatewayExists {

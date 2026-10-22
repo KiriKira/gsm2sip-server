@@ -1,4 +1,4 @@
-# Optional independent TURN service on Linux; never enabled by default.
+# TURN relay for deploy/compose.yaml on Linux. The all-in-one image runs its own.
 # docker compose --env-file ../.env -f compose.yaml up -d
 services:
   turn:

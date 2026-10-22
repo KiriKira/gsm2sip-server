@@ -1,9 +1,8 @@
 name: Container images
 
-# Prebuilt images so a server only pulls and runs (deploy/compose.yaml):
+# Prebuilt SoulGem images so a server only pulls and runs (deploy/compose.yaml):
 #   ghcr.io/kirikira/gsm2sip-server    API, worker and admin CLI
-#   ghcr.io/kirikira/gsm2sip-asterisk  pinned Asterisk with the gsm2sip config
-#   ghcr.io/kirikira/gsm2sip           all-in-one: both of the above plus PostgreSQL
+#   ghcr.io/kirikira/gsm2sip           all-in-one: the above plus PostgreSQL and TURN
 # Each architecture builds natively, then deploy/compose.yaml is started from
 # the freshly built images and checked before anything is pushed.
 
@@ -42,7 +41,6 @@ concurrency:
 
 env:
   SERVER_IMAGE: ghcr.io/kirikira/gsm2sip-server
-  ASTERISK_IMAGE: ghcr.io/kirikira/gsm2sip-asterisk
   ALLINONE_IMAGE: ghcr.io/kirikira/gsm2sip
 
 jobs:
@@ -87,19 +85,7 @@ jobs:
           cache-from: type=gha,scope=server-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=server-${{ matrix.arch }}
 
-      - name: Build Asterisk image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: deploy/asterisk/Dockerfile
-          platforms: linux/${{ matrix.arch }}
-          labels: ${{ steps.meta.outputs.labels }}
-          load: true
-          tags: ${{ env.ASTERISK_IMAGE }}:ci-smoke
-          cache-from: type=gha,scope=asterisk-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=asterisk-${{ matrix.arch }}
-
-      - name: Smoke-test deploy/compose.yaml with the built images
+      - name: Smoke-test deploy/compose.yaml with the built image
         if: ${{ !inputs.build_only }}
         shell: bash
         run: |
@@ -108,16 +94,10 @@ jobs:
           mkdir -p "$smoke"
           cp deploy/compose.yaml "$smoke/compose.yaml"
           cd "$smoke"
-          openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
-            -keyout sip.key -out sip.crt -subj /CN=sip.localhost \
-            -addext subjectAltName=DNS:sip.localhost 2>/dev/null
           {
             echo "GSM2SIP_VERSION=ci-smoke"
             echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
-            echo "ARI_PASSWORD=$(openssl rand -hex 16)"
             echo "SECRETS_ENCRYPTION_KEY=$(openssl rand -base64 32)"
-            echo "SIP_SERVER_NAME=sip.localhost"
-            echo "SIP_CA_PEM_FILE=/run/secrets/sip_tls_cert"
           } > .env
           chmod 600 .env
           dump() { docker compose ps -a || true; docker compose logs --no-color --tail 200 || true; }
@@ -131,57 +111,27 @@ jobs:
           echo
           curl --fail --silent --show-error http://127.0.0.1:8080/v1/capabilities | tee capabilities.json
           echo
-          grep -q '"mesh"' capabilities.json
-          test "$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps -q asterisk)")" = healthy
-          test "$(docker inspect --format '{{.State.Status}}' "$(docker compose ps -q worker)")" = running
+          python3 - <<'PY'
+          import json
+          c = json.load(open('capabilities.json'))
+          assert 'mesh' in c['extensions']
+          assert c['rtc_call_control'] is True and c['rtc_audio'] is True
+          assert not any('sip' in key for key in c), c
+          PY
+          test "$(docker compose ps --services --status running | wc -l)" -eq 3
           docker compose run --rm --no-deps --entrypoint /usr/local/bin/gsm2sip-admin api \
             owner create --name ci-smoke >/dev/null
           docker compose down -v
 
-      - name: Smoke-test independent RTC compose without Asterisk
-        if: ${{ !inputs.build_only }}
-        run: bash scripts/rtc-independent-probe.sh
-
-      - name: Build the all-in-one image from the tested images
+      - name: Build the all-in-one image from the tested server image
         run: |
           set -euo pipefail
-          # The default (docker driver) builder sees the images loaded above.
+          # The default (docker driver) builder sees the image loaded above.
           docker buildx build --builder default --load \
             --build-arg "SERVER_IMAGE=$SERVER_IMAGE:ci-smoke" \
-            --build-arg "ASTERISK_IMAGE=$ASTERISK_IMAGE:ci-smoke" \
             --label org.opencontainers.image.source=https://github.com/KiriKira/gsm2sip-server \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             --file deploy/allinone/Dockerfile --tag "$ALLINONE_IMAGE:ci-smoke" .
-
-      - name: Smoke-test all-in-one pure RTC without SIP configuration
-        if: ${{ !inputs.build_only }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          trap 'docker rm -f -v aio-rtc >/dev/null 2>&1 || true' EXIT
-          docker run -d --name aio-rtc -e SIP_COMPATIBILITY_ENABLED=false \
-            -e RTC_CONTROL_ENABLED=true -e RTC_MEDIA_ENABLED=true \
-            -p 127.0.0.1:18083:8080 "$ALLINONE_IMAGE:ci-smoke"
-          for _ in $(seq 1 90); do
-            curl --fail --silent --max-time 2 http://127.0.0.1:18083/readyz >/dev/null && break
-            sleep 1
-          done
-          curl --fail --silent --show-error http://127.0.0.1:18083/v1/capabilities > /tmp/rtc-capabilities.json
-          python3 - <<'PY'
-          import json
-          c=json.load(open('/tmp/rtc-capabilities.json'))
-          assert c['rtc_call_control'] is True and c['sip_call_control'] is False
-          PY
-          processes=$(docker top aio-rtc -eo pid,comm)
-          if printf '%s\n' "$processes" | grep -q asterisk; then exit 1; fi
-          docker exec aio-rtc test ! -e /data/tls/sip.crt
-          docker exec aio-rtc /usr/local/bin/gsm2sip-allinone-healthcheck
-          docker restart aio-rtc
-          for _ in $(seq 1 90); do
-            curl --fail --silent --max-time 2 http://127.0.0.1:18083/readyz >/dev/null && break
-            sleep 1
-          done
-          docker exec aio-rtc /usr/local/bin/gsm2sip-allinone-healthcheck
 
       - name: Smoke-test the all-in-one image, including a restart
         if: ${{ !inputs.build_only }}
@@ -189,7 +139,7 @@ jobs:
         run: |
           set -euo pipefail
           trap 'docker logs --tail 200 aio || true' ERR
-          docker run -d --name aio -e SIP_SERVER_NAME=sip.localhost \
+          docker run -d --name aio -e TURN_PUBLIC_IP=192.0.2.10 \
             -p 127.0.0.1:18080:8080 -v aio-data:/data "$ALLINONE_IMAGE:ci-smoke"
           wait_ready() {
             for _ in $(seq 1 90); do
@@ -206,7 +156,14 @@ jobs:
             return 1
           }
           wait_ready
-          curl --fail --silent --show-error http://127.0.0.1:18080/v1/capabilities | grep '"mesh"' >/dev/null
+          curl --fail --silent --show-error http://127.0.0.1:18080/v1/capabilities > /tmp/aio-capabilities.json
+          python3 - <<'PY'
+          import json
+          c = json.load(open('/tmp/aio-capabilities.json'))
+          assert 'mesh' in c['extensions'] and c['rtc_call_control'] is True
+          assert not any('sip' in key for key in c), c
+          PY
+          docker logs aio 2>&1 | grep 'managed TURN listens on 0.0.0.0:3478' >/dev/null
           docker exec aio gsm2sip-admin owner create --name ci-smoke >/dev/null
           wait_healthy
           docker restart aio
@@ -220,46 +177,23 @@ jobs:
             exit 1
           fi
           docker logs aio 2>&1 | grep -c 'generated secrets_encryption_key' | grep -qx 1
-          docker rm -f aio
-          docker volume rm aio-data
-
-      - name: Smoke-test the all-in-one image with plain SIP over UDP
-        if: ${{ !inputs.build_only }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          trap 'docker logs --tail 200 aio-udp || true' ERR
-          docker run -d --name aio-udp -e SIP_TRANSPORT=udp -e SIP_SERVER_NAME=192.0.2.10 \
-            -e PUBLIC_IP=192.0.2.10 -p 127.0.0.1:18081:8080 "$ALLINONE_IMAGE:ci-smoke"
-          for _ in $(seq 1 90); do
-            curl --fail --silent --max-time 2 http://127.0.0.1:18081/readyz >/dev/null && break
-            sleep 2
-          done
-          curl --fail --silent --show-error http://127.0.0.1:18081/readyz
-          for _ in $(seq 1 40); do
-            [ "$(docker inspect --format '{{.State.Health.Status}}' aio-udp)" = healthy ] && break
-            sleep 5
-          done
-          test "$(docker inspect --format '{{.State.Health.Status}}' aio-udp)" = healthy
-          # Asterisk listens on UDP 5060 (0x13C4) and no certificate was generated.
-          docker exec aio-udp sh -c 'grep -qi ":13C4 " /proc/net/udp /proc/net/udp6'
-          docker exec aio-udp test ! -e /data/tls/sip.crt
-          docker logs aio-udp 2>&1 | grep 'SIP over UDP without TLS' >/dev/null
-          # If Asterisk dies, the whole container must exit so Docker's
-          # restart policy brings it back, rather than idling with PostgreSQL.
+          # If the relay dies, the whole container must exit so Docker's
+          # restart policy brings it back, rather than idling without calls.
           # Read the whole listing first: an awk that exits early would
           # SIGPIPE `docker top`, which pipefail turns into a failure.
-          processes=$(docker top aio-udp -eo pid,comm)
-          asterisk_pid=$(printf '%s\n' "$processes" | awk '$2 == "asterisk" {pid = $1} END {print pid}')
-          test -n "$asterisk_pid"
-          sudo kill -KILL "$asterisk_pid"
+          processes=$(docker top aio -eo pid,comm)
+          if printf '%s\n' "$processes" | grep -q asterisk; then exit 1; fi
+          turn_pid=$(printf '%s\n' "$processes" | awk '$2 == "turnserver" {pid = $1} END {print pid}')
+          test -n "$turn_pid"
+          sudo kill -KILL "$turn_pid"
           for _ in $(seq 1 60); do
-            [ "$(docker inspect --format '{{.State.Running}}' aio-udp)" = false ] && break
+            [ "$(docker inspect --format '{{.State.Running}}' aio)" = false ] && break
             sleep 1
           done
-          test "$(docker inspect --format '{{.State.Running}}' aio-udp)" = false
-          docker logs aio-udp 2>&1 | grep 'a service exited' >/dev/null
-          docker rm -f -v aio-udp
+          test "$(docker inspect --format '{{.State.Running}}' aio)" = false
+          docker logs aio 2>&1 | grep 'a service exited' >/dev/null
+          docker rm -f aio
+          docker volume rm aio-data
 
       - name: Smoke-test the all-in-one image with no address configured (host network)
         if: ${{ !inputs.build_only }}
@@ -267,11 +201,11 @@ jobs:
         run: |
           set -euo pipefail
           trap 'docker logs --tail 200 aio-auto || true' ERR
-          # On the host network the internal PostgreSQL and ARI ports share the
-          # runner's port space; the defaults (55432, 58088) sit inside Linux's
-          # ephemeral range, where an outgoing connection can already hold them.
-          docker run -d --name aio-auto --network host -e SIP_TRANSPORT=udp -e HTTP_PORT=18082 \
-            -e PG_PORT=25432 -e ARI_PORT=28088 -e RTC_MEDIA_ENABLED=true \
+          # On the host network the internal PostgreSQL port shares the
+          # runner's port space; the default (55432) sits inside Linux's
+          # ephemeral range, where an outgoing connection can already hold it.
+          docker run -d --name aio-auto --network host -e HTTP_PORT=18082 -e PG_PORT=25432 \
+            -e TURN_LISTEN_PORT=13478 -e TURN_RELAY_MIN_PORT=49360 -e TURN_RELAY_MAX_PORT=49399 \
             "$ALLINONE_IMAGE:ci-smoke"
           for _ in $(seq 1 90); do
             curl --fail --silent --max-time 2 http://127.0.0.1:18082/readyz >/dev/null && break
@@ -284,49 +218,9 @@ jobs:
           done
           test "$(docker inspect --format '{{.State.Health.Status}}' aio-auto)" = healthy
           curl --fail --silent --show-error http://127.0.0.1:18082/v1/capabilities | grep -E '"rtc_audio":[[:space:]]*true'
-          # No fixed external address: Asterisk picks the interface per phone.
-          docker exec aio-auto sh -c 'f=$(ls /tmp/gsm2sip-asterisk.*/pjsip.conf) && grep -q transport-udp "$f" && ! grep -q external_ "$f"'
+          # The relay answers STUN binding requests on its configured port.
+          docker exec aio-auto turnutils_stunclient -p 13478 127.0.0.1 | grep -q 'UDP reflexive addr'
           docker exec aio-auto gsm2sip-admin owner create --name ci-auto >/dev/null
-          # Operators can record SIP history from `docker exec` without -C.
-          history=$(docker exec aio-auto asterisk -rx "pjsip set history on" 2>&1)
-          echo "$history"
-          case "$history" in *"No such command"*|*"Unable to open"*) exit 1 ;; esac
-          docker exec aio-auto asterisk -rx "pjsip set history off" >/dev/null
-          # Per-leg recording for audio diagnosis is available.
-          # Capture first: `grep -q` exits at the first match and would
-          # SIGPIPE the writer, which pipefail turns into a failure.
-          mixmonitor=$(docker exec aio-auto asterisk -rx "core show application MixMonitor")
-          grep -q "Record a call" <<<"$mixmonitor"
-          formats=$(docker exec aio-auto asterisk -rx "core show file formats")
-          grep -q wav16 <<<"$formats"
-          # Incoming calls take their caller ID from the From header.
-          callerid=$(docker exec aio-auto asterisk -rx "module show like res_pjsip_caller_id")
-          grep -q "res_pjsip_caller_id.so.*Running" <<<"$callerid"
-          # An INVITE from a caller number (no endpoint matches its From user)
-          # is challenged with the realm the provisioned credentials use.
-          python3 - <<'PY'
-          import socket, uuid
-          s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-          s.bind(("127.0.0.1", 0))
-          s.settimeout(5)
-          port, cid = s.getsockname()[1], uuid.uuid4().hex
-          s.sendto((
-              "INVITE sip:s@127.0.0.1 SIP/2.0\r\n"
-              f"Via: SIP/2.0/UDP 127.0.0.1:{port};branch=z9hG4bK{cid}\r\n"
-              "Max-Forwards: 70\r\n"
-              f"From: <sip:13800138000@127.0.0.1>;tag={cid[:8]}\r\n"
-              "To: <sip:s@127.0.0.1>\r\n"
-              f"Call-ID: {cid}\r\nCSeq: 1 INVITE\r\n"
-              f"Contact: <sip:13800138000@127.0.0.1:{port}>\r\nContent-Length: 0\r\n\r\n"
-          ).encode(), ("127.0.0.1", 5060))
-          while True:
-              reply = s.recv(65535).decode(errors="replace")
-              if not reply.startswith("SIP/2.0 1"):
-                  break
-          print(reply.splitlines()[0])
-          assert reply.startswith("SIP/2.0 401"), reply
-          assert 'realm="gsm2sip"' in reply, reply
-          PY
           docker rm -f -v aio-auto
           docker image ls --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep ci-smoke
 
@@ -342,7 +236,7 @@ jobs:
         if: env.PUSH == 'true'
         run: |
           set -euo pipefail
-          for image in "$SERVER_IMAGE" "$ASTERISK_IMAGE" "$ALLINONE_IMAGE"; do
+          for image in "$SERVER_IMAGE" "$ALLINONE_IMAGE"; do
             docker tag "$image:ci-smoke" "$image:$ARCH_TAG"
             docker push "$image:$ARCH_TAG"
           done
@@ -382,7 +276,7 @@ jobs:
           ARCH_PREFIX: build-${{ github.sha }}
         run: |
           set -euo pipefail
-          for image in "$SERVER_IMAGE" "$ASTERISK_IMAGE" "$ALLINONE_IMAGE"; do
+          for image in "$SERVER_IMAGE" "$ALLINONE_IMAGE"; do
             args=()
             while read -r tag; do
               [ -n "$tag" ] && args+=(--tag "$image:${tag#placeholder:}")

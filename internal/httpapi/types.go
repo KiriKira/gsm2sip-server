@@ -34,23 +34,18 @@ type PairingClaimResponse struct {
 	DeviceID string `json:"device_id"`
 	Role     string `json:"role"`
 	SessionTokens
-	SIP SIPCapability `json:"sip"`
-}
-
-type SIPCapability struct {
-	Available bool   `json:"available"`
-	Reason    string `json:"reason,omitempty"`
 }
 
 type HeartbeatRequest struct {
-	Sequence        int64      `json:"sequence"`
-	ProtocolVersion int        `json:"protocol_version"`
-	AppVersion      string     `json:"app_version"`
-	Root            bool       `json:"root"`
-	SIPRegistered   bool       `json:"sip_registered"`
-	BatteryPercent  *int       `json:"battery_percent"`
-	Charging        *bool      `json:"charging"`
-	SIMStates       []SIMState `json:"sim_states"`
+	Sequence        int64  `json:"sequence"`
+	ProtocolVersion int    `json:"protocol_version"`
+	AppVersion      string `json:"app_version"`
+	Root            bool   `json:"root"`
+	// Accepted and ignored: gateways before 0.4 still send their SIP state.
+	SIPRegistered  bool       `json:"sip_registered"`
+	BatteryPercent *int       `json:"battery_percent"`
+	Charging       *bool      `json:"charging"`
+	SIMStates      []SIMState `json:"sim_states"`
 	// InstallID identifies the physical gateway install across independent
 	// nodes; sent only after a heartbeat response lists HeartbeatExtensionMesh.
 	InstallID *string `json:"install_id,omitempty"`

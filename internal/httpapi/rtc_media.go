@@ -16,28 +16,21 @@ import (
 	"github.com/kirikira/gsm2sip-server/internal/rtcsignal"
 )
 
-// RTCMediaOptions enables native media and, optionally, independent Go control.
-// SIP compatibility and RTC share business identity and cellular occupancy.
+// RTCMediaOptions configures the ICE servers handed to both ends of a call.
 type RTCMediaOptions struct {
-	ControlEnabled bool
-	Enabled        bool
-	STUNURLs       []string
-	TURNURLs       []string
-	TURNSecret     string
+	STUNURLs   []string
+	TURNURLs   []string
+	TURNSecret string
 }
 
 type rtcMediaRuntime struct {
 	repo    *rtcsignal.PostgresRepository
 	service *rtcsignal.Service
 	options RTCMediaOptions
-	cancel  context.CancelFunc
 }
 type rtcAccessKey struct{}
 
 func (s *Server) startRTCMedia(options RTCMediaOptions) {
-	if !options.Enabled {
-		return
-	}
 	repo, err := rtcsignal.NewPostgresRepository(s.db, rtcMediaAuthorizer{}, s.now)
 	if err != nil {
 		s.logger.Error("RTC media adapter unavailable")
@@ -47,29 +40,38 @@ func (s *Server) startRTCMedia(options RTCMediaOptions) {
 	if err != nil {
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	s.rtc = &rtcMediaRuntime{repo, service, options, cancel}
-	// Start cleanup before exposing admission through Handler.
-	go func() {
-		tick := time.NewTicker(5 * time.Second)
-		defer tick.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-tick.C:
-				sweepCtx, stop := context.WithTimeout(ctx, 3*time.Second)
-				_, err := repo.Sweep(sweepCtx, 100)
-				if err == nil {
-					err = s.sweepRTCControl(sweepCtx)
-				}
-				stop()
-				if err != nil && ctx.Err() == nil {
-					s.logger.Warn("RTC signal cleanup failed")
-				}
+	s.rtc = &rtcMediaRuntime{repo, service, options}
+}
+
+// RunBackground ends calls left by SIP releases, then expires RTC signaling
+// and call leases until ctx ends. Only the API process runs it.
+func (s *Server) RunBackground(ctx context.Context) {
+	if s.rtc == nil {
+		return
+	}
+	if count, err := s.EndLegacySIPCalls(ctx); err != nil {
+		s.logger.Warn("ending calls left by SIP releases failed")
+	} else if count > 0 {
+		s.logger.Info("ended calls left by SIP releases", "count", count)
+	}
+	tick := time.NewTicker(5 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			sweepCtx, stop := context.WithTimeout(ctx, 3*time.Second)
+			_, err := s.rtc.repo.Sweep(sweepCtx, 100)
+			if err == nil {
+				err = s.sweepRTCControl(sweepCtx)
+			}
+			stop()
+			if err != nil && ctx.Err() == nil {
+				s.logger.Warn("RTC signal cleanup failed")
 			}
 		}
-	}()
+	}
 }
 
 func rtcContext(r *http.Request) context.Context {
@@ -89,7 +91,7 @@ func (s *Server) requireRTC(w http.ResponseWriter) bool {
 
 // Authorize rechecks the exact HTTP session and the same business-call lease on
 // every read, SDP command and renewal. An incoming loser cannot access the winner's
-// media, including after its SIP channel has been canceled.
+// media.
 type rtcMediaAuthorizer struct{}
 
 func (a rtcMediaAuthorizer) Authorize(ctx context.Context, tx *sql.Tx, p rtcsignal.Principal, b rtcsignal.Binding) error {
@@ -144,30 +146,28 @@ func (a rtcMediaAuthorizer) Authorize(ctx context.Context, tx *sql.Tx, p rtcsign
 	if err != nil {
 		return err
 	}
-	if gateway != b.GatewayID || sim != b.SIMID || revision != b.MappingRevision || state == "ended" || state == "unknown" {
+	if transport != "rtc" || gateway != b.GatewayID || sim != b.SIMID || revision != b.MappingRevision || state == "ended" || state == "unknown" {
 		return rtcsignal.ErrForbidden
 	}
 	if state == "reserved" && expiry.Valid && !expiry.Time.After(time.Now()) {
 		return rtcsignal.ErrExpired
 	}
-	if transport == "rtc" {
-		var candidate string
-		var allowed bool
-		err = tx.QueryRowContext(ctx, `SELECT CASE WHEN candidate_until>clock_timestamp() THEN COALESCE(candidate_client_id::text,'') ELSE '' END,NOT end_requested AND gateway_seen_at>clock_timestamp()-interval '20 seconds' AND (c.direction='incoming' AND c.incoming_winner_client_device_id IS NULL OR client_seen_at>clock_timestamp()-interval '20 seconds') FROM rtc_control_calls t JOIN call_sessions c ON c.call_id=t.call_id WHERE t.call_id=$1`, b.CallID).Scan(&candidate, &allowed)
-		if err != nil {
-			return err
-		}
-		if !allowed {
+	var candidate string
+	var allowed bool
+	err = tx.QueryRowContext(ctx, `SELECT CASE WHEN candidate_until>clock_timestamp() THEN COALESCE(candidate_client_id::text,'') ELSE '' END,NOT end_requested AND gateway_seen_at>clock_timestamp()-interval '20 seconds' AND (c.direction='incoming' AND c.incoming_winner_client_device_id IS NULL OR client_seen_at>clock_timestamp()-interval '20 seconds') FROM rtc_control_calls t JOIN call_sessions c ON c.call_id=t.call_id WHERE t.call_id=$1`, b.CallID).Scan(&candidate, &allowed)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return rtcsignal.ErrForbidden
+	}
+	if direction == "incoming" && winner == "" {
+		if candidate != b.ClientID {
 			return rtcsignal.ErrForbidden
 		}
-		if direction == "incoming" && winner == "" {
-			if candidate != b.ClientID {
-				return rtcsignal.ErrForbidden
-			}
-			// Only permits this bounded reservation to negotiate. Winner/PCM
-			// gating remains a separate control operation owned by the gateway.
-			winner = candidate
-		}
+		// Only permits this bounded reservation to negotiate. Winner/PCM
+		// gating remains a separate control operation owned by the gateway.
+		winner = candidate
 	}
 	if direction == "outgoing" {
 		if client != b.ClientID {
@@ -231,8 +231,8 @@ func (s *Server) rtcCapability(w http.ResponseWriter, r *http.Request, p Princip
 	writeJSON(w, 200, map[string]any{"version": 1, "media_transport": "webrtc"})
 }
 
-// selectRTCMedia persists the requested audio engine before any SIP dial/answer.
-// Retrying returns the same leg. No cellular action occurs in this endpoint.
+// selectRTCMedia creates the client's media leg before the call is dialed or
+// answered. Retrying returns the same leg. No cellular action occurs here.
 func (s *Server) selectRTCMedia(w http.ResponseWriter, r *http.Request, p Principal) {
 	if !s.requireRTC(w) {
 		return
@@ -277,7 +277,7 @@ func (s *Server) selectRTCMedia(w http.ResponseWriter, r *http.Request, p Princi
 		rtcError(w, rtcsignal.ErrForbidden)
 		return
 	}
-	if state == "ended" || state == "unknown" || (direction == "outgoing" && client != p.DeviceID) || (winner != "" && winner != p.DeviceID) {
+	if transport != "rtc" || state == "ended" || state == "unknown" || (direction == "outgoing" && client != p.DeviceID) || (winner != "" && winner != p.DeviceID) {
 		rtcError(w, rtcsignal.ErrForbidden)
 		return
 	}
@@ -294,7 +294,7 @@ func (s *Server) selectRTCMedia(w http.ResponseWriter, r *http.Request, p Princi
 		return
 	}
 	if !valid {
-		writeError(w, 409, "RTC_GATEWAY_UNAVAILABLE", "Gateway does not currently advertise WebRTC audio. No SIP fallback was started.", false)
+		writeError(w, 409, "RTC_GATEWAY_UNAVAILABLE", "Gateway does not currently advertise WebRTC audio.", false)
 		return
 	}
 	var alreadySelected bool
@@ -303,8 +303,8 @@ func (s *Server) selectRTCMedia(w http.ResponseWriter, r *http.Request, p Princi
 		writeDBUnavailable(w)
 		return
 	}
-	if !alreadySelected && ((direction == "outgoing" && state != "reserved" && !(transport == "rtc" && state == "connecting")) || (direction == "incoming" && (winner != "" || state == "active"))) {
-		writeError(w, 409, "RTC_MODE_FROZEN", "Audio mode must be selected before SIP dial/answer.", false)
+	if !alreadySelected && ((direction == "outgoing" && state != "reserved" && state != "connecting") || (direction == "incoming" && (winner != "" || state == "active"))) {
+		writeError(w, 409, "RTC_MODE_FROZEN", "Audio must be set up before the call is dialed or answered.", false)
 		return
 	}
 	_, err = tx.ExecContext(r.Context(), `INSERT INTO rtc_media_sessions(call_id,client_device_id,leg_id,attempt_id) VALUES($1,$2,$3,$4) ON CONFLICT(call_id,client_device_id) DO NOTHING`, callID, p.DeviceID, newUUID(), newUUID())
@@ -336,8 +336,8 @@ func (s *Server) selectRTCMedia(w http.ResponseWriter, r *http.Request, p Princi
 		rtcError(w, rtcsignal.ErrClosed)
 		return
 	}
-	s.logger.Info("call media selected", "call_id", callID, "media", "webrtc", "call_control", transport, "rtc_signaling", "https", "leg_id", b.LegID)
-	s.writeMediaAdmission(w, b, false, transport)
+	s.logger.Info("call media selected", "call_id", callID, "media", "webrtc", "rtc_signaling", "https", "leg_id", b.LegID)
+	s.writeMediaAdmission(w, b, false)
 }
 
 func (s *Server) getRTCMedia(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -354,7 +354,7 @@ func (s *Server) getRTCMedia(w http.ResponseWriter, r *http.Request, p Principal
 	b.OwnerID = p.OwnerID
 	b.CallID = callID
 	err := s.db.QueryRowContext(r.Context(), `SELECT gateway_id::text,sim_id::text,mapping_revision,direction,state,client_device_id::text,COALESCE(incoming_winner_client_device_id::text,''),control_transport FROM call_sessions WHERE call_id=$1 AND owner_id=$2`, callID, p.OwnerID).Scan(&b.GatewayID, &b.SIMID, &b.MappingRevision, &direction, &state, &client, &winner, &transport)
-	if err != nil || state == "ended" || state == "unknown" {
+	if err != nil || transport != "rtc" || state == "ended" || state == "unknown" {
 		rtcError(w, rtcsignal.ErrForbidden)
 		return
 	}
@@ -364,7 +364,7 @@ func (s *Server) getRTCMedia(w http.ResponseWriter, r *http.Request, p Principal
 			return
 		}
 		if direction == "incoming" {
-			if winner == "" && transport == "rtc" {
+			if winner == "" {
 				_ = s.db.QueryRowContext(r.Context(), `SELECT COALESCE(candidate_client_id::text,'') FROM rtc_control_calls WHERE call_id=$1 AND candidate_until>clock_timestamp()`, callID).Scan(&winner)
 			}
 			if winner == "" {
@@ -395,11 +395,7 @@ func (s *Server) getRTCMedia(w http.ResponseWriter, r *http.Request, p Principal
 	var active bool
 	err = s.db.QueryRowContext(r.Context(), `SELECT leg_id,attempt_id,cellular_active FROM rtc_media_sessions WHERE call_id=$1 AND client_device_id=$2`, callID, client).Scan(&b.LegID, &b.AttemptID, &active)
 	if errors.Is(err, sql.ErrNoRows) {
-		mode := "sip"
-		if transport == "rtc" {
-			mode = "pending"
-		}
-		writeJSON(w, 200, map[string]string{"media_transport": mode})
+		writeJSON(w, 200, map[string]string{"media_transport": "pending"})
 		return
 	}
 	if err != nil {
@@ -415,10 +411,10 @@ func (s *Server) getRTCMedia(w http.ResponseWriter, r *http.Request, p Principal
 		rtcError(w, rtcsignal.ErrClosed)
 		return
 	}
-	s.writeMediaAdmission(w, b, active, transport)
+	s.writeMediaAdmission(w, b, active)
 }
 
-func (s *Server) writeMediaAdmission(w http.ResponseWriter, b rtcsignal.Binding, active bool, control string) {
+func (s *Server) writeMediaAdmission(w http.ResponseWriter, b rtcsignal.Binding, active bool) {
 	servers := []map[string]any{}
 	if len(s.rtc.options.STUNURLs) > 0 {
 		servers = append(servers, map[string]any{"urls": s.rtc.options.STUNURLs})
@@ -429,7 +425,7 @@ func (s *Server) writeMediaAdmission(w http.ResponseWriter, b rtcsignal.Binding,
 		_, _ = mac.Write([]byte(username))
 		servers = append(servers, map[string]any{"urls": s.rtc.options.TURNURLs, "username": username, "credential": base64.StdEncoding.EncodeToString(mac.Sum(nil))})
 	}
-	writeJSON(w, 200, map[string]any{"media_transport": "webrtc", "call_control": control, "rtc_signaling": "https", "binding": b, "cellular_active": active, "ice_servers": servers})
+	writeJSON(w, 200, map[string]any{"media_transport": "webrtc", "call_control": "rtc", "rtc_signaling": "https", "binding": b, "cellular_active": active, "ice_servers": servers})
 }
 
 func (s *Server) rtcSignals(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -480,20 +476,6 @@ func (s *Server) rtcSignals(w http.ResponseWriter, r *http.Request, p Principal)
 		rtcError(w, err)
 		return
 	}
-	// WebRTC carries the speech independently of SIP RTP. Renew a bounded
-	// watchdog lease only after the exact HTTP session, winner and SIM mapping
-	// passed authorization. Each participant renews only its own SIP channel.
-	var transport string
-	if err = s.db.QueryRowContext(ctx, `SELECT control_transport FROM call_sessions WHERE call_id=$1`, result.Snapshot.Binding.CallID).Scan(&transport); err != nil {
-		writeDBUnavailable(w)
-		return
-	}
-	if transport == "sip" && result.Snapshot.Phase == rtcsignal.Negotiated && s.calls != nil && s.calls.Configured() {
-		if err := s.calls.RenewExternalMedia(ctx, p.OwnerID, p.DeviceID, result.Snapshot.Binding.CallID); err != nil {
-			writeError(w, 503, "RTC_CONTROL_UNAVAILABLE", "WebRTC call control is unavailable.", true)
-			return
-		}
-	}
 	var active bool
 	if err = s.db.QueryRowContext(r.Context(), `SELECT cellular_active FROM rtc_media_sessions WHERE leg_id=$1`, legID).Scan(&active); err != nil {
 		writeDBUnavailable(w)
@@ -526,7 +508,7 @@ func (s *Server) rtcCellularActive(w http.ResponseWriter, r *http.Request, p Pri
 		rtcError(w, rtcsignal.ErrConflict)
 		return
 	}
-	updated, err := s.db.ExecContext(r.Context(), `UPDATE rtc_media_sessions m SET cellular_active=true FROM call_sessions c WHERE m.leg_id=$1 AND m.call_id=c.call_id AND c.state IN ('dialing','connecting','active') AND (c.control_transport='sip' OR (c.direction='incoming' AND c.incoming_winner_client_device_id=m.client_device_id) OR (c.direction='outgoing' AND EXISTS(SELECT 1 FROM rtc_control_calls t WHERE t.call_id=c.call_id AND t.dispatched AND NOT t.end_requested)))`, b.LegID)
+	updated, err := s.db.ExecContext(r.Context(), `UPDATE rtc_media_sessions m SET cellular_active=true FROM call_sessions c WHERE m.leg_id=$1 AND m.call_id=c.call_id AND c.state IN ('dialing','connecting','active') AND c.control_transport='rtc' AND ((c.direction='incoming' AND c.incoming_winner_client_device_id=m.client_device_id) OR (c.direction='outgoing' AND EXISTS(SELECT 1 FROM rtc_control_calls t WHERE t.call_id=c.call_id AND t.dispatched AND NOT t.end_requested)))`, b.LegID)
 	if err != nil {
 		writeDBUnavailable(w)
 		return

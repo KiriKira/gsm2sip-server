@@ -12,8 +12,7 @@ import (
 // (including deduplication receipts and pending signals) before returning nil.
 // It must roll back on callback or commit failure. A process-local map is NOT a
 // production implementation. Missing and foreign legs both return ErrForbidden.
-// No implementation is connected to HTTP until shared SIP/RTC occupancy, ARI
-// reconciliation isolation, and gateway winner fencing are integrated.
+// The HTTP adapter uses the PostgreSQL repository with the call authorizer.
 type Repository interface {
 	Update(context.Context, Principal, string, func(Leg) (Leg, error)) error
 }

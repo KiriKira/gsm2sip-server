@@ -21,10 +21,8 @@ fixtures = {
     'rtc-control-snapshot.json': 'RTCControlSnapshot',
     'wake-sync-required.json': 'WakeSyncRequired',
     'capabilities-response.json': 'Capabilities',
-    'sip-config-response.json': 'SipConfiguration',
     'client-event-receipt-response.json': 'ClientEventReceipt',
-    'call-intent-response.json': 'CallIntentResult',
-    'call-pending-response.json': 'RemoteCall',
+    'call-ringing-response.json': 'RemoteCall',
     'pairing-claim-response.json': 'PairingResult',
     'pairing-claim-request-windows.json': 'PairingClaim',
     'pairing-claim-request-blank-platform.json': 'PairingClaim',
@@ -122,7 +120,7 @@ print(
     f'{len(radio_mutations)} unsafe SIM radio reports rejected'
 )
 
-# Independent call control must not acquire a trusted identity override or SIP URI.
+# Call control must not accept a trusted identity override or a SIP URI.
 for fixture, schema_name, mutations in [
     ('rtc-control-outgoing.json','RTCOutgoingCall', [lambda x:x.update(version=2),lambda x:x.update(mapping_revision=0),lambda x:x.update(owner_id='other'),lambda x:x.update(sip_uri='sip:forged'),lambda x:x.update(**{'from':'forged'}),lambda x:x.update(to='caller\nforged')]),
     ('rtc-control-operation.json','RTCControlOperation',[lambda x:x.update(revision=0),lambda x:x.update(kind='dial_modem'),lambda x:x.update(winner_client_id='override'),lambda x:x.pop('operation_id')]),

@@ -32,8 +32,7 @@ type Server struct {
 	logger       *slog.Logger
 	now          func() time.Time
 	secretCipher *securestore.Cipher
-	calls        CallController
-	sip          SIPSettings
+	history      *calls.History
 	rtc          *rtcMediaRuntime
 
 	wsMu          sync.Mutex
@@ -49,23 +48,16 @@ func New(database *sql.DB, logger *slog.Logger) *Server {
 
 type Options struct {
 	SecretCipher *securestore.Cipher
-	Calls        CallController
-	SIP          SIPSettings
 	RTC          RTCMediaOptions
 }
 
 func NewWithOptions(database *sql.DB, logger *slog.Logger, options Options) *Server {
-	// Preserve the old *calls.Manager option's nil semantics when it is supplied
-	// through the interface. In particular, history endpoints must not dereference it.
-	if manager, ok := options.Calls.(*calls.Manager); ok && manager == nil {
-		options.Calls = nil
-	}
 	if logger == nil {
 		logger = slog.Default()
 	}
 	server := &Server{
 		db: database, logger: logger, now: time.Now,
-		secretCipher: options.SecretCipher, calls: options.Calls, sip: options.SIP,
+		secretCipher: options.SecretCipher, history: calls.NewHistory(database),
 		wsByDevice: make(map[string]int), wsConnections: make(map[*websocket.Conn]struct{}),
 	}
 	server.startRTCMedia(options.RTC)
@@ -81,14 +73,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/capabilities", func(w http.ResponseWriter, _ *http.Request) {
 		// Public and secret-free: clients probe it to measure a node and to learn
 		// which optional request fields it accepts before sending them.
-		writeJSON(w, http.StatusOK, map[string]any{"protocol_version": 1, "extensions": SupportedExtensions, "sip_call_control": s.calls != nil && s.calls.Configured(), "rtc_audio": s.rtc != nil, "rtc_call_control": s.rtc != nil && s.rtc.options.ControlEnabled})
+		writeJSON(w, http.StatusOK, map[string]any{"protocol_version": 1, "extensions": SupportedExtensions, "rtc_audio": s.rtc != nil, "rtc_call_control": s.rtc != nil})
 	})
 	mux.HandleFunc("POST /v1/pairings/claim", s.claimPairing)
 	mux.HandleFunc("POST /v1/auth/refresh", s.refreshSession)
 	mux.HandleFunc("POST /v1/auth/revoke", s.revokeSession)
 	mux.HandleFunc("GET /v1/ws", s.wakeWebSocket)
-	mux.HandleFunc("GET /v1/devices/self/sip-config", s.authenticated(s.getSIPConfig))
-	mux.HandleFunc("POST /v1/devices/self/sip-credentials/rotate", s.authenticated(s.rotateSIPCredentials))
 	mux.HandleFunc("GET /v1/clients", s.authenticated(s.listClients))
 	mux.HandleFunc("GET /v1/gateways", s.authenticated(s.listGateways))
 	mux.HandleFunc("GET /v1/gateways/{gateway_id}/sims", s.authenticated(s.listSIMs))
@@ -112,14 +102,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/rtc/legs/{leg_id}", s.authenticated(s.rtcSignals))
 	mux.HandleFunc("POST /v1/rtc/control/capability", s.authenticated(s.rtcControlCapability))
 	mux.HandleFunc("POST /v1/rtc/control/calls", s.authenticated(s.rtcControlCreate))
-	mux.HandleFunc("GET /v1/rtc/control/incoming-policy", s.authenticated(s.rtcIncomingPolicy))
 	mux.HandleFunc("POST /v1/rtc/control/incoming", s.authenticated(s.rtcControlCreate))
 	mux.HandleFunc("GET /v1/rtc/control/calls", s.authenticated(s.rtcControlRead))
+	mux.HandleFunc("GET /v1/rtc/control/incoming-policy", s.authenticated(s.rtcIncomingPolicy))
 	mux.HandleFunc("GET /v1/rtc/control/calls/{call_id}", s.authenticated(s.rtcControlRead))
 	mux.HandleFunc("POST /v1/rtc/control/calls/{call_id}/operations", s.authenticated(s.rtcControlOperate))
-	mux.HandleFunc("POST /v1/call-intents", s.authenticated(s.createCallIntent))
-	mux.HandleFunc("DELETE /v1/call-intents/{intent_id}", s.authenticated(s.cancelCallIntent))
-	mux.HandleFunc("POST /v1/clients/{client_id}/ready", s.authenticated(s.clientReady))
 	return requestIDMiddleware(recoverMiddleware(s.logger, mux))
 }
 
@@ -177,12 +164,6 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
-}
-
-func (s *Server) notReady(code string) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		writeError(w, http.StatusServiceUnavailable, code, "SIP and ARI calling are not configured.", false)
-	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
