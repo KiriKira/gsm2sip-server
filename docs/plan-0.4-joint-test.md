@@ -125,3 +125,23 @@ Homura 的 Magisk 模块用 `SKIP_INSTALL=1 bash build.sh debug` 生成，同样
 | R5 | **界面补证**：记录页含短信行（浅色与深色），点开短信详情 | 截图/XML 显示短信行与详情；文字无截断 |
 
 R3 可与 R1、R2、R5 同一时间窗口执行；R4 放在最后，结束后三端回到 0.4。结果追加到 `release-0.4-validation-20261022.md` 的新小节（或新建同格式报告），第一轮的 FAIL 原样保留。
+
+## 第三轮（续测阻塞后）
+
+续测记录的阻塞（[续测小节](release-0.4-validation-20261022.md)：已接通来电在控制过期后变成 `unknown`，网关账本与两端槽永久占用）是产品缺陷，已在 Homura `b6dfcea` 修复：网关空闲且 Telecom 没有任何通话时，把仍占着 `rtc_cellular_slot` 的 `unknown` 账本行记为 `failed`，并向主节点与所有 mesh 节点排队 `ended`；节点轮询送达后服务器把该通话结束为 `ended|cellular_ended` 并释放槽。Telecom 一直没有报告的去电派发在 30 秒后按同样方式放弃；拆除开始后才出现的去电会被挂断。服务器与 Madoka 不变（服务器代码 `c6e6013`、Madoka `f2680de`）。
+
+只需用原 debug keystore 重建 Homura（`GSM_RELEASE_VERSION_CODE=1000000000`），**在当前阻塞状态下**直接 `adb install -r`，不清数据、不改数据库。
+
+| # | 用例 | 判定 |
+| --- | --- | --- |
+| R0 | **遗留通话恢复**：安装后启动 Homura，等待至多 60 秒 | 网关日志 `call_id=8aab9419-… event=unknown_call_released`；账本该行 `failed`、`rtc_cellular_slot` 0 行、`rtc_control_terminals` 清空；A 上该通话 `ended|cellular_ended` 且 `gateway_call_slots` 无该行；随后一次去电、一次来电正常接通并挂断（`ENDED`，账本 `completed`） |
+| R0b | **复现并验证恢复**：来电接通后 `am force-stop` Homura，保持蜂窝通话 ≥ 30 秒（服务器转为 `unknown|control_expired`），再启动 Homura | 蜂窝通话仍在（`emu gsm list` 可见）期间**不得**释放；`emu gsm cancel` 挂断后 60 秒内释放，下一通去电与来电正常 |
+| R0c | 同 R0b，但在 force-stop 期间先挂断蜂窝通话，再启动 Homura | 启动后 60 秒内释放；下一通去电与来电正常 |
+
+R0 通过后按第二轮表格继续，范围与判定不变：
+
+1. **R3 完整窗口**（`r3-window.py`）：短信、R1、R2、两端各重启一次、R5、≥15 分钟空闲在同一窗口内走完。R2 partial-node 接受"offer 前排除 B（`nodes=2`、C `answered_elsewhere`）"作为 B 排除证据；idle-failover 拨号前等网关在 B 上就绪（helper 已有闸门）。
+2. **R5** 在 R3 窗口内正式采集（`r5-sms-ui.py`）。
+3. **R4** 最后执行：先在回退状态下运行 `r4-sms-injection-diagnose.py` 定性上一轮"回退后入站短信注入失败"，再按原判定做回退与前滚。
+
+正常使用可能出现的失败仍然中断测试并记录；结果追加到验证报告的新小节，既有 FAIL 原样保留。
