@@ -117,13 +117,31 @@ def open_records_tab(serial):
 
 
 def reveal_sms_row(serial):
-    for attempt in range(7):
+    """Scroll the records list until the SMS row is fully inside the screenshot.
+
+    Finding the node is not enough: it can sit at the very bottom edge, so the
+    captured image would show the list without the SMS row. Keep nudging the
+    list until the row's centre rests in the middle band of the screen.
+    """
+    row = None
+    for attempt in range(8):
         items = nodes(dump(serial))
-        for item in items:
-            if SMS_MARK in item['text'] and item['bounds'][1] > 190:
-                return item
-        adb(serial, 'shell', 'input', 'swipe', '240', '620', '240', '260', '300')
+        matches = [i for i in items if SMS_MARK in i['text'] and i['bounds'][1] > 190 and i['bounds'][3] - i['bounds'][1] < 400]
+        if matches:
+            row = matches[0]
+            cy = row['center'][1]
+            if 240 <= cy <= 600:
+                return row
+            # Row is too low -> pull the list up; too high -> pull it down.
+            if cy > 600:
+                adb(serial, 'shell', 'input', 'swipe', '240', '600', '240', '420', '250')
+            else:
+                adb(serial, 'shell', 'input', 'swipe', '240', '380', '240', '560', '250')
+        else:
+            adb(serial, 'shell', 'input', 'swipe', '240', '620', '240', '300', '300')
         time.sleep(1.2)
+    if row is not None:
+        return row
     raise RuntimeError('sms_record_row_not_reachable')
 
 

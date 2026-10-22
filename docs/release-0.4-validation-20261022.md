@@ -273,3 +273,90 @@ Host 最终修复将认证刷新锁从全局范围缩小到 pairing session，�
 | R3 | **INCOMPLETE**：两次窗口都在 R2 阶段中断；两次抓包审计通过（A/B/C 5060、5061、8088 全 0），但没有覆盖"短信 + R1 + R2 + 两端各重启 + R5 + ≥15 min 空闲"的完整窗口 |
 | R4 | **NOT RUN**（实验室被遗留通话阻塞） |
 | R5 | **NOT RUN**（最终 head 无正式证据） |
+
+## 第三轮续测（2026-10-22 13:40–15:20Z）：b6dfcea 遗留通话修复与 R3 完整窗口
+
+### 被测版本与构建
+
+| 端 | 版本 | 说明 |
+| --- | --- | --- |
+| Gateway (Homura) | `b6dfcea`（代码） | APK `versionName=0.4.0-dev`、`versionCode=1000000000`、sha256 `b478dd62…`；构建只传了 `GSM_RELEASE_VERSION_CODE`，未传 `GSM_RELEASE_VERSION_NAME`（影响见 R4 一节） |
+| Host (Madoka) | `f2680de` | `0.4.0-joint-round2`，沿用上一轮候选构建 |
+| Server | `c6e6013` | 未改动 |
+
+- 构建必须在 `gsm2sip-gateway-lab` 仓库进行，并加 `-PrtcLabRunner=com.callagent.lab.GatewayJointInstrumentation`；产品仓库 `gsm2sip` 的 androidTest 没有联测 fixture。
+- 环境事故：构建期间 `/`（30 GB）被写满，5554 模拟器进程被杀，恢复约 45 分钟；冷启动后虚拟 SIM 指纹丢失，按既有 `explicit_same_virtual_modem_confirmation_after_fingerprintless_AVD_reboot` 流程重确认（`mapping_revision` 10→11）。这是实验室容量问题（SDK 6.5 G、AVD 3.2 G、Docker 镜像 3.2 G、历史 run 1.7 G），与产品无关。
+
+### R0：遗留通话释放 — **FAIL（时限未满足），产品行为有效**
+
+- 14:05:45.9 执行 `apps.py start`，14:05:58 READY；脚本在 **58.7 s** 读到 `call_ledger=unknown / rtc_cellular_slot=1 / A=unknown|control_expired`，判 FAIL（`evidence/r0-legacy-unknown-call-release.json`，`samples=[]`，首版采样未生效）。
+- 日志 `10-22 14:06:57.299 … call_id=8aab9419-fe70-4350-95e3-6abc295bb38b event=unknown_call_released nodes=3`：释放发生在 READY 后 **59 s**、启动后 **72 s**。
+- 释放后状态：账本 `failed`、`rtc_cellular_slot=0`、`rtc_control_terminals=0`、A `ended|cellular_ended`。
+- 随后 `quick-outgoing-r0` 13.43 s（PCM）、`quick-incoming-r0` 12.81 s 均 PASS，各 1 通 Telecom，服务端 `ended|cellular_ended|rtc|f`。
+
+结论：修复路径与终态都正确，但"60 秒内"按 `app_start` 计时未满足（差约 1 s），本节按 FAIL 记录。若要 PASS 口径，需要先明确计时起点（launch / app_start / 首次 reconcile tick）。
+
+### R0b：force-stop 后保持蜂窝、再挂断 — 首轮 **FAIL（harness 缺陷）**，修正后 **PASS**
+
+首轮（`r0-recovery.py` 初版）：force-stop 后执行 `emu gsm cancel`，60.8 s 未释放，报 `not_released_after_cancel`。定性证据：
+
+- `dumpsys telecom` 仍显示 `Call id=TC@15 … state=ACTIVE`、`tpac=ComponentInfo{com.android.phone/com.android.services.telephony.TelephonyConnectionService}`；
+- 模拟器控制台 `gsm cancel` 只撤掉模拟器侧通话，已接通的 Telecom 通话记录保持 ACTIVE，产品"蜂窝仍在则不释放"的判断正确，不是产品缺陷。
+
+修正：`end_cellular()` = `emu gsm cancel` + `input keyevent KEYCODE_ENDCALL`，0.1–0.4 s 内 Telecom 转 `DISCONNECTING/DISCONNECTED`。
+
+复跑结果（`evidence/r0b-force-stop-cellular-held.json`）：
+
+- 保持蜂窝 61.2 s 期间 `released_lines=[]`，账本、服务端、槽三项检查均未变化（**不释放 ✓**）；
+- ENDCALL 后 **9.4 s** 释放：账本 `failed`、槽 0、terminals 0、A `ended|cellular_ended`；
+- 随访去电、来电均 PASS。
+
+过程事故：第一版复跑证据被后续 `cp joint-0.4/evidence/r0*.json` 覆盖（旧文件盖掉 run 内新文件），已重跑补录；规则：证据只落一处，禁止跨目录通配符覆盖。
+
+### R0c：先挂断再启动 — **PASS**
+
+force-stop → ENDCALL（0.1 s，`TC@7 DISCONNECTING`）→ `apps.py start`；启动后 **8.9 s** 释放，账本 `failed`、槽 0、A `ended|cellular_ended`；随访去电 13.43 s、来电 12.81 s PASS。
+
+### R3 完整窗口 — **PASS**
+
+run `r3-round3-20261022T1340Z`，phase `r3-all-candidate-round3-20261022T1433Z`。
+
+| 步骤 | 结果 | 关键数据 |
+| --- | --- | --- |
+| preflight | PASS | APK sha256、包名、服务端身份 |
+| 短信采集 | PASS | 入站、出站各一条 |
+| R1 去电 95 s | PASS | PCM 96.27 s，Telecom 1 通，A 承载 |
+| R1 来电 95 s | PASS | PCM 96.32 s，Telecom 1 通 |
+| R1 对端挂断 | PASS | PCM 11.40 s，Telecom 1 通 |
+| R2 partial node | PASS | 13.05 s，B 排除路径有证据 |
+| R2 idle failover / hold / failback | PASS | 12.82 s，切到 B（10.203.78.2） |
+| 两端各重启一次 | PASS | Gateway、Host |
+| R5 短信行与详情截图 | PASS | 见下 |
+| 空闲 900 s | PASS | — |
+| 收尾审计 | PASS | A/B/C 5060、5061、8088 全 0；pcap flush + sha256；无 Asterisk、无 netem、无 iptables |
+
+R5：`evidence/r5-sms-ui-r3-all-candidate-round3-20261022T1433Z/` 浅色、深色记录页均含「短信 · 正文已清除」行，详情弹窗为 `Incoming / 22/10/2026 14:32:24 / 0 chars, 1 part`。首轮截图没把短信行框进画面，已改为滚动居中后重拍并替换正式证据（旧图保留在 `private/r5-first-capture/`）。
+
+版本身份注记：本窗口的 Gateway APK `versionName` 是 `0.4.0-dev`（同 commit `b6dfcea`），与 `0.4.0-joint-round2` 只差版本字符串；若要求按发布身份出证据，需用 `GSM_RELEASE_VERSION_NAME=0.4.0-joint-round2` 重建后重跑窗口。
+
+### R4 — 未完成（前置条件不满足，非产品失败）
+
+`round2-sync.py --execute --r3-phase … --diagnose-baseline` 连续 4 次在 `initial-all-candidate_version_matrix_mismatch` 退出，证据保留为 `evidence/r4-synchronized-20261022T150412Z…`、`…150753Z…`、`…150811Z…`、`…151228Z…`：
+
+- 期望矩阵要求 Gateway `0.4.0-joint-round2`，实际 `0.4.0-dev`；
+- 三端回退/前滚与 `r4-sms-injection-diagnose.py` 均未开始执行。
+
+处置：用 `GSM_RELEASE_VERSION_CODE=1000000000 GSM_RELEASE_VERSION_NAME=0.4.0-joint-round2` 重建同 commit 的 Homura 并 `install -r`（保留数据）后重跑 R4；诊断仍在回退阶段先跑，若判定为旧版产品问题立即停下报告，不为旧版加兼容代码。
+
+### helper 变更（随本节提交）
+
+- 新增 `r0-recovery.py`：覆盖 R0/R0b/R0c，`end_cellular()` 用 `KEYCODE_ENDCALL` 真正结束 Telecom 通话，证据写 run 内 `evidence/`。
+- `r5-sms-ui.py`：`reveal_sms_row()` 先把短信行滚动到屏幕中部再截图。
+- `round2-sync.py`：新增 `--diagnose-baseline`（回退状态先跑短信注入诊断），`--r3-phase` 校验 R3 审计后才会换版本。
+- `SHA256SUMS` 同步更新。
+
+### 时间消耗（供排期参考）
+
+- 构建与环境恢复约 75 分钟：磁盘写满 45、重新构建约 20、AVD/虚拟 SIM 重确认约 10。
+- R0b 假失败排查约 40 分钟（`emu gsm cancel` 语义）。
+- R0/R0b/R0c 三次用例 + R3 完整窗口 + R4 前置失败约 50 分钟。

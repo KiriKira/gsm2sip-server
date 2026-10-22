@@ -36,7 +36,7 @@ def plan():
             'failure': 'stop testing; confirm idle before attempting forward recovery in server/Gateway/Host order'}
 
 
-def make_workflow(root, r3_phase=R3_PHASE):
+def make_workflow(root, r3_phase=R3_PHASE, diagnose_baseline=False):
     spec = importlib.util.spec_from_file_location('round2_retention_library', root / 'scripts/rollback-cases.py')
     base = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(base)
@@ -45,6 +45,7 @@ def make_workflow(root, r3_phase=R3_PHASE):
         def __init__(self):
             self.components = ORDER
             self.r3_phase = r3_phase
+            self.diagnose_baseline = diagnose_baseline
             self.driver = base.load_module('round2_sync_driver', root / 'scripts/driver.py')
             self.core = base.load_module('round2_sync_core', root / 'scripts/core-calls.py')
             if self.driver.SERIALS != base.EXPECTED_SERIALS or self.driver.PACKAGES != base.EXPECTED_PACKAGES:
@@ -201,6 +202,20 @@ def make_workflow(root, r3_phase=R3_PHASE):
                     if stage == 'baseline':
                         self.privileged_child('capture-all-baseline-start', 'round2-capture.py',
                                    ['--phase', 'r4-all-baseline', '--execute'], timeout=30)
+                        if self.diagnose_baseline:
+                            # Characterise the previous round's "inbound SMS injection
+                            # fails after rollback" while the lab is still all-baseline.
+                            # A product verdict stops the rollback run; only a harness
+                            # verdict may be followed by the smoke and the forward pass.
+                            payload = self.privileged_child(
+                                'r4-sms-injection-diagnose', 'r4-sms-injection-diagnose.py',
+                                ['--out', str(root / 'evidence' / 'r4-sms-injection-diagnose.json')],
+                                timeout=480)
+                            verdict = str((payload or {}).get('verdict', ''))
+                            self.report['baseline_sms_injection_diagnose'] = payload
+                            self.save()
+                            if verdict.startswith('product_'):
+                                raise base.Case5Error('old_product_sms_injection_failure:' + verdict)
                         try:
                             self.smoke(stage)
                         finally:
@@ -231,6 +246,8 @@ def main():
     parser.add_argument('--execute', action='store_true')
     parser.add_argument('--r3-phase', default=R3_PHASE,
                         help='completed R3 capture phase this run must verify')
+    parser.add_argument('--diagnose-baseline', action='store_true',
+                        help='run r4-sms-injection-diagnose.py while all three components are rolled back')
     args = parser.parse_args()
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,79}', args.r3_phase):
         parser.error('invalid R3 capture phase')
@@ -243,7 +260,7 @@ def main():
     os.umask(0o077)
     workflow = None
     try:
-        workflow = make_workflow(root, args.r3_phase)
+        workflow = make_workflow(root, args.r3_phase, args.diagnose_baseline)
         result = workflow.run()
         print(json.dumps({'status': result['status'], 'report': str(workflow.report_path), 'final_stage': 'candidate'}, sort_keys=True))
     except Exception as failure:
