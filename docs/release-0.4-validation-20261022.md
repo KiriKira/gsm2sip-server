@@ -135,8 +135,8 @@ run `20261021T190324Z-a2129c52` 的 fresh SMS 与 Server-baseline 去电通过�
 | R1：95 秒去电 | **PASS** | 双向媒体持续 95.776 秒。 |
 | R1：95 秒来电及严格重试 | **FAIL** | Host 已发起接听流程，WebRTC peer 与 ICE 接通，但 Gateway 蜂窝通话仍为 `RINGING`，约 7.36 秒后变为 `DISCONNECTED/INCOMING_MISSED`。严格重试未收到振铃，不能认定来电通过。 |
 | R1：10 秒来电方挂断 | **FAIL** | 未取得 `call_id`，未出现对应 Telecom/RIL call 事件。结合来电严格重试的结果，目前不能定性 R1 的原因。 |
-| R2：部分节点不可达时来电 | **FAIL** | `incoming-partial-node-unreachable` 返回 `call_state_timeout`。 |
-| R2：空闲 failover、通话保持与 failback | **FAIL（完整 helper）** | A 不可达后切至 B 并通话、A 恢复后保持 B、挂断后独立 idle 观察回到 A，这些步骤通过；但日志有三条实际 `onCallAdded` 回调，Telecom count 为 3，完整 helper 因此失败。证据不足以将其认定为纯统计误报，通话唯一性不能标为通过。 |
+| R2：部分节点不可达时来电 | **FAIL / unresolved** | `emu gsm call` 返回 OK，但等待 Host `INCOMING_RINGING` 的 20 秒窗口超时，`incoming-partial-node-unreachable` 返回 `call_state_timeout`；样本中 Gateway 始终为 `IDLE/telecom_state=7`，Host `phase=null`。尚未进入 C/winner 分支，现有证据不能将根因定性为产品或模拟器。 |
+| R2：空闲 failover、通话保持与 failback | **FAIL / unresolved（完整 helper）** | A 不可达后切至 B 并通话、A 恢复后保持 B、挂断后独立 idle 观察回到 A，这些步骤通过；但 GsmCallService 日志有三条 `onCallAdded` 回调，helper 的 Telecom count 为 3，因此完整用例失败。回调日志没有稳定的 Telecom call ID，只能确认回调条数，不能推出三次唯一拨号；也无法离线去重或证明通话唯一性，所以仍保留 FAIL，不认定为纯统计误报。 |
 | R3：全候选独立时段抓包与最终审计 | **PASS（该时段）** | capture phase `r3-all-candidate-final` 从 03:06:35Z 开始，覆盖 R1、R2、短信、R5，以及 Gateway/Host 的 force-stop 后冷启动；还覆盖 03:29:58–03:45:04Z 的 idle 观察。最终审计确认三桥 manifest、capture flush/read/hash、无 netem/故障 iptables 规则、无 Asterisk；A/B/C 的 5060、5061、8088 计数全部为 0。这只证明第二轮该独立时段，不覆盖第一轮全程非零结果。 |
 | R4：三端同步回退与恢复 | **FAIL（功能验证未完成）** | 按 Server → Gateway → Host 完成回退；各步骤的版本、配对、SIM、节点与历史留存快照通过，全旧版本时段的 capture final audit 也通过。首次 baseline fresh SMS 的 outbound 已提交，但 inbound injection 失败；按计划停止并恢复，未执行 baseline 通话或前滚后功能 smoke。 |
 | R4：停止后恢复状态 | **PASS（状态核验范围）** | 按 Server → Gateway → Host 恢复全部 0.4 版本；A/B/C active slots 均为 0，Gateway 为 `IDLE`，Host 保持 listening，身份保持。此状态核验不替代尚未执行的 baseline 通话或前滚 smoke。 |
