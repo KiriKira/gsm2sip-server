@@ -66,3 +66,24 @@ T3 的 PASS 范围为 **synthetic gateway → D → Kyubey → FCM → Madoka Do
 - Madoka：`75af4b7c35bb9885308a1052b81de3d7c50b81a1`。T3 的 FCM APK SHA-256 为 `8008b7b11b0e0570b6a5e5e9889c51503f98da2619e816fdaec0939d166bbd9c`；T4 覆盖安装的空 relay APK SHA-256 为 `c9d15d3cfa62c24d4778d71dc9402c51b80524610acd3eb7734cff4ad05e387f`。两者 versionCode 均为 `1000000000`，签名证书 SHA-256 均为 `2c613d0386c319b54abd14796fee004ea44681bfe3b69ddd33f7062cd3845f28`。
 
 T4 私有证据保存在实验机 `private-r3/t4-transition.txt`。测试后已恢复上述 FCM APK（SHA-256 `8008b7b11b0e0570b6a5e5e9889c51503f98da2619e816fdaec0939d166bbd9c`），D 中该设备的 endpoint 登记仍保留 1 行。报告不包含私人 token、endpoint URL 或一次性配对码。
+
+## 第四轮（2026-10-23）
+
+本轮按计划提交 `d9cc4d75e2609518eed88f15acf0b46c3b9ec6cb` 的 `docs/plan-0.4.1-joint-test.md` 验证 T4–T6。T1 N/A、T2/T3 PASS 沿用前轮证据，本轮未重跑；其中 T3 仍限于第三轮注明的 synthetic gateway 推送通知范围，不代表新 APK 已重跑 T3 或验证蜂窝/HAL 音频。
+
+| 测项 | 结果 | 关键证据 |
+| --- | --- | --- |
+| T1 | N/A（沿用，未重跑） | 既有模拟器不满足已启用语音及 Magisk 前提，沿用第二轮判定。 |
+| T2 | PASS（沿用，未重跑） | 沿用第二轮同一码、两角色成功加入的计时证据。 |
+| T3 | PASS（沿用，未重跑） | 沿用第三轮 D-only synthetic gateway → D → Kyubey → FCM → Madoka Doze 来电/短信通知证据及其范围限制。 |
+| T4 | FAIL（推送撤销子项 PASS，后续正常使用失败） | 同一 Madoka 保留数据，以 `adb install -r` 安装 FCM APK 后，D 中该设备的 `push_endpoints` 数量为 1；再以 `adb install -r` 覆盖空 relay APK后数量为 0。设备日志为 `10-23 09:03:07.556 I/HostPush(21209): node 993544863 push=withdrawn`，满足 1 分钟内撤销登记。后续普通通话/短信验证前，Homura UI 显示“未运行”、后台同步已停止、SIM 确认待处理；诊断提示系统通话音频采集需要 Magisk，属于既有 T1 环境限制。普通 SMS 注入已被 gateway 收到并 journaled，但同步停止且 SIM mapping 待确认，不能计为端到端短信通过。随后按 UI 选择 SIM 并点击确认，正常使用流程返回 `SIM 确认失败：SIM_CONFIRM_FAILED`，触发中断规则；T4 的通话/短信正常运行判定未完成，整体不计 PASS。 |
+| T5 | NOT RUN | T4 正常 SIM 确认流程失败后按计划停止；未执行 API 阻断、约 12 秒来电提醒或解除阻断后的恢复验证。 |
+| T6 | NOT RUN | 同一中断规则；未执行不接来电、Madoka 飞行模式下的来电、主叫回铃保持或恢复网络后的下一通来电验证。 |
+
+本轮被测构建：
+
+- SoulGem：D 仍使用 `ghcr.io/kirikira/gsm2sip:sha-f67071f`，代码提交 `f67071f4646fdf78233bf80b8af5d721db8c1061`；没有把计划文档提交当作已部署服务器镜像。
+- Homura：`51e9a8298e6ca04e7f72af9356d9320fec8bbd6b`；最终 APK SHA-256：`84b3b58e020858d52c7321037d8bc92e941c806801b37674afa374f0b1437504`。
+- Madoka：`105c4697ff4732287659bf3742dad79268e62927`，包含推送撤销修复 `ecd689faf551e4b48a6621129c570ea37af55046`；FCM 与空 relay APK 均由该提交构建。FCM 最终 APK SHA-256：`ca048089a28dc5cb3c1daf51d4953cc93c0887e4fe540f2e7818fff1d9f15eea`；空 relay 最终 APK SHA-256：`e71fff93b3bd674a2593194141ed4b6685d26e9f227ae41bf90d3e9760267855`。
+
+三个最终 Android APK 使用同一 debug keystore，versionCode 均为 `1000000000`，签名证书 SHA-256 均为 `2c613d0386c319b54abd14796fee004ea44681bfe3b69ddd33f7062cd3845f28`。本轮在 `SIM_CONFIRM_FAILED` 后停止，没有继续实验机测试；未把已 journaled 的 SMS、已修复的推送撤销子项或未运行的后续用例扩大记为整体通过。报告不记录私人 endpoint URL、token 或一次性配对码。
