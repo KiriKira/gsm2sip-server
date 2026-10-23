@@ -360,3 +360,73 @@ R5：`evidence/r5-sms-ui-r3-all-candidate-round3-20261022T1433Z/` 浅色、深�
 - 构建与环境恢复约 75 分钟：磁盘写满 45、重新构建约 20、AVD/虚拟 SIM 重确认约 10。
 - R0b 假失败排查约 40 分钟（`emu gsm cancel` 语义）。
 - R0/R0b/R0c 三次用例 + R3 完整窗口 + R4 前置失败约 50 分钟。
+
+## 第三轮续测（续）：R4 三端同步回退 — **FAIL（回退阶段被 SIM 绑定闸门阻塞）**，旧版短信注入问题定性为 **harness 缺陷**
+
+run `r3-round3-20261022T1340Z`，正式记录 `evidence/r4-synchronized-20261022T154618Z-fd878fbf.json`。
+
+### 先修掉的构建问题
+
+上一版 APK 的 `versionName=0.4.0-dev` 被 `rollback-cases.VERSION_NAMES` 拒绝（只接受 `0.4.0-joint` / `0.4.0-joint-round2`），此前 4 次 R4 因此停在 `initial-all-candidate_version_matrix_mismatch`。本轮在 `build-homura-lab-b6dfcea` @ `b6dfcea` 重编：
+
+- `GSM_RELEASE_VERSION_CODE=1000000000 GSM_RELEASE_VERSION_NAME=0.4.0-joint-round2`，`-PrtcLabRunner=com.callagent.lab.GatewayJointInstrumentation`
+- `app-debug.apk` sha256 `de455bc1b2c168bc72831b22c2232371668b92d44febaec444b8c295de3e03fa`，versionCode `1000000000`
+- `install -r -g` 保留数据；旧包留存为 `gateway-debug.apk.0.4.0-dev.bak`，`manifest.json` 已更新
+
+### R4 实际执行到哪一步
+
+| 步骤 | 结果 |
+| --- | --- |
+| `sms-retained-initial-all-candidate` | PASS |
+| `server-baseline`（A/B/C 降到 baseline） | PASS |
+| `sms-retained-baseline-server` | PASS |
+| `app-gateway-baseline`（Gateway 换 0.3.0-joint） | PASS |
+| `start-gateway`（baseline） | PASS |
+| `sms-retained-baseline-gateway` | PASS |
+| Host 回退前的 `require_idle()` | **FAIL** `pinned_gateway_binding`：`sim_bindings.state='unverified'`、`identity_verified=false` |
+
+快照 `initial-all-candidate` / `baseline-server` / `baseline-gateway` 均为 13；`idle_confirmed=false`；`recovery_attempts[0].reason=RuntimeError`。未做任何 SQL 篡改、未卸载、未清数据、未重启模拟器。
+
+### 阻塞根因：回退装包会作废保留的 SIM 绑定
+
+- 这台 AVD 无指纹，每次对 `com.callagent.gateway` 做 `install -r`，应用都会重评 SIM 身份；服务端把固定 SIM 行置为 `sim_bindings.state='unverified'`、`identity_verified=false`，`gateways.mapping_revision` 递增（本轮 13→14→15→16）。
+- `round2-sync` 的 `pinned_gateway_binding()` 要求 `state='active' AND identity_verified`，所以 Host 回退前的 `require_idle()` 直接失败。
+- 恢复是产品原生的、需要本地确认：
+  - 候选版本 test runner 支持 `reconfirm_retained_emulator_sim` + `reconfirm_operation_id`，本轮用它恢复了 3 次（rev 13/15/16，SIM `9d581e56-…`）；
+  - **0.3.0-joint-baseline 的 test runner 没有这个分支**，其 UI 只能确认服务端新提议的 SIM（`0fbb04f1-… pending_local_confirmation`），确认即会替换固定 SIM id、破坏本联测的固定身份。
+- 结论：在这套 lab 上，R4 的"三端全回退"阶段可达性取决于 0.3.0 是否有操作员 SIM 确认路径，或 harness 是否提供跳过换包的步骤。这需要产品/测试设计侧决定，不是本轮 harness 能自行绕过的。
+
+### 上一轮"回退后入站短信注入失败"的定性：**harness 缺陷，非 0.3.0 产品问题**
+
+`r4-sms-injection-diagnose.py` 发现并就地修复两个自身缺陷（原文件保留 `*.orig-20261022T1554Z`）：
+
+1. `adb()` 在 `sudo` 下以 root 运行；root 的 adb server 对 `adb emu …` 一律回 `KO: unknown command`，导致注入永远被记成 "rejected"。修法：`euid==0` 时用 `sudo -n -u ubuntu -H` 调 adb。
+2. `docker_psql()` 把 psql 的命令标签也当行计数；节点 B 不带 `-q` 会输出 `BEGIN/COMMIT`，于是产生假的 `server_hit` 与错误的 `server_before` 计数。修法：过滤 `BEGIN/COMMIT/SET`。
+
+修复前后对比（baseline gateway 状态）：
+
+| 时间 | verdict | accepted | archive_hit | server_hit |
+| --- | --- | --- | --- | --- |
+| 15:52（修复前） | `harness_emulator_console_rejected` | false | false | true（假阳） |
+| 15:56（修复后） | `injection_ok_both_layers` | true | true | true |
+
+证据：`evidence/r4-sms-injection-diagnose-baseline-20261022T1556Z.json`。verdict 不是 `product_*`，按既定判定继续；即上一轮"回退后入站短信注入失败"是注入脚本/环境问题，旧版产品无此项缺陷。
+
+### 前滚（候选态）实测
+
+恢复到全候选后手工测量（server A/B/C `c6e6013`、gateway `0.4.0-joint-round2`、host `0.4.0-joint-round2`）：
+
+| 项 | 结果 |
+| --- | --- |
+| 短信收发 `r4-candidate` | PASS：出站送达、入站收到、Gateway 归档 1/1、Host 历史 1/1、`live_session_count=0` |
+| 去电 12 s | PASS：PCM 12.82 s，Telecom 1 通，Host `ENDED`，账本 `completed`，服务端 `ended|cellular_ended|rtc|f` |
+| 来电 12 s | PASS：PCM 12.87 s，ring 延迟 4.22 s，Telecom 1 通，终态同上 |
+
+证据：`evidence/round2-sms-capture-20261022T155507857498Z.json`、`evidence/r4-candidate-outgoing.json`、`evidence/r4-candidate-incoming.json`。
+
+### R4 结论
+
+- 产品层面：前滚态短信、去电、来电全 PASS；回退态在 baseline gateway 上短信注入 `accepted/archive/server` 三层均命中，**未复现旧版产品缺陷**。
+- 流程层面：R4 的"三端全回退"未走完，卡在 0.3.0 换包后 SIM 绑定失效且无操作员确认入口。因此 R4 记为 **FAIL（流程阻塞）**，不记为产品失败。
+- 收尾状态：全候选、Gateway `0.4.0-joint-round2` READY（SIM `9d581e56-…`，rev 16）、Host `0.4.0-joint-round2` READY、bridge IDLE、host phase ENDED/listening。
+- 待产品/测试设计决定：0.3.0 是否提供 SIM 本地确认路径，或 harness 是否改为跳过换包；确定后 R4 可重跑（当前 lab 状态即为可重跑起点）。
