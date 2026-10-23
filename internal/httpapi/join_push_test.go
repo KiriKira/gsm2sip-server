@@ -23,10 +23,11 @@ func TestPostgresJoinCodePairsEachRoleOnce(t *testing.T) {
 		t.Fatal("seed join code")
 	}
 	handler := New(database.db, nil).Handler()
+	name := "join test"
 	claim := func(role string, status int) PairingClaimResponse {
 		t.Helper()
 		response := requestJSON(t, handler, http.MethodPost, "/v1/pairings/claim", "",
-			PairingClaimRequest{PairingCode: code, DeviceName: "join test", Role: role}, "")
+			PairingClaimRequest{PairingCode: code, DeviceName: name, Role: role}, "")
 		requireStatus(t, response, status)
 		var result PairingClaimResponse
 		if status == http.StatusOK {
@@ -38,6 +39,15 @@ func TestPostgresJoinCodePairsEachRoleOnce(t *testing.T) {
 	}
 
 	claim("", http.StatusBadRequest)
+	// Names are limited in characters, not bytes; a bad field is named.
+	name = strings.Repeat("网", 101)
+	response := requestJSON(t, handler, http.MethodPost, "/v1/pairings/claim", "",
+		PairingClaimRequest{PairingCode: code, DeviceName: name, Role: "gateway"}, "")
+	requireStatus(t, response, http.StatusBadRequest)
+	if !strings.Contains(response.Body.String(), "Device name") {
+		t.Fatalf("unnamed field: %s", response.Body.String())
+	}
+	name = strings.Repeat("网", 100)
 	gateway := claim("gateway", http.StatusOK)
 	if gateway.Role != "gateway" || gateway.OwnerID != ownerID {
 		t.Fatalf("gateway pairing: %+v", gateway)

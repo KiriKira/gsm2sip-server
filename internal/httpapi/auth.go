@@ -7,7 +7,12 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
+
+// maxDeviceNameRunes bounds device names in characters, not bytes, so
+// non-ASCII names get the same room.
+const maxDeviceNameRunes = 100
 
 func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 	limited, err := s.consumePairingLimit(r)
@@ -30,8 +35,16 @@ func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 	if request.Platform == "" {
 		request.Platform = "unknown"
 	}
-	if len(request.PairingCode) < 20 || len(request.PairingCode) > 128 || request.DeviceName == "" || len(request.DeviceName) > 100 || !validPlatform(request.Platform) {
-		writeError(w, http.StatusBadRequest, "INVALID_PAIRING_REQUEST", "Pairing code, device name, or platform is invalid.", false)
+	// Each field gets its own message so a failed join says what to fix.
+	switch {
+	case len(request.PairingCode) < 20 || len(request.PairingCode) > 128:
+		writeError(w, http.StatusBadRequest, "INVALID_PAIRING_REQUEST", "Pairing code is incomplete; copy or scan it again.", false)
+		return
+	case request.DeviceName == "" || utf8.RuneCountInString(request.DeviceName) > maxDeviceNameRunes:
+		writeError(w, http.StatusBadRequest, "INVALID_PAIRING_REQUEST", "Device name must be 1 to 100 characters.", false)
+		return
+	case !validPlatform(request.Platform):
+		writeError(w, http.StatusBadRequest, "INVALID_PAIRING_REQUEST", "Platform is invalid.", false)
 		return
 	}
 	tx, err := beginDurable(r.Context(), s.db)
