@@ -43,8 +43,9 @@ services:
       RTC_STUN_URLS: ${RTC_STUN_URLS:-}
       RTC_TURN_URLS: ${RTC_TURN_URLS:-}
       RTC_TURN_SHARED_SECRET: ${RTC_TURN_SHARED_SECRET:-}
-      # Optional push wake-ups: also mount the key read-only, see docs/deploy-images.md.
-      FCM_SERVICE_ACCOUNT_FILE: ${FCM_SERVICE_ACCOUNT_FILE:-}
+      # true lets phones register push endpoints on private addresses (a LAN
+      # UnifiedPush server). Off by default: the node posts to the URL a phone names.
+      PUSH_ALLOW_PRIVATE_ENDPOINTS: ${PUSH_ALLOW_PRIVATE_ENDPOINTS:-false}
       SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:?set a stable base64-encoded 32-byte key in .env}
     ports:
       - "${HTTP_BIND_ADDR:-127.0.0.1}:${HTTP_PORT:-8080}:8080"

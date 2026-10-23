@@ -346,7 +346,7 @@ func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A phone that leaves this node stops receiving its wake-ups.
-	if _, err := tx.ExecContext(r.Context(), `DELETE FROM push_tokens WHERE device_id=$1`, deviceID); err != nil {
+	if _, err := tx.ExecContext(r.Context(), `DELETE FROM push_endpoints WHERE device_id=$1`, deviceID); err != nil {
 		writeDBUnavailable(w)
 		return
 	}

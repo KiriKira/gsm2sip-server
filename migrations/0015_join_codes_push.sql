@@ -14,12 +14,12 @@ CREATE TABLE join_codes (
 );
 CREATE INDEX join_codes_expiry_idx ON join_codes(expires_at);
 
--- FCM registration of a client device. The pushed cursors record the newest
--- SMS and call events already announced, so one push covers every event that
--- arrived since the previous one.
-CREATE TABLE push_tokens (
+-- Push endpoint of a client device (a Kyubey relay URL or another compatible
+-- endpoint). The pushed cursors record the newest SMS and call events already
+-- announced, so one wake-up covers every event since the previous one.
+CREATE TABLE push_endpoints (
     device_id UUID PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
-    token TEXT NOT NULL CHECK (length(token) BETWEEN 1 AND 4096),
+    endpoint TEXT NOT NULL CHECK (length(endpoint) BETWEEN 1 AND 8192),
     pushed_event_cursor BIGINT NOT NULL DEFAULT 0,
     pushed_call_cursor BIGINT NOT NULL DEFAULT 0,
     failures INT NOT NULL DEFAULT 0,

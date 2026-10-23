@@ -495,15 +495,18 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RemoteCall'}
         '404': {description: Call is unavailable to this client.}
-  /devices/self/push-token:
+  /devices/self/push-endpoint:
     put:
       operationId: putPushToken
       description: >-
-        Client only. Registers the device's FCM token after FCM accepts a
-        validate-only request for it, so only deliverable tokens are stored.
-        Each later wake-up is a high-priority data message holding only type,
-        kind (sms or call) and this device's ID on the node; the phone then
-        synchronises over HTTPS. Registering does not announce earlier events.
+        Client only. Registers the device's push endpoint (a Kyubey relay URL
+        or another compatible endpoint) after it accepts a POST of
+        {"kind":"check","device_id":...}, so only endpoints that reach the
+        phone are stored. Each later wake-up is a POST of {"kind":"sms"|"call",
+        "device_id":...} with Urgency high and TTL 60; the phone then
+        synchronises over HTTPS. 404 or 410 from the endpoint removes it.
+        Registering does not announce earlier events. Only public https://
+        endpoints are accepted unless the node allows private ones.
       requestBody:
         required: true
         content:
@@ -511,9 +514,9 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [token]
+              required: [endpoint]
               properties:
-                token: {type: string, minLength: 1, maxLength: 4096}
+                endpoint: {type: string, format: uri, minLength: 1, maxLength: 8192}
       responses:
         '200':
           description: Token stored; wake-ups will follow new events.
@@ -527,12 +530,12 @@ paths:
                   push: {type: string, const: ready}
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
-        '422': {description: 'PUSH_TOKEN_REJECTED: FCM cannot deliver to this token from this server.'}
-        '503': {description: 'PUSH_UNAVAILABLE: this node does not send push; retryable only for transient FCM failures.'}
+        '422': {description: 'PUSH_ENDPOINT_REJECTED: the endpoint does not reach this device.'}
+        '503': {description: 'PUSH_UNAVAILABLE: the endpoint is temporarily unavailable (retryable).'}
     delete:
       operationId: deletePushToken
       responses:
-        '204': {description: Token removed; no further wake-ups.}
+        '204': {description: Endpoint removed; no further wake-ups.}
         '403': {$ref: '#/components/responses/Forbidden'}
 components:
   securitySchemes:
@@ -914,7 +917,7 @@ components:
         protocol_version: {type: integer, const: 1}
         rtc_call_control: {type: boolean, description: RTC call control is available.}
         rtc_audio: {type: boolean}
-        push: {type: boolean, description: This node currently sends FCM wake-ups; clients register a token only where true.}
+        push: {type: boolean, description: This node posts wake-ups to registered push endpoints.}
         extensions:
           type: array
           items: {type: string}

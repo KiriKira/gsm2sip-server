@@ -78,65 +78,78 @@ func TestPostgresPairingCodeRejectsTheOtherRoleWithoutConsumingIt(t *testing.T) 
 
 type fakePush struct {
 	mu    sync.Mutex
-	ready bool
 	err   error
-	sent  []map[string]string
-	valid int
+	sent  []string
+	check int
 }
 
-func (f *fakePush) Ready() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.ready }
+func (f *fakePush) Validate(endpoint string) error {
+	if !strings.HasPrefix(endpoint, "https://") {
+		return push.ErrInvalidEndpoint
+	}
+	return nil
+}
 
-func (f *fakePush) Send(_ context.Context, _ string, data map[string]string, validateOnly bool) error {
+func (f *fakePush) Send(_ context.Context, _, kind, deviceID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {
 		return f.err
 	}
-	if validateOnly {
-		f.valid++
+	if kind == "check" {
+		f.check++
 	} else {
-		f.sent = append(f.sent, data)
+		f.sent = append(f.sent, kind+":"+deviceID)
 	}
 	return nil
 }
 
 func (f *fakePush) sentCount() int { f.mu.Lock(); defer f.mu.Unlock(); return len(f.sent) }
 
-func TestPostgresPushWakesOnNewEventsOnlyWhereItWorks(t *testing.T) {
+func TestPostgresPushWakesOnNewEventsAtTheRegisteredEndpoint(t *testing.T) {
 	database := openIntegrationDatabase(t)
 	f := seedIntegrationFixture(t, database.db)
+	const endpoint = "https://relay.example/v1/w/sealed"
 
-	// Without push, the node neither advertises it nor stores a token.
+	// Without push, the node neither advertises it nor stores an endpoint.
 	plain := New(database.db, nil).Handler()
-	requireStatus(t, requestJSON(t, plain, http.MethodPut, "/v1/devices/self/push-token", f.clientToken,
-		map[string]string{"token": "fcm-token"}, ""), http.StatusServiceUnavailable)
+	requireStatus(t, requestJSON(t, plain, http.MethodPut, "/v1/devices/self/push-endpoint", f.clientToken,
+		map[string]string{"endpoint": endpoint}, ""), http.StatusServiceUnavailable)
 	capabilities := requestJSON(t, plain, http.MethodGet, "/v1/capabilities", "", nil, "")
-	if !json.Valid(capabilities.Body.Bytes()) || !containsJSON(capabilities.Body.Bytes(), `"push":false`) {
+	if !containsJSON(capabilities.Body.Bytes(), `"push":false`) {
 		t.Fatalf("capabilities without push: %s", capabilities.Body.String())
 	}
 
-	fake := &fakePush{ready: true}
+	fake := &fakePush{}
 	server := NewWithOptions(database.db, nil, Options{Push: fake})
 	handler := server.Handler()
-	requireStatus(t, requestJSON(t, handler, http.MethodPut, "/v1/devices/self/push-token", f.gatewayToken,
-		map[string]string{"token": "fcm-token"}, ""), http.StatusForbidden)
+	if !containsJSON(requestJSON(t, handler, http.MethodGet, "/v1/capabilities", "", nil, "").Body.Bytes(), `"push":true`) {
+		t.Fatal("push not advertised")
+	}
+	requireStatus(t, requestJSON(t, handler, http.MethodPut, "/v1/devices/self/push-endpoint", f.gatewayToken,
+		map[string]string{"endpoint": endpoint}, ""), http.StatusForbidden)
+	requireStatus(t, requestJSON(t, handler, http.MethodPut, "/v1/devices/self/push-endpoint", f.clientToken,
+		map[string]string{"endpoint": "http://10.0.0.1/internal"}, ""), http.StatusBadRequest)
 
-	// FCM refusing the token (another project, or unknown) stores nothing.
-	fake.err = push.ErrTokenGone
-	requireStatus(t, requestJSON(t, handler, http.MethodPut, "/v1/devices/self/push-token", f.clientToken,
-		map[string]string{"token": "fcm-token"}, ""), http.StatusUnprocessableEntity)
+	// An endpoint that does not reach the phone is not stored.
+	fake.err = push.ErrEndpointGone
+	requireStatus(t, requestJSON(t, handler, http.MethodPut, "/v1/devices/self/push-endpoint", f.clientToken,
+		map[string]string{"endpoint": endpoint}, ""), http.StatusUnprocessableEntity)
 	fake.err = nil
 
-	// Registration starts from the current events: no push for history.
-	createMessage := func(text, key string) {
+	// Registration starts from the current events: no wake-up for history.
+	createMessage := func(text string) {
 		t.Helper()
 		requireStatus(t, requestJSON(t, handler, http.MethodPost, "/v1/messages", f.clientToken,
 			CreateMessageRequest{GatewayID: f.gatewayID, SIMID: f.simID, MappingRevision: 1,
-				To: "+12025550123", Text: text, TTLSeconds: 300}, key), http.StatusAccepted)
+				To: "+12025550123", Text: text, TTLSeconds: 300}, newUUID()), http.StatusAccepted)
 	}
-	createMessage("before registration", newUUID())
-	requireStatus(t, requestJSON(t, handler, http.MethodPut, "/v1/devices/self/push-token", f.clientToken,
-		map[string]string{"token": "fcm-token"}, ""), http.StatusOK)
+	createMessage("before registration")
+	requireStatus(t, requestJSON(t, handler, http.MethodPut, "/v1/devices/self/push-endpoint", f.clientToken,
+		map[string]string{"endpoint": endpoint}, ""), http.StatusOK)
+	if fake.check != 1 {
+		t.Fatalf("checks: %d", fake.check)
+	}
 	if err := server.pushPending(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -145,32 +158,26 @@ func TestPostgresPushWakesOnNewEventsOnlyWhereItWorks(t *testing.T) {
 	}
 
 	// Two events before the next round are announced once, as SMS.
-	createMessage("one", newUUID())
-	createMessage("two", newUUID())
-	if err := server.pushPending(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if err := server.pushPending(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if fake.sentCount() != 1 || fake.sent[0]["kind"] != "sms" || fake.sent[0]["device_id"] != f.clientID {
-		t.Fatalf("pushes: %v", fake.sent)
-	}
-	for key := range fake.sent[0] {
-		if key != "type" && key != "v" && key != "kind" && key != "device_id" {
-			t.Fatalf("push carries %q", key)
+	createMessage("one")
+	createMessage("two")
+	for i := 0; i < 2; i++ {
+		if err := server.pushPending(context.Background()); err != nil {
+			t.Fatal(err)
 		}
 	}
+	if fake.sentCount() != 1 || fake.sent[0] != "sms:"+f.clientID {
+		t.Fatalf("wake-ups: %v", fake.sent)
+	}
 
-	// A token FCM forgot is dropped.
-	createMessage("three", newUUID())
-	fake.err = push.ErrTokenGone
+	// An endpoint that is gone is dropped.
+	createMessage("three")
+	fake.err = push.ErrEndpointGone
 	if err := server.pushPending(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	var tokens int
-	if err := database.db.QueryRow(`SELECT count(*) FROM push_tokens`).Scan(&tokens); err != nil || tokens != 0 {
-		t.Fatalf("tokens after UNREGISTERED: %d %v", tokens, err)
+	var endpoints int
+	if err := database.db.QueryRow(`SELECT count(*) FROM push_endpoints`).Scan(&endpoints); err != nil || endpoints != 0 {
+		t.Fatalf("endpoints after 410: %d %v", endpoints, err)
 	}
 }
 
@@ -189,7 +196,7 @@ func TestPostgresLeavingANodeStopsItsWakeUps(t *testing.T) {
 		newUUID(), ownerID, tokenHash(code)); err != nil {
 		t.Fatal("seed join code")
 	}
-	handler := NewWithOptions(database.db, nil, Options{Push: &fakePush{ready: true}}).Handler()
+	handler := NewWithOptions(database.db, nil, Options{Push: &fakePush{}}).Handler()
 	response := requestJSON(t, handler, http.MethodPost, "/v1/pairings/claim", "",
 		PairingClaimRequest{PairingCode: code, DeviceName: "main phone", Role: "client"}, "")
 	requireStatus(t, response, http.StatusOK)
@@ -197,12 +204,12 @@ func TestPostgresLeavingANodeStopsItsWakeUps(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &client); err != nil {
 		t.Fatal("decode pairing")
 	}
-	requireStatus(t, requestJSON(t, handler, http.MethodPut, "/v1/devices/self/push-token", client.AccessToken,
-		map[string]string{"token": "fcm-token"}, ""), http.StatusOK)
+	requireStatus(t, requestJSON(t, handler, http.MethodPut, "/v1/devices/self/push-endpoint", client.AccessToken,
+		map[string]string{"endpoint": "https://relay.example/v1/w/sealed"}, ""), http.StatusOK)
 	requireStatus(t, requestJSON(t, handler, http.MethodPost, "/v1/auth/revoke", "",
 		RefreshRequest{RefreshToken: client.RefreshToken}, ""), http.StatusNoContent)
 	var tokens int
-	if err := database.db.QueryRow(`SELECT count(*) FROM push_tokens WHERE device_id=$1`, client.DeviceID).Scan(&tokens); err != nil || tokens != 0 {
+	if err := database.db.QueryRow(`SELECT count(*) FROM push_endpoints WHERE device_id=$1`, client.DeviceID).Scan(&tokens); err != nil || tokens != 0 {
 		t.Fatalf("tokens after revoke: %d %v", tokens, err)
 	}
 }

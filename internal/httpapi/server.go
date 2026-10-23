@@ -51,7 +51,7 @@ func New(database *sql.DB, logger *slog.Logger) *Server {
 type Options struct {
 	SecretCipher *securestore.Cipher
 	RTC          RTCMediaOptions
-	// Push wakes client phones through FCM; nil disables it.
+	// Push posts wake-ups to the endpoints phones register; nil disables it.
 	Push push.Sender
 }
 
@@ -100,8 +100,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/calls", s.authenticated(s.listCalls))
 	mux.HandleFunc("GET /v1/calls/{call_id}", s.authenticated(s.getCall))
 	mux.HandleFunc("POST /v1/devices/self/rtc-capability", s.authenticated(s.rtcCapability))
-	mux.HandleFunc("PUT /v1/devices/self/push-token", s.authenticated(s.putPushToken))
-	mux.HandleFunc("DELETE /v1/devices/self/push-token", s.authenticated(s.deletePushToken))
+	mux.HandleFunc("PUT /v1/devices/self/push-endpoint", s.authenticated(s.putPushEndpoint))
+	mux.HandleFunc("DELETE /v1/devices/self/push-endpoint", s.authenticated(s.deletePushEndpoint))
 	mux.HandleFunc("POST /v1/calls/{call_id}/media", s.authenticated(s.selectRTCMedia))
 	mux.HandleFunc("GET /v1/calls/{call_id}/media", s.authenticated(s.getRTCMedia))
 	mux.HandleFunc("POST /v1/calls/{call_id}/media/active", s.authenticated(s.rtcCellularActive))

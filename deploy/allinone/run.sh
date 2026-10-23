@@ -120,24 +120,13 @@ if [ -z "${RTC_TURN_URLS:-}" ]; then
     printf '%s\n' "$TURN_PID" > "$RUN_DIR/turn-supervisor.pid"
 fi
 
-# The API runs unprivileged: hand it a private copy of the FCM key, which is
-# usually mounted root-only. Without one, push wake-ups stay off.
-FCM_FILE=""
-if [ -n "${FCM_SERVICE_ACCOUNT_FILE:-}" ]; then
-    if install -m 0400 -o gsm2sip -g gsm2sip "$FCM_SERVICE_ACCOUNT_FILE" "$RUN_DIR/fcm.json" 2>/dev/null; then
-        FCM_FILE="$RUN_DIR/fcm.json"
-    else
-        log "FCM_SERVICE_ACCOUNT_FILE is not readable; push wake-ups stay off"
-    fi
-fi
-
 # API and worker
 app_env=(
     DATABASE_URL="$DATABASE_URL" MIGRATIONS_DIR="$MIGRATIONS_DIR"
     SECRETS_ENCRYPTION_KEY="$SECRETS_ENCRYPTION_KEY" HTTP_ADDR="$HTTP_ADDR"
     RTC_STUN_URLS="${RTC_STUN_URLS:-}" RTC_TURN_URLS="${RTC_TURN_URLS:-}"
     RTC_TURN_SHARED_SECRET="${RTC_TURN_SHARED_SECRET:-}"
-    FCM_SERVICE_ACCOUNT_FILE="$FCM_FILE"
+    PUSH_ALLOW_PRIVATE_ENDPOINTS="${PUSH_ALLOW_PRIVATE_ENDPOINTS:-false}"
 )
 env -i PATH=/usr/bin:/bin "${app_env[@]}" setpriv --reuid=gsm2sip --regid=gsm2sip --init-groups \
     /usr/local/libexec/gsm2sip-api &

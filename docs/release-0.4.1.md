@@ -13,22 +13,24 @@
   上报，最多等待 45 秒，并区分“旧手机还没加入”和“是另一台旧手机”。
 - **Homura 语音自动恢复**：Magisk 模块已挂载（应用持有 `CAPTURE_AUDIO_OUTPUT`）、仍是默认电话应用且语音权限齐全时，
   重启、升级、进程重启后自动启动语音，不再需要点“诊断并启动”；用户停止网关后不再自动恢复。
-- **FCM 唤醒主手机（可选）**：服务器设 `FCM_SERVICE_ACCOUNT_FILE` 后，Madoka（有 Google Play 服务、构建带 Firebase 配置）
-  在该节点登记令牌；新短信或来电时服务器发高优先级 data 消息，只含 `sms`/`call` 与设备 ID，不含号码或正文。
-  - 节点没有 FCM 或密钥错误时，`/v1/capabilities` 的 `push` 为 false，手机不登记、每节点每天最多问一次，轮询与 0.4.0 相同。
-  - 只有当前节点确认登记后，空闲轮询才由 8 s / 3 s 放宽为 30 s / 10 s。
+- **推送唤醒主手机**：节点不需要任何推送凭据。Madoka（有 Google Play 服务、构建带 Firebase 配置与中继地址）把 FCM 令牌交给
+  [Kyubey](https://github.com/KiriKira/Kyubey) 中继（Cloudflare Worker，无存储）换成一个推送地址，登记到每个节点；节点在新短信或
+  来电时向该地址 POST `{"kind","device_id"}`，中继转成高优先级 FCM data 消息，不含号码或正文。
+  - 登记时节点先发一次 `check`（中继只让 FCM 校验、不投递），通过才保存；地址返回 404/410 即删除。
+  - 节点默认只接受公网 `https://` 地址；局域网 UnifiedPush 服务器需设 `PUSH_ALLOW_PRIVATE_ENDPOINTS=true`。
+  - 中继不可用或令牌被拒时手机不登记、每节点每天最多重试一次，轮询与 0.4.0 相同；只有当前节点确认登记后，空闲轮询才由
+    8 s / 3 s 放宽为 30 s / 10 s。
   - 推送到达但连不上任何节点时，12 秒后提示“有来电，但连不上服务器”，不额外重试。
-  - 手机离开节点（撤销会话）时服务器删除其令牌。
+  - 手机离开节点（撤销会话）时服务器删除其推送地址。
 
 ## 升级（三端一起）
 
 1. **服务器**：备份后把 `GSM2SIP_VERSION` 改为 `v0.4.1`，`docker compose pull && docker compose up -d`。新增迁移
-   `0015_join_codes_push.sql` 只建新表。要用 FCM：按 [deploy-images.md](deploy-images.md#推送唤醒fcm可选) 挂载服务账号 JSON
-   并设 `FCM_SERVICE_ACCOUNT_FILE`，启动日志出现 `push wake-ups enabled`。
+   `0015_join_codes_push.sql` 只建新表。推送无需服务器配置；中继按 Kyubey 仓库 README 部署一次即可。
 2. **Homura**：覆盖安装 `gateway.apk`（Magisk 用户无需重刷模块，重刷只更新模块显示的版本）。
 3. **Madoka**：覆盖安装 `gsm2sip-host.apk`。
 
 ## 回退
 
-三端一起回退到 0.4.0，服务器先回。0.4.0 不读 `join_codes`、`push_tokens` 两张新表，保留无害；0.4.1 生成的加入码在回退后失效，
+三端一起回退到 0.4.0，服务器先回。0.4.0 不读 `join_codes`、`push_endpoints` 两张新表，保留无害；0.4.1 生成的加入码在回退后失效，
 需改用 `gsm2sip-admin pairing-code create`。

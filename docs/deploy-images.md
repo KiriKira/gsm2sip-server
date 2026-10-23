@@ -99,18 +99,12 @@ $A join create --url https://手机访问这台服务器的地址
 
 仍可用 `owner create` 与 `pairing-code create --role gateway|client` 为单部手机生成配对码。
 
-### 推送唤醒（FCM，可选）
+### 推送唤醒
 
-把 Firebase 服务账号 JSON 放到服务器上，只读挂入容器，并设 `FCM_SERVICE_ACCOUNT_FILE` 为容器内路径：
-
-- 一体镜像：文件权限 600 即可（容器启动时以 root 读取后交给 API），compose 里加
-  `volumes: ["/opt/mahogsm/fcm-service-account.json:/run/secrets/fcm.json:ro"]` 与
-  `environment: {FCM_SERVICE_ACCOUNT_FILE: /run/secrets/fcm.json}`；`docker run` 用相同的 `-v` 和 `-e`。
-- 分镜像：API 以 nonroot（uid 65532）运行，先 `chown 65532:65532` 并 `chmod 400` 这个文件，再在 api 服务里加同样的挂载，
-  `.env` 里设 `FCM_SERVICE_ACCOUNT_FILE=/run/secrets/fcm.json`。
-
-所有节点用同一个服务账号。启动日志出现 `push wake-ups enabled` 即生效，`/v1/capabilities` 的 `push` 为 `true`；
-文件缺失或密钥错误时只记录错误并关闭推送，主手机照常使用原来的唤醒通道，不会多耗电。
+节点不需要任何推送凭据：主手机（Madoka）在每个节点登记自己的推送地址（通常是 [Kyubey](https://github.com/KiriKira/Kyubey)
+中继的 URL），节点在新短信或来电时向它 POST `{"kind":"sms"|"call","device_id":...}`，不含号码或正文。`/v1/capabilities` 的
+`push` 为 `true` 即表示支持。默认只接受公网 `https://` 地址；要让手机使用局域网里的 UnifiedPush 服务器（如 ntfy），
+设 `PUSH_ALLOW_PRIVATE_ENDPOINTS=true`。
 
 ### 升级与维护
 

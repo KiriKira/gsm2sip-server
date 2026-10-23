@@ -75,23 +75,10 @@ func main() {
 			os.Exit(2)
 		}
 	}
-	if path := strings.TrimSpace(os.Getenv("FCM_SERVICE_ACCOUNT_FILE")); path != "" {
-		// A missing or wrong key disables push only; phones keep their
-		// normal wake channel, so the API still starts.
-		fcm, loadErr := push.LoadFCM(path)
-		if loadErr != nil {
-			logger.Error("push wake-ups disabled: FCM_SERVICE_ACCOUNT_FILE is unusable", "error", loadErr)
-		} else {
-			checkCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			if checkErr := fcm.Check(checkCtx); checkErr != nil {
-				logger.Warn("push wake-ups unavailable until the FCM key works; retrying every 10 minutes", "project", fcm.Project(), "error", checkErr)
-			} else {
-				logger.Info("push wake-ups enabled", "project", fcm.Project())
-			}
-			cancel()
-			options.Push = fcm
-		}
-	}
+	// Phones register their own push endpoints; the node needs no push
+	// credentials. Private endpoints (a LAN UnifiedPush server) are opt-in
+	// because the node would otherwise post to any address a phone names.
+	options.Push = push.NewHTTP(strings.EqualFold(strings.TrimSpace(os.Getenv("PUSH_ALLOW_PRIVATE_ENDPOINTS")), "true"))
 	api := httpapi.NewWithOptions(database, logger, options)
 	go api.RunBackground(ctx)
 	address := strings.TrimSpace(os.Getenv("HTTP_ADDR"))
