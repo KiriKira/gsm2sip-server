@@ -11,6 +11,7 @@ Kyubey 地址；推送用例的主手机用带 Google Play 的模拟器镜像。
 | T3 | Madoka 熄屏并 `dumpsys deviceidle force-idle` | 服务器 `push_endpoints` 有该设备；Doze 中来电 10 秒内响铃，新短信有通知 |
 | T4 | 在 T3 的 Madoka 上 `adb install -r` 覆盖一个空中继地址的构建（保留数据），打开 Madoka | 1 分钟内 `push_endpoints` 无该设备（日志 `push=withdrawn`）；通话与短信照常，Madoka 日志无反复登记 |
 | T5 | 推送正常，但在服务器主机防火墙临时拦截 API 端口后打来电 | 12 秒左右 Madoka 出现“有来电，但连不上服务器”；解除拦截后正常 |
+| T6 | Madoka 不接一通来电；再把 Madoka 断网（飞行模式）后打一通 | 两次主叫都持续听到回铃直到自己挂断或运营商提示无人接听，不是被挂断；Homura 模拟器不出声；Madoka 恢复网络后下一通来电正常响铃 |
 
 模拟器没有摄像头时，用 `VIEW` intent 代替扫码，整条命令交给设备 shell，链接用单引号包住（否则 `&` 会截断链接）：
 
