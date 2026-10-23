@@ -87,3 +87,22 @@ T4 私有证据保存在实验机 `private-r3/t4-transition.txt`。测试后已�
 - Madoka：`105c4697ff4732287659bf3742dad79268e62927`，包含推送撤销修复 `ecd689faf551e4b48a6621129c570ea37af55046`；FCM 与空 relay APK 均由该提交构建。FCM 最终 APK SHA-256：`ca048089a28dc5cb3c1daf51d4953cc93c0887e4fe540f2e7818fff1d9f15eea`；空 relay 最终 APK SHA-256：`e71fff93b3bd674a2593194141ed4b6685d26e9f227ae41bf90d3e9760267855`。
 
 三个最终 Android APK 使用同一 debug keystore，versionCode 均为 `1000000000`，签名证书 SHA-256 均为 `2c613d0386c319b54abd14796fee004ea44681bfe3b69ddd33f7062cd3845f28`。本轮在 `SIM_CONFIRM_FAILED` 后停止，没有继续实验机测试；未把已 journaled 的 SMS、已修复的推送撤销子项或未运行的后续用例扩大记为整体通过。报告不记录私人 endpoint URL、token 或一次性配对码。
+
+## 第五轮补测（2026-10-23）
+
+按计划提交 `985b1d3c4cfb1a77f877e882784cd8e88b5aeaef` 补测：已知实验机限制记 `BLOCKED（环境）`，只中断依赖该限制的用例；不依赖 Homura 的 T5 可用只连接 D 的 synthetic gateway 通过生产 API 独立验证。前四轮原始结果保留不变；T1/T2/T3 本轮未重跑。
+
+| 测项 | 结果 | 关键证据 |
+| --- | --- | --- |
+| T1 | N/A（沿用，未重跑） | 沿用既有模拟器不满足语音及 Magisk 前提的判定。 |
+| T2 | PASS（沿用，未重跑） | 沿用第二轮同一码、两角色加入的计时证据。 |
+| T3 | PASS（沿用，未重跑） | 沿用第三轮 synthetic gateway → D → Kyubey → FCM → Madoka Doze 通知证据及其范围限制。 |
+| T4 | BLOCKED（环境；撤销子项沿用 PASS） | 推送撤销子项沿用第四轮的 `push=withdrawn` 及该设备登记由 1 降为 0 的 PASS。补测正常通话/短信需要 Homura 恢复运行，但新 Homura 已安装、启动并尝试确认 SIM 后，界面原文为 `SIM 确认失败：SIM_MAPPING_CHANGED（Changed SIM binding requires a newer server revision）`；未能恢复，故通话/短信补测为环境阻塞，不计 PASS。 |
+| T5 | PASS（独立验证通知提示） | Madoka 在 D 的 `push_endpoints` 中有 1 条登记，预检时 RTC 能力最近更新时间距检查约 11 秒。重建仅连接 D 的 synthetic gateway，SIM revision 为 1，heartbeat/capability 成功。服务器主机临时使用 OUTPUT + INPUT DROP 阻断 API 的 host 映射 `127.0.0.1:18100`；root curl 探测返回 exit `28`、HTTP `000`。阻断期间通过 D 容器私网 `172.17.0.2:8080` 调用同一生产 `/v1/rtc/control/incoming`，返回 HTTP 201。首次 UI 树检查在 API 请求后约 16.4 秒，主页面无提示文案，但系统通知已存在精确标题“有来电，但连不上服务器”及正文“网络恢复后可在通话记录中查看这通来电。”；按通知提示判定通过。 |
+| T6 | BLOCKED（环境） | Homura 的同一 `SIM_MAPPING_CHANGED` 确认错误使运行及 SIM 前提未满足；未执行 T6 的来电、不接/断网时主叫回铃保持或恢复网络后下一通来电验证。 |
+
+T5 验证的是 **synthetic gateway → D → Kyubey → FCM → Madoka 的 API 不可达通知提示**，没有执行 Homura 相关动作，不声称蜂窝/HAL 音频或扬声器实播。约 16.4 秒是首次 UI 树检查时点，不是通知首次出现时间；本次未测定精确的约 12 秒首现延迟。提示位于系统通知，不是应用主页面文案。
+
+T5 结束后已恢复防火墙规则并确认无残留；synthetic call 已 `ended`，gateway capability 已 disabled、session 已 revoked，临时 credential 已删除。私有远端证据为 `/home/ubuntu/gsm-webrtc-validation/round5-20261023/private/t5-result.json` 与同目录 `t5-notification-evidence.txt`；本报告仅记录关键事实，不提交私有证据文件、token 或 endpoint URL。
+
+本轮构建：D 仍使用 `ghcr.io/kirikira/gsm2sip:sha-f67071f`；Madoka 沿用第四轮 `105c4697ff4732287659bf3742dad79268e62927` 的 FCM APK，versionCode `1000000000`。Homura 使用 `6c1691b` debug APK，与既有构建同 keystore，versionCode `1000000000`；其 SIM 确认错误按上述环境阻塞记录。
