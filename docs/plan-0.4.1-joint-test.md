@@ -21,4 +21,6 @@ adb -s <serial> shell "am start -a android.intent.action.VIEW -d 'mahogsm://join
 
 加入失败时额外记录：`adb logcat -d | grep 'dat=mahogsm'` 中链接的长度（码只用一次，可记原文），以及 Homura 设置页里的设备名。
 
-正常使用中可能出现的失败照旧中断并记录。结果写入 `docs/release-0.4.1-validation-<日期>.md`。
+正常使用中可能出现的失败只中断**该用例**并记录，其余不依赖它的用例继续跑。实验机已知限制（无 Magisk、模拟器 SIM 无指纹导致重装后需重新确认 SIM）
+造成的阻塞记 BLOCKED（环境）并写清楚现象，不记 FAIL。T5 不依赖 Homura，可像 T3 一样用只连 D 的 synthetic gateway 通过生产 API 造来电；
+T6 需要 Homura 在运行且 SIM 已确认。结果写入 `docs/release-0.4.1-validation-<日期>.md`。
