@@ -43,3 +43,26 @@ adb -s <serial> shell "am start -a android.intent.action.VIEW -d '<同一完整�
 - Madoka：`75af4b7c35bb9885308a1052b81de3d7c50b81a1`；带 Firebase 配置和 Kyubey 地址的 FCM APK，临时 CI run [39913412209](https://github.com/KiriKira/gsm2sip-client-android/actions/runs/39913412209)，APK SHA-256：`8008b7b11b0e0570b6a5e5e9889c51503f98da2619e816fdaec0939d166bbd9c`。本轮用于带 Google Play 服务的 API 29 模拟器。
 
 两个 Android APK 使用同一 debug keystore，versionCode 均为 `1000000000`。本轮在 T3 阻断后停止，没有把未执行的 Doze、通话、短信或故障提示断言计为通过。
+
+## 第三轮重跑（2026-10-23）
+
+按本分支最新版 `docs/plan-0.4.1-joint-test.md` 继续验证 T3–T5；T1/T2 未重跑，沿用第二轮结论。D 升级为 `sha-f67071f` 后为 healthy，保留 D 的持久数据；本轮使用仅连接 D 的额外 synthetic gateway 身份，通过生产 API 生成事件，不直接写数据库，也不操作 A/B/C。
+
+| 测项 | 结果 | 关键证据 |
+| --- | --- | --- |
+| T1 | N/A（沿用，未重跑） | 第二轮已确认升级前后台运行、语音及 Magisk 前提不满足，按计划跳过；本轮不重新作升级或重启断言。 |
+| T2 | PASS（沿用，未重跑） | 沿用第二轮同一码、两角色成功加入的计时证据；不宣称在 `f67071f` 上重新执行过 T2。 |
+| T3 | PASS（synthetic gateway 推送通知范围） | D 已登记 Madoka 的 `push_endpoints` 1 行。Madoka 屏幕为 OFF，`deviceidle mState=IDLE`；生产 incoming API 返回 HTTP 201。`call_id=c57c5ca7-c96d-4e61-9f73-d28b7b420e2e`，AVD 记录 `GsmRtc event=control_incoming` 与 `HostCall Incoming call ringing`，请求至 ringing log 实测约 0.3 秒（宿主与模拟器时钟差约 1.05 秒）。通知 ID `7401`、channel `incoming-calls-ringing`，带接听/拒接 actions；之后 call cleanup 为 `ended`。唯一标记短信 `T3-SMS-20261023-0809` 经生产 `events:batch` 返回 HTTP 200，约 1.9 秒内出现 `host-inbound-sms-content` 通知；D 推送 cursor 成功推进，`failures=0`。 |
+| T4 | FAIL（覆盖空中继构建后旧登记仍在） | 同一 Madoka、同一 D client `de9cbed4-5ac6-420e-b4d5-3240cb5cd881`，以 `adb install -r` 从 FCM APK 覆盖为空 relay APK，保留数据，未人工删除 endpoint 或换新身份。正常打开并等待 12 秒后，该设备的 `push_endpoints` 仍为 1；该观察窗口 `HostPush` 日志为 0 行，服务仍 active。不满足“`push_endpoints` 无该设备”的判定，按计划停止，未执行 T4 后续通话/短信断言。 |
+| T5 | NOT RUN | T4 正常覆盖切换流程出现失败后，按计划停止；未执行 API 阻断及其恢复断言。 |
+
+T3 的 PASS 范围为 **synthetic gateway → D → Kyubey → FCM → Madoka Doze 来电/短信通知**：生产 API 建立真实 incoming call 和 SMS event，再由服务器正常推送。它不代表 Homura 蜂窝接入、蜂窝/HAL 音频或扬声器实际播放铃声已验证。
+
+本轮预检中，实验机指定 curl 的旧版本不支持 `%{header{cf-mitigated}}`；改用 `-D` 读取响应头后，实测 HTTP 404，`cf-mitigated` 为空，本轮预检未出现 403。此结果不改写第二轮已经记录的 403 失败。
+
+本轮构建与覆盖安装证据：
+
+- SoulGem：`f67071f4646fdf78233bf80b8af5d721db8c1061`，镜像 `ghcr.io/kirikira/gsm2sip:sha-f67071f`；多架构 digest `sha256:5af3461af364f3171d30d59cd51a040997ce59b56c042281aeb70265d03105fa`。镜像发布 run [39920753113](https://github.com/KiriKira/gsm2sip-server/actions/runs/39920753113) 的 amd64/arm64 smoke 及发布均成功，两个架构的 revision 均与该完整提交一致。
+- Madoka：`75af4b7c35bb9885308a1052b81de3d7c50b81a1`。T3 的 FCM APK SHA-256 为 `8008b7b11b0e0570b6a5e5e9889c51503f98da2619e816fdaec0939d166bbd9c`；T4 覆盖安装的空 relay APK SHA-256 为 `c9d15d3cfa62c24d4778d71dc9402c51b80524610acd3eb7734cff4ad05e387f`。两者 versionCode 均为 `1000000000`，签名证书 SHA-256 均为 `2c613d0386c319b54abd14796fee004ea44681bfe3b69ddd33f7062cd3845f28`。
+
+T4 私有证据保存在实验机 `private-r3/t4-transition.txt`。测试后已恢复上述 FCM APK（SHA-256 `8008b7b11b0e0570b6a5e5e9889c51503f98da2619e816fdaec0939d166bbd9c`），D 中该设备的 endpoint 登记仍保留 1 行。报告不包含私人 token、endpoint URL 或一次性配对码。
