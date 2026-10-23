@@ -45,8 +45,15 @@ func TestStatusesTellTheNodeWhatToDo(t *testing.T) {
 			t.Fatalf("HTTP %d: %v", status, err)
 		}
 	}
-	for _, status := range []int{http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable} {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status) }))
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, -http.StatusForbidden} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			if status < 0 {
+				// A Cloudflare challenge page, not the relay's answer.
+				w.Header().Set("Cf-Mitigated", "challenge")
+				status = -status
+			}
+			w.WriteHeader(status)
+		}))
 		err := NewHTTP(true).Send(context.Background(), server.URL, "sms", "d")
 		server.Close()
 		if err == nil || errors.Is(err, ErrEndpointGone) || errors.Is(err, ErrEndpointRefused) {

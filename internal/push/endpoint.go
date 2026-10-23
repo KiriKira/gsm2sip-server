@@ -128,6 +128,12 @@ func (h *HTTP) Send(ctx context.Context, endpoint, kind, deviceID string) error 
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 	_ = response.Body.Close()
+	if response.Header.Get("Cf-Mitigated") != "" {
+		// A Cloudflare challenge in front of the relay, not the relay's
+		// answer: the endpoint may still work once the zone stops
+		// challenging this node, so retry instead of forgetting it.
+		return fmt.Errorf("push endpoint challenged (HTTP %d)", response.StatusCode)
+	}
 	return classify(response.StatusCode)
 }
 
