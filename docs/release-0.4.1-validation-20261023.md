@@ -106,3 +106,19 @@ T5 验证的是 **synthetic gateway → D → Kyubey → FCM → Madoka 的 API 
 T5 结束后已恢复防火墙规则并确认无残留；synthetic call 已 `ended`，gateway capability 已 disabled、session 已 revoked，临时 credential 已删除。私有远端证据为 `/home/ubuntu/gsm-webrtc-validation/round5-20261023/private/t5-result.json` 与同目录 `t5-notification-evidence.txt`；本报告仅记录关键事实，不提交私有证据文件、token 或 endpoint URL。
 
 本轮构建：D 仍使用 `ghcr.io/kirikira/gsm2sip:sha-f67071f`；Madoka 沿用第四轮 `105c4697ff4732287659bf3742dad79268e62927` 的 FCM APK，versionCode `1000000000`。Homura 使用 `6c1691b` debug APK，与既有构建同 keystore，versionCode `1000000000`；其 SIM 确认错误按上述环境阻塞记录。
+
+### 第五轮续测：Homura 修复后（2026-10-23）
+
+本节追加修复后的复测证据，保留上表当时的 BLOCKED 记录，不回写或抹除原始结论。Homura 的 SIM 恢复失败由该仓库分支提交 `776afe1a5fafbd94c5f08af2ab359ef1d4d3ab96` 修复：旧的持久化 SIM proposal revision 8 落后于本地 revision 16；清理旧 proposal 后，原先被旧 UNVERIFIED 绑定占用的同一订阅可通过正常确认流程恢复。针对 proposal 恢复、数据库更新和真实 `confirmMappings` 路径的 25 项 JVM/Robolectric 测试通过。修复后保留安装与应用数据，未卸载或清除 Madoka/Homura 数据。
+
+复测仍使用 D `ghcr.io/kirikira/gsm2sip:sha-f67071f`、Madoka `105c469`、Homura `776afe1a5fafbd94c5f08af2ab359ef1d4d3ab96`。Homura 与 Madoka 使用同一 debug keystore 和 versionCode `1000000000`。Madoka 的空中继 APK SHA-256 为 `e71fff93b3bd674a2593194141ed4b6685d26e9f227ae41bf90d3e9760267855`，FCM APK SHA-256 为 `ca048089a28dc5cb3c1daf51d4953cc93c0887e4fe540f2e7818fff1d9f15eea`；签名证书 SHA-256 为 `2c613d0386c319b54abd14796fee004ea44681bfe3b69ddd33f7062cd3845f28`。D 镜像、数据和容器配置未更改。
+
+| 测项 | 修复后结果 | 关键证据 |
+| --- | --- | --- |
+| T4 | PASS（撤销子项沿用 PASS；通话、短信续测通过） | 空中继 APK 安装后 D 的 `push_endpoints` 保持 0。修复后的 SIM 恢复保留既有数据和配对；短信经模拟 modem 注入后 Madoka 可见且 D 状态为 `received`，Madoka 回复显示“Submitted to mobile network”、D 状态为 `delivered`。Madoka 发起的 WebRTC 通话 `4da019f9-c70a-4a7a-b6fb-5020264acdd2` 到达 `BRIDGED`/Telecom ACTIVE，Host 与 Homura ICE 均选中 `srflx/srflx`，双方 RTP 计数递增，最后从 Madoka 界面挂断。反向来电 `a240ee5d-a42c-4922-bc09-24b8272e8735` 通过系统来电通知接听，服务端参与方进入 active 后正常结束。通话桥使用合成 PCM，故只验证信令、通话状态和 WebRTC 媒体包流，不声称模拟器验证了蜂窝 HAL 或真实可听音频；短信状态也不代表运营商实际送达。 |
+| T5 | PASS（沿用第五轮结果，本次未重跑） | 沿用上表的生产 API 注入、API 端口阻断和系统通知证据；不依赖 Homura。本次只聚焦 T4 恢复与 T6。 |
+| T6 | BLOCKED（环境：无法验证主叫实际听到的回铃音） | 在线未接来电时 Homura 记录 `Leaving the GSM call unanswered`；Madoka 来电界面超时后 Android Telecom 仍保持 `RINGING`，测试人员随后取消模拟主叫。Madoka 完全断网（`Active default network: none`）期间再注入来电，Homura 同样记录该日志，Madoka 未收到 RTC 来电；模拟器 Telecom 保持 RINGING，未被应用挂断。恢复网络后下一通来电进入 Madoka，出现 `HostCall: Incoming call ringing` 和系统 Answer 通知。模拟器不能验证真实主叫端持续听到回铃音，因此该音频判据仍 BLOCKED，未将整项 T6 记 PASS。 |
+
+T4 首次恢复后的去电尝试因实验机对服务器公网地址的 hairpin 路由未建立而未选出 ICE candidate；临时添加的精确 `/32` 本机路由后，去电和来电复测成功。该临时路由及到期 timer 已清理，未改服务器或容器网络配置。断网用例使用 `svc wifi/data disable`，并以 default network 为 `none` 验证隔离；结束后已恢复 Wi-Fi、移动数据和 default network。主叫仍 RINGING 的模拟器状态通过显式取消 synthetic caller 清理。
+
+关键私有证据留在实验机 `/home/ubuntu/gsm-webrtc-validation/round6-20261023/private/`，包括 `t4-recovery-evidence.json`、`t4-outgoing-connected.json`、`t4-answered-incoming-evidence.txt`、`t6-unanswered-virtual-call.txt`、`t6-offline-evidence.txt` 与 `t6-restored-call-evidence.txt`；私有证据包未提交到仓库。
