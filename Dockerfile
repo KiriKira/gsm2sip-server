@@ -17,14 +17,14 @@ COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/gsm2sip-api ./cmd/api && \
     CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/gsm2sip-worker ./cmd/worker && \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/gsm2sip-admin ./cmd/admin
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/mahogsm-admin ./cmd/admin
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
 WORKDIR /app
 COPY --from=build /out/gsm2sip-api /usr/local/bin/gsm2sip-api
 COPY --from=build /out/gsm2sip-worker /usr/local/bin/gsm2sip-worker
-COPY --from=build /out/gsm2sip-admin /usr/local/bin/gsm2sip-admin
+COPY --from=build /out/mahogsm-admin /usr/local/bin/mahogsm-admin
 COPY --chown=nonroot:nonroot migrations/ /app/migrations/
 
 ENV MIGRATIONS_DIR=/app/migrations

@@ -495,6 +495,48 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RemoteCall'}
         '404': {description: Call is unavailable to this client.}
+  /devices/self/push-endpoint:
+    put:
+      operationId: putPushToken
+      description: >-
+        Client only. Registers the device's push endpoint (a Kyubey relay URL
+        or another compatible endpoint) after it accepts a POST of
+        {"kind":"check","device_id":...}, so only endpoints that reach the
+        phone are stored. Each later wake-up is a POST of {"kind":"sms"|"call",
+        "device_id":...} with Urgency high and TTL 60; the phone then
+        synchronises over HTTPS. 404 or 410 from the endpoint removes it.
+        Registering does not announce earlier events. Only public https://
+        endpoints are accepted unless the node allows private ones.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [endpoint]
+              properties:
+                endpoint: {type: string, format: uri, minLength: 1, maxLength: 8192}
+      responses:
+        '200':
+          description: Token stored; wake-ups will follow new events.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [push]
+                properties:
+                  push: {type: string, const: ready}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {description: 'PUSH_ENDPOINT_REJECTED: the endpoint does not reach this device.'}
+        '503': {description: 'PUSH_UNAVAILABLE: the endpoint is temporarily unavailable (retryable).'}
+    delete:
+      operationId: deletePushToken
+      responses:
+        '204': {description: Endpoint removed; no further wake-ups.}
+        '403': {$ref: '#/components/responses/Forbidden'}
 components:
   securitySchemes:
     bearerAuth:
@@ -629,6 +671,13 @@ components:
       properties:
         pairing_code: {type: string, minLength: 20, maxLength: 128}
         device_name: {type: string, minLength: 1, maxLength: 100}
+        role:
+          type: string
+          enum: [gateway, client]
+          description: >-
+            The pairing device's kind. Required for a join code, which pairs one
+            gateway and one client. A pairing code fixes its role; a different
+            role here is rejected without using the code.
         platform:
           type: string
           pattern: '^\s*(?:[a-z][a-z0-9_-]{0,31})?\s*$'
@@ -868,6 +917,7 @@ components:
         protocol_version: {type: integer, const: 1}
         rtc_call_control: {type: boolean, description: RTC call control is available.}
         rtc_audio: {type: boolean}
+        push: {type: boolean, description: This node posts wake-ups to registered push endpoints.}
         extensions:
           type: array
           items: {type: string}

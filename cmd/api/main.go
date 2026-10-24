@@ -14,6 +14,7 @@ import (
 
 	"github.com/kirikira/gsm2sip-server/internal/db"
 	"github.com/kirikira/gsm2sip-server/internal/httpapi"
+	"github.com/kirikira/gsm2sip-server/internal/push"
 	"github.com/kirikira/gsm2sip-server/internal/securestore"
 )
 
@@ -74,6 +75,10 @@ func main() {
 			os.Exit(2)
 		}
 	}
+	// Phones register their own push endpoints; the node needs no push
+	// credentials. Private endpoints (a LAN UnifiedPush server) are opt-in
+	// because the node would otherwise post to any address a phone names.
+	options.Push = push.NewHTTP(strings.EqualFold(strings.TrimSpace(os.Getenv("PUSH_ALLOW_PRIVATE_ENDPOINTS")), "true"))
 	api := httpapi.NewWithOptions(database, logger, options)
 	go api.RunBackground(ctx)
 	address := strings.TrimSpace(os.Getenv("HTTP_ADDR"))

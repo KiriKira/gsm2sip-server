@@ -103,7 +103,9 @@ jobs:
           set -euo pipefail
           mkdir -p debug-dist
           for command in api worker admin; do
-            go build -trimpath -gcflags='all=-N -l' -o "debug-dist/gsm2sip-$command" "./cmd/$command"
+            binary="gsm2sip-$command"
+            [[ "$command" == admin ]] && binary=mahogsm-admin
+            go build -trimpath -gcflags='all=-N -l' -o "debug-dist/$binary" "./cmd/$command"
           done
           cp -r migrations debug-dist/
           cp DEBUG-BATCH.md debug-dist/

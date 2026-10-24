@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kirikira/gsm2sip-server/internal/calls"
+	"github.com/kirikira/gsm2sip-server/internal/push"
 	"github.com/kirikira/gsm2sip-server/internal/securestore"
 
 	"github.com/gorilla/websocket"
@@ -34,6 +35,7 @@ type Server struct {
 	secretCipher *securestore.Cipher
 	history      *calls.History
 	rtc          *rtcMediaRuntime
+	push         push.Sender
 
 	wsMu          sync.Mutex
 	wsByDevice    map[string]int
@@ -49,6 +51,8 @@ func New(database *sql.DB, logger *slog.Logger) *Server {
 type Options struct {
 	SecretCipher *securestore.Cipher
 	RTC          RTCMediaOptions
+	// Push posts wake-ups to the endpoints phones register; nil disables it.
+	Push push.Sender
 }
 
 func NewWithOptions(database *sql.DB, logger *slog.Logger, options Options) *Server {
@@ -59,6 +63,7 @@ func NewWithOptions(database *sql.DB, logger *slog.Logger, options Options) *Ser
 		db: database, logger: logger, now: time.Now,
 		secretCipher: options.SecretCipher, history: calls.NewHistory(database),
 		wsByDevice: make(map[string]int), wsConnections: make(map[*websocket.Conn]struct{}),
+		push: options.Push,
 	}
 	server.startRTCMedia(options.RTC)
 	return server
@@ -73,7 +78,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/capabilities", func(w http.ResponseWriter, _ *http.Request) {
 		// Public and secret-free: clients probe it to measure a node and to learn
 		// which optional request fields it accepts before sending them.
-		writeJSON(w, http.StatusOK, map[string]any{"protocol_version": 1, "extensions": SupportedExtensions, "rtc_audio": s.rtc != nil, "rtc_call_control": s.rtc != nil})
+		writeJSON(w, http.StatusOK, map[string]any{"protocol_version": 1, "extensions": SupportedExtensions, "rtc_audio": s.rtc != nil, "rtc_call_control": s.rtc != nil, "push": s.pushReady()})
 	})
 	mux.HandleFunc("POST /v1/pairings/claim", s.claimPairing)
 	mux.HandleFunc("POST /v1/auth/refresh", s.refreshSession)
@@ -95,6 +100,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/calls", s.authenticated(s.listCalls))
 	mux.HandleFunc("GET /v1/calls/{call_id}", s.authenticated(s.getCall))
 	mux.HandleFunc("POST /v1/devices/self/rtc-capability", s.authenticated(s.rtcCapability))
+	mux.HandleFunc("PUT /v1/devices/self/push-endpoint", s.authenticated(s.putPushEndpoint))
+	mux.HandleFunc("DELETE /v1/devices/self/push-endpoint", s.authenticated(s.deletePushEndpoint))
 	mux.HandleFunc("POST /v1/calls/{call_id}/media", s.authenticated(s.selectRTCMedia))
 	mux.HandleFunc("GET /v1/calls/{call_id}/media", s.authenticated(s.getRTCMedia))
 	mux.HandleFunc("POST /v1/calls/{call_id}/media/active", s.authenticated(s.rtcCellularActive))

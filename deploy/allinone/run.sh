@@ -126,6 +126,7 @@ app_env=(
     SECRETS_ENCRYPTION_KEY="$SECRETS_ENCRYPTION_KEY" HTTP_ADDR="$HTTP_ADDR"
     RTC_STUN_URLS="${RTC_STUN_URLS:-}" RTC_TURN_URLS="${RTC_TURN_URLS:-}"
     RTC_TURN_SHARED_SECRET="${RTC_TURN_SHARED_SECRET:-}"
+    PUSH_ALLOW_PRIVATE_ENDPOINTS="${PUSH_ALLOW_PRIVATE_ENDPOINTS:-false}"
 )
 env -i PATH=/usr/bin:/bin "${app_env[@]}" setpriv --reuid=gsm2sip --regid=gsm2sip --init-groups \
     /usr/local/libexec/gsm2sip-api &

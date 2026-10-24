@@ -21,6 +21,7 @@ import argparse
 import datetime as dt
 import hashlib
 import io
+import os
 import json
 import re
 import sqlite3
@@ -30,7 +31,7 @@ import tempfile
 import time
 from pathlib import Path
 
-ROOT = Path('/home/ubuntu/gsm-webrtc-validation/joint-0.4')
+ROOT = Path('/home/ubuntu/gsm-webrtc-validation/joint-0.4/round2/r3-round3-20261022T1340Z')
 ADB = '/home/ubuntu/gsm-webrtc-validation/android-sdk/platform-tools/adb'
 GATEWAY_SERIAL = 'emulator-5554'
 HOST_SERIAL = 'emulator-5556'
@@ -39,8 +40,17 @@ SYNTHETIC_NUMBER = '+155****0200'
 GATEWAY_ID = '77e3592d-d32d-466b-a5fd-89e39bb9061a'
 
 
+def _adb_command():
+    # This helper runs under sudo (docker psql needs root), but the emulator
+    # console service only answers on the lab user's adb server; root's adb
+    # server replies "KO: unknown command" to every console command.
+    if hasattr(os, 'geteuid') and os.geteuid() == 0:
+        return ['sudo', '-n', '-u', 'ubuntu', '-H', ADB]
+    return [ADB]
+
+
 def adb(*args, timeout=30):
-    result = subprocess.run([ADB, '-s', GATEWAY_SERIAL, *args], capture_output=True, text=True,
+    result = subprocess.run([*_adb_command(), '-s', GATEWAY_SERIAL, *args], capture_output=True, text=True,
                             timeout=timeout)
     return result.returncode, result.stdout.strip(), result.stderr.strip()
 
@@ -61,7 +71,9 @@ def docker_psql(node, query):
                             capture_output=True, text=True, timeout=60)
     if result.returncode != 0:
         raise RuntimeError('psql_failed_' + node)
-    return [line for line in result.stdout.splitlines() if line.strip()]
+    tags = {'BEGIN', 'COMMIT', 'SET', 'BEGIN READ ONLY'}
+    return [line for line in result.stdout.splitlines()
+            if line.strip() and line.strip() not in tags]
 
 
 def gateway_archive():

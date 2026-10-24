@@ -44,7 +44,7 @@ Each release contains:
 - `SHA256SUMS.txt`, with hashes for both archives and `release-manifest.json`.
 
 Each archive contains the executable `bin/gsm2sip-api`,
-`bin/gsm2sip-worker`, and `bin/gsm2sip-admin` binaries; the complete SQL
+`bin/gsm2sip-worker`, and `bin/mahogsm-admin` binaries; the complete SQL
 `migrations/`; backup and quarantine scripts; the server source and Docker
 Compose build context; `.env.example`; and the README and operations
 documentation. Its `manifest.json` identifies the source commit, version,

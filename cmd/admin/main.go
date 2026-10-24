@@ -46,6 +46,12 @@ func main() {
 			os.Exit(2)
 		}
 		pairingCodeCreate(ctx, database, os.Args[3:])
+	case "join":
+		if len(os.Args) < 3 || os.Args[2] != "create" {
+			usage()
+			os.Exit(2)
+		}
+		joinCreate(ctx, database, os.Args[3:])
 	default:
 		usage()
 		os.Exit(2)
@@ -58,7 +64,7 @@ func ownerCreate(ctx context.Context, database interface {
 	flags := flag.NewFlagSet("owner create", flag.ContinueOnError)
 	name := flags.String("name", "", "owner display name")
 	if err := flags.Parse(args); err != nil || strings.TrimSpace(*name) == "" || len(strings.TrimSpace(*name)) > 100 {
-		fmt.Fprintln(os.Stderr, "usage: gsm2sip-admin owner create --name NAME")
+		fmt.Fprintln(os.Stderr, "usage: mahogsm-admin owner create --name NAME")
 		os.Exit(2)
 	}
 	id := newUUID()
@@ -77,7 +83,7 @@ func pairingCodeCreate(ctx context.Context, database interface {
 	role := flags.String("role", "", "gateway or client")
 	ttlText := flags.String("ttl", "10m", "expiry, from 1m to 1h")
 	if err := flags.Parse(args); err != nil || !isUUID(*ownerID) || *role != "gateway" && *role != "client" {
-		fmt.Fprintln(os.Stderr, "usage: gsm2sip-admin pairing-code create --owner-id UUID --role gateway|client [--ttl 10m]")
+		fmt.Fprintln(os.Stderr, "usage: mahogsm-admin pairing-code create --owner-id UUID --role gateway|client [--ttl 10m]")
 		os.Exit(2)
 	}
 	ttl, err := time.ParseDuration(*ttlText)
@@ -129,8 +135,11 @@ func isUUID(value string) bool {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `Local-only administration:
-  gsm2sip-admin owner create --name NAME
-  gsm2sip-admin pairing-code create --owner-id UUID --role gateway|client [--ttl 10m]
+  mahogsm-admin join create --url https://PUBLIC-ADDRESS [--owner-id UUID] [--name Home] [--ttl 15m] [--also URL=CODE ...]
+  mahogsm-admin owner create --name NAME
+  mahogsm-admin pairing-code create --owner-id UUID --role gateway|client [--ttl 10m]
 
-Requires DATABASE_URL. Pairing-code create prints the one-time secret once.`)
+Requires DATABASE_URL. join create prints a link and QR code that pair both
+phones; pairing-code create prints a one-time secret for one phone. Both are
+shown once and are secrets until used or expired.`)
 }

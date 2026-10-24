@@ -46,6 +46,7 @@ func (s *Server) startRTCMedia(options RTCMediaOptions) {
 // RunBackground ends calls left by SIP releases, then expires RTC signaling
 // and call leases until ctx ends. Only the API process runs it.
 func (s *Server) RunBackground(ctx context.Context) {
+	go s.runPush(ctx)
 	if s.rtc == nil {
 		return
 	}

@@ -49,13 +49,13 @@ RUN --mount=type=secret,id=proxy_ca,required=false \
     install -d -m 0755 /data /usr/local/libexec
 
 COPY --from=server /usr/local/bin/gsm2sip-api /usr/local/bin/gsm2sip-worker /usr/local/libexec/
-COPY --from=server /usr/local/bin/gsm2sip-admin /usr/local/libexec/gsm2sip-admin
+COPY --from=server /usr/local/bin/mahogsm-admin /usr/local/libexec/mahogsm-admin
 COPY --from=server /app/migrations/ /app/migrations/
 COPY deploy/allinone/turn-config.py /usr/local/libexec/gsm2sip-turn-config.py
 COPY deploy/allinone/run.sh /usr/local/bin/gsm2sip-allinone
-COPY deploy/allinone/admin.sh /usr/local/bin/gsm2sip-admin
+COPY deploy/allinone/admin.sh /usr/local/bin/mahogsm-admin
 COPY deploy/allinone/healthcheck.sh /usr/local/bin/gsm2sip-allinone-healthcheck
-RUN chmod 0755 /usr/local/bin/gsm2sip-allinone /usr/local/bin/gsm2sip-admin \
+RUN chmod 0755 /usr/local/bin/gsm2sip-allinone /usr/local/bin/mahogsm-admin \
       /usr/local/bin/gsm2sip-allinone-healthcheck
 
 ENV MIGRATIONS_DIR=/app/migrations

@@ -7,7 +7,12 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
+
+// maxDeviceNameRunes bounds device names in characters, not bytes, so
+// non-ASCII names get the same room.
+const maxDeviceNameRunes = 100
 
 func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 	limited, err := s.consumePairingLimit(r)
@@ -26,11 +31,20 @@ func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 	request.PairingCode = strings.TrimSpace(request.PairingCode)
 	request.DeviceName = strings.TrimSpace(request.DeviceName)
 	request.Platform = strings.TrimSpace(request.Platform)
+	request.Role = strings.TrimSpace(request.Role)
 	if request.Platform == "" {
 		request.Platform = "unknown"
 	}
-	if len(request.PairingCode) < 20 || len(request.PairingCode) > 128 || request.DeviceName == "" || len(request.DeviceName) > 100 || !validPlatform(request.Platform) {
-		writeError(w, http.StatusBadRequest, "INVALID_PAIRING_REQUEST", "Pairing code, device name, or platform is invalid.", false)
+	// Each field gets its own message so a failed join says what to fix.
+	switch {
+	case len(request.PairingCode) < 20 || len(request.PairingCode) > 128:
+		writeError(w, http.StatusBadRequest, "INVALID_PAIRING_REQUEST", "Pairing code is incomplete; copy or scan it again.", false)
+		return
+	case request.DeviceName == "" || utf8.RuneCountInString(request.DeviceName) > maxDeviceNameRunes:
+		writeError(w, http.StatusBadRequest, "INVALID_PAIRING_REQUEST", "Device name must be 1 to 100 characters.", false)
+		return
+	case !validPlatform(request.Platform):
+		writeError(w, http.StatusBadRequest, "INVALID_PAIRING_REQUEST", "Platform is invalid.", false)
 		return
 	}
 	tx, err := beginDurable(r.Context(), s.db)
@@ -42,10 +56,31 @@ func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 
 	var pairingID, ownerID, role string
 	var expiresAt time.Time
+	joinCode := false
 	err = tx.QueryRowContext(r.Context(), `
 		SELECT id::text, owner_id::text, role, expires_at
 		FROM pairing_codes WHERE code_hash=$1 AND consumed_at IS NULL FOR UPDATE`, tokenHash(request.PairingCode)).
 		Scan(&pairingID, &ownerID, &role, &expiresAt)
+	if err == sql.ErrNoRows {
+		// A join code pairs one gateway and one client; each role once.
+		var gatewayUsed, clientUsed bool
+		err = tx.QueryRowContext(r.Context(), `
+			SELECT id::text, owner_id::text, expires_at, gateway_redeemed_at IS NOT NULL, client_redeemed_at IS NOT NULL
+			FROM join_codes WHERE code_hash=$1 FOR UPDATE`, tokenHash(request.PairingCode)).
+			Scan(&pairingID, &ownerID, &expiresAt, &gatewayUsed, &clientUsed)
+		if err == nil {
+			joinCode = true
+			role = request.Role
+			if role != "gateway" && role != "client" {
+				writeError(w, http.StatusBadRequest, "INVALID_PAIRING_REQUEST", "A join code needs the device role.", false)
+				return
+			}
+			if role == "gateway" && gatewayUsed || role == "client" && clientUsed {
+				writeError(w, http.StatusUnauthorized, "INVALID_PAIRING_CODE", "This join code was already used for this role.", false)
+				return
+			}
+		}
+	}
 	if err != nil && err != sql.ErrNoRows {
 		writeDBUnavailable(w)
 		return
@@ -54,10 +89,18 @@ func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "INVALID_PAIRING_CODE", "Pairing code is invalid or expired.", false)
 		return
 	}
-	deviceID := newUUID()
-	if _, err := tx.ExecContext(r.Context(), `UPDATE pairing_codes SET consumed_at=now() WHERE id=$1`, pairingID); err != nil {
-		writeDBUnavailable(w)
+	if !joinCode && request.Role != "" && request.Role != role {
+		// A pairing code fixes its role; a phone of the other kind must not
+		// use it, and the code stays unused.
+		writeError(w, http.StatusBadRequest, "INVALID_PAIRING_REQUEST", "This pairing code is for the other kind of device.", false)
 		return
+	}
+	deviceID := newUUID()
+	if !joinCode {
+		if _, err := tx.ExecContext(r.Context(), `UPDATE pairing_codes SET consumed_at=now() WHERE id=$1`, pairingID); err != nil {
+			writeDBUnavailable(w)
+			return
+		}
 	}
 	if _, err := tx.ExecContext(r.Context(), `INSERT INTO devices(id, owner_id, role, name, platform) VALUES ($1,$2,$3,$4,$5)`, deviceID, ownerID, role, request.DeviceName, request.Platform); err != nil {
 		if isUniqueViolation(err) {
@@ -69,6 +112,12 @@ func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 	}
 	if role == "gateway" {
 		if _, err := tx.ExecContext(r.Context(), `INSERT INTO gateways(device_id) VALUES ($1)`, deviceID); err != nil {
+			writeDBUnavailable(w)
+			return
+		}
+	}
+	if joinCode {
+		if _, err := tx.ExecContext(r.Context(), `UPDATE join_codes SET `+role+`_device_id=$2, `+role+`_redeemed_at=now() WHERE id=$1`, pairingID, deviceID); err != nil {
 			writeDBUnavailable(w)
 			return
 		}
@@ -306,6 +355,11 @@ func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := tx.ExecContext(r.Context(), `DELETE FROM sessions WHERE id=$1`, sessionID); err != nil {
+		writeDBUnavailable(w)
+		return
+	}
+	// A phone that leaves this node stops receiving its wake-ups.
+	if _, err := tx.ExecContext(r.Context(), `DELETE FROM push_endpoints WHERE device_id=$1`, deviceID); err != nil {
 		writeDBUnavailable(w)
 		return
 	}

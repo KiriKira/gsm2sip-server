@@ -189,10 +189,12 @@ jobs:
             flags=(-trimpath -buildvcs=true -gcflags='all=-N -l')
           fi
           for target in api worker admin; do
+            binary="gsm2sip-$target"
+            [[ "$target" == admin ]] && binary=mahogsm-admin
             CGO_ENABLED=0 GOOS=linux GOARCH="$TARGET_ARCH" \
               go build "${flags[@]}" \
-              -o "$bundle/bin/gsm2sip-$target" "./cmd/$target"
-            chmod 0755 "$bundle/bin/gsm2sip-$target"
+              -o "$bundle/bin/$binary" "./cmd/$target"
+            chmod 0755 "$bundle/bin/$binary"
           done
 
           test -d "$bundle/migrations"
