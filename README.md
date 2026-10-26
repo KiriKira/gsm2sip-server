@@ -31,6 +31,7 @@ wake-only WebSocket，只发 `{"protocol_version":1,"type":"sync_required"}`；o
 
 - [三端架构与远程控制链路（总览、数据流、协议演进、后续优先级）](docs/architecture.md)
 - [多节点（mesh）：多台独立服务器、按优先级自动切换、跨节点去重](docs/mesh.md)
+- [远期去中心化 mesh 计划：节点同步、路径选择、跨节点推送代发与三端协同](docs/decentralized-mesh-plan-20261026.md)
 - [服务端计划](PLAN.md)
 - [原始协议](docs/protocol-v1.md)
 - [服务端 wire addendum](docs/server-wire-addendum.md)

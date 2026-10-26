@@ -1,5 +1,7 @@
 # 多节点（mesh）运行
 
+> 本文记录现有独立节点架构。节点间同步、控制路由与 Kyubey 代发的远期方案见 [去中心化 mesh 审查与计划](decentralized-mesh-plan-20261026.md)，尚未实现；它与 Madoka 下一版本的耗电优化独立排期。
+
 > **0.4.0 起**：服务器改名 SoulGem，SIP、Asterisk 与 ARI 已移除，通话只走 RTC 呼叫控制与 WebRTC。本文有关 SIP 的内容为历史记录；当前行为见 [rtc-call-control-v1.md](rtc-call-control-v1.md) 与 [release-0.4.md](release-0.4.md)。
 
 更新：2026-10-12。本文是多台独立服务器同时服务同一台旧手机的设计依据。
