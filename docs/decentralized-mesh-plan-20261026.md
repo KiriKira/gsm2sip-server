@@ -1,10 +1,10 @@
 # SoulGem 去中心化 mesh：架构审查与实施计划
 
-> **2026-10-27 范围修订：本文归档为架构参考，原 S0–S6 与附录 F1–F3 不再作为整套待执行计划或发布门槛。** 当前顺序以 [Reception 精简 PLAN](https://github.com/KiriKira/gsm2sip-client-android/blob/7a7532151fc1d29495ab448e7c61af87b9a49774/docs/reception-v2-PLAN.md)及[mesh 整合决定](https://github.com/KiriKira/gsm2sip-client-android/blob/7a7532151fc1d29495ab448e7c61af87b9a49774/docs/reception-mesh-decision.md)为准。
+> **2026-10-27 范围修订：本文归档为架构参考，原 S0–S6 与附录 F1–F3 不再作为整套待执行计划或发布门槛。** 当前顺序以 [Reception 精简 PLAN](https://github.com/KiriKira/gsm2sip-client-android/blob/2522593e8772a2b6005eb82d8d74aaecaf08c025/docs/reception-v2-PLAN.md)及[mesh 整合决定](https://github.com/KiriKira/gsm2sip-client-android/blob/2522593e8772a2b6005eb82d8d74aaecaf08c025/docs/reception-mesh-decision.md)为准。
 >
-> R1 合并 S0/S4/F1/F2 的接收优化，复用现有事件/游标、取消短期休眠续约及周期触达证明；R2 将 S1 缩为静态受信 peer 的单跳同步推送代发。S2 复制、S3 完整控制委托、S5 媒体目录暂不排期，S6 活跃迁移移出当前路线；单入口代理仅在实际需求出现时独立推进。下文的完整 outbox/receipt、快照/复制机制和广泛测试矩阵均为历史设计，不是本次实现要求。
+> R1 合并 S0/S4/F1/F2 的接收优化，复用现有事件/游标、取消短期休眠续约及周期触达证明；出口容错优先 R2a（同密钥/格式/FCM 项目的受信 Kyubey 备用地址），仍需要不同出口时再以 R2b 将 S1 缩为静态受信 peer 的单跳同步推送代发。S2 复制、S3 完整控制委托、S5 媒体目录暂不排期，S6 活跃迁移移出当前路线；单入口代理仅在实际需求出现时独立推进。下文的完整 outbox/receipt、快照/复制机制和广泛测试矩阵均为历史设计，不是本次实现要求。
 >
-> 实际先覆盖当前三节点的 A 出口失败由 B 代发、A 无订阅仍继续向 B/C 分叉等场景。R2 不承诺 A 宕机业务接管或完整去中心化复制；这些能力需要另立明确需求。单跳代发无法解决手机端 FCM/Doze 限制。
+> 实际先覆盖主中继地址故障切受信备用地址，需要时再覆盖 A 出口失败由 B 代发；A 无订阅继续 B/C 是既有行为，新错误码只改善诊断。R2 不承诺 A 宕机业务接管或完整去中心化复制；这些能力需要另立明确需求。单跳代发无法解决手机端 FCM/Doze 限制。
 
 原文日期：2026-10-26。状态：历史三端联合可行性设计，保留源码审查与架构取舍供参考。没有部署新服务，也没有测得新架构的故障恢复或性能结果；正文中的“实施”“验收”按上述新范围解释。
 
