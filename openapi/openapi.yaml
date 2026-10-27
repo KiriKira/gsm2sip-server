@@ -537,6 +537,46 @@ paths:
       responses:
         '204': {description: Endpoint removed; no further wake-ups.}
         '403': {$ref: '#/components/responses/Forbidden'}
+    get:
+      operationId: getPushStatus
+      description: Client only. How this node's wake-ups for the device fare at its endpoint. The endpoint itself is not returned.
+      responses:
+        '200':
+          description: Push status.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [registered]
+                properties:
+                  registered: {type: boolean}
+                  failures: {type: integer, minimum: 0, description: Consecutive hand-offs the endpoint did not accept.}
+                  delivered_at: {type: string, format: date-time, description: When the endpoint last accepted a wake-up for this device.}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /devices/self/push-endpoint/test:
+    post:
+      operationId: testPush
+      description: >-
+        Client only, at most once a minute. Sends the device a silent "sms"
+        wake-up now (the relay does not deliver "check" hints), so the phone can
+        tell whether this node's pushes reach it. sent says whether the endpoint
+        accepted it; only the phone knows whether it arrived.
+      responses:
+        '200':
+          description: Test attempted.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [sent]
+                properties:
+                  sent: {type: boolean}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 'PUSH_NOT_REGISTERED: no endpoint on this node.'}
+        '429': {description: 'PUSH_TEST_TOO_SOON: a test was sent in the last minute (retryable).'}
+        '503': {description: 'PUSH_UNAVAILABLE: this node sends no wake-ups.'}
 components:
   securitySchemes:
     bearerAuth:
@@ -713,6 +753,8 @@ components:
           description: Normalized descriptive label; unknown when no label was supplied.
         state: {type: string, enum: [active, revoked]}
         is_self: {type: boolean}
+        live: {type: boolean, description: The device still holds a session that can sign in; a revoked pairing keeps state active but is not live.}
+        last_active_at: {type: string, format: date-time, description: When the device last signed in or refreshed its session.}
     PairingResult:
       allOf:
         - {$ref: '#/components/schemas/SessionTokens'}

@@ -102,6 +102,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/devices/self/rtc-capability", s.authenticated(s.rtcCapability))
 	mux.HandleFunc("PUT /v1/devices/self/push-endpoint", s.authenticated(s.putPushEndpoint))
 	mux.HandleFunc("DELETE /v1/devices/self/push-endpoint", s.authenticated(s.deletePushEndpoint))
+	mux.HandleFunc("GET /v1/devices/self/push-endpoint", s.authenticated(s.getPushEndpoint))
+	mux.HandleFunc("POST /v1/devices/self/push-endpoint/test", s.authenticated(s.testPushEndpoint))
 	mux.HandleFunc("POST /v1/calls/{call_id}/media", s.authenticated(s.selectRTCMedia))
 	mux.HandleFunc("GET /v1/calls/{call_id}/media", s.authenticated(s.getRTCMedia))
 	mux.HandleFunc("POST /v1/calls/{call_id}/media/active", s.authenticated(s.rtcCellularActive))

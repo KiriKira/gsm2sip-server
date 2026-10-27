@@ -122,7 +122,9 @@ func (s *Server) sleepCheck(deviceID string) {
 		defer cancel()
 		if err := s.push.Send(ctx, endpoint, "sms", deviceID); err != nil {
 			s.logger.Warn("sleep check push failed")
+			return
 		}
+		_, _ = s.db.ExecContext(ctx, `UPDATE push_endpoints SET delivered_at=now() WHERE device_id=$1 AND endpoint=$2`, deviceID, endpoint)
 	}()
 }
 
