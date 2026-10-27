@@ -21,6 +21,11 @@ type ClientSummary struct {
 	Platform string `json:"platform"`
 	State    string `json:"state"`
 	IsSelf   bool   `json:"is_self"`
+	// Live: the device still holds a session that can sign in. Revoking a
+	// pairing removes its sessions but leaves the device row "active".
+	Live bool `json:"live"`
+	// LastActiveAt: when the device last signed in or refreshed, if ever.
+	LastActiveAt *time.Time `json:"last_active_at,omitempty"`
 }
 
 func (s *Server) listClients(w http.ResponseWriter, r *http.Request, principal Principal) {
@@ -29,9 +34,11 @@ func (s *Server) listClients(w http.ResponseWriter, r *http.Request, principal P
 		return
 	}
 	rows, err := s.db.QueryContext(r.Context(), `
-		SELECT id::text, name, platform, state, id=$2
-		FROM devices WHERE owner_id=$1 AND role='client'
-		ORDER BY created_at, id`, principal.OwnerID, principal.DeviceID)
+		SELECT d.id::text, d.name, d.platform, d.state, d.id=$2,
+			EXISTS(SELECT 1 FROM sessions s WHERE s.device_id=d.id AND s.refresh_expires_at>now()),
+			(SELECT max(COALESCE(s.rotated_at, s.created_at)) FROM sessions s WHERE s.device_id=d.id)
+		FROM devices d WHERE d.owner_id=$1 AND d.role='client'
+		ORDER BY d.created_at, d.id`, principal.OwnerID, principal.DeviceID)
 	if err != nil {
 		writeDBUnavailable(w)
 		return
@@ -40,9 +47,14 @@ func (s *Server) listClients(w http.ResponseWriter, r *http.Request, principal P
 	items := make([]ClientSummary, 0)
 	for rows.Next() {
 		var item ClientSummary
-		if err := rows.Scan(&item.ID, &item.Name, &item.Platform, &item.State, &item.IsSelf); err != nil {
+		var lastActive sql.NullTime
+		if err := rows.Scan(&item.ID, &item.Name, &item.Platform, &item.State, &item.IsSelf, &item.Live, &lastActive); err != nil {
 			writeDBUnavailable(w)
 			return
+		}
+		if lastActive.Valid {
+			at := lastActive.Time.UTC()
+			item.LastActiveAt = &at
 		}
 		items = append(items, item)
 	}

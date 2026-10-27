@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"time"
@@ -62,13 +63,14 @@ func (s *Server) putPushEndpoint(w http.ResponseWriter, r *http.Request, princip
 	}
 	// Start from the current events: registering must not announce history.
 	if _, err := s.db.ExecContext(r.Context(), `
-		INSERT INTO push_endpoints(device_id,endpoint,pushed_event_cursor,pushed_call_cursor)
+		INSERT INTO push_endpoints(device_id,endpoint,pushed_event_cursor,pushed_call_cursor,delivered_at)
 		VALUES ($1,$2,
 			COALESCE((SELECT MAX(cursor) FROM server_events WHERE owner_id=$3),0),
-			COALESCE((SELECT MAX(cursor) FROM call_events WHERE client_device_id=$1),0))
+			COALESCE((SELECT MAX(cursor) FROM call_events WHERE client_device_id=$1),0),
+			now())
 		ON CONFLICT (device_id) DO UPDATE SET endpoint=EXCLUDED.endpoint,
 			pushed_event_cursor=EXCLUDED.pushed_event_cursor, pushed_call_cursor=EXCLUDED.pushed_call_cursor,
-			failures=0, next_attempt_at=now(), updated_at=now()`,
+			failures=0, next_attempt_at=now(), updated_at=now(), delivered_at=now()`,
 		principal.DeviceID, request.Endpoint, principal.OwnerID); err != nil {
 		writeDBUnavailable(w)
 		return
@@ -164,7 +166,7 @@ func (s *Server) pushPending(ctx context.Context) error {
 		case sendErr == nil:
 			_, execErr = s.db.ExecContext(ctx, `
 				UPDATE push_endpoints SET pushed_event_cursor=GREATEST(pushed_event_cursor,$2),
-					pushed_call_cursor=GREATEST(pushed_call_cursor,$3), failures=0
+					pushed_call_cursor=GREATEST(pushed_call_cursor,$3), failures=0, delivered_at=now()
 				WHERE device_id=$1 AND endpoint=$4`, item.deviceID, item.eventCursor, item.callCursor, item.endpoint)
 		case errors.Is(sendErr, push.ErrEndpointGone), errors.Is(sendErr, push.ErrEndpointRefused), errors.Is(sendErr, push.ErrInvalidEndpoint):
 			// The phone registers a working endpoint again on its next check.
@@ -191,4 +193,82 @@ func pushBackoff(failures int) time.Duration {
 		return pushMaxBackoff
 	}
 	return delay
+}
+
+// pushTestEvery bounds how often a device may ask for a test wake-up.
+const pushTestEvery = time.Minute
+
+// getPushEndpoint reports how this node's wake-ups for the calling device
+// fare at its push endpoint: whether one is registered, consecutive failed
+// hand-offs, and when the relay last accepted one. The endpoint itself is
+// never returned.
+func (s *Server) getPushEndpoint(w http.ResponseWriter, r *http.Request, principal Principal) {
+	if principal.Role != "client" {
+		writeError(w, http.StatusForbidden, "ROLE_FORBIDDEN", "Only client devices receive push wake-ups.", false)
+		return
+	}
+	var failures int
+	var delivered sql.NullTime
+	err := s.db.QueryRowContext(r.Context(), `SELECT failures, delivered_at FROM push_endpoints WHERE device_id=$1`,
+		principal.DeviceID).Scan(&failures, &delivered)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeJSON(w, http.StatusOK, map[string]any{"registered": false})
+		return
+	}
+	if err != nil {
+		writeDBUnavailable(w)
+		return
+	}
+	out := map[string]any{"registered": true, "failures": failures}
+	if delivered.Valid {
+		out["delivered_at"] = delivered.Time.UTC().Format(time.RFC3339)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// testPushEndpoint sends the calling device a silent wake-up now, so it can
+// tell whether this node's pushes reach it. It is an "sms" hint: the relay
+// only validates "check" hints without delivering them, and the phone answers
+// an sms hint with one sync that shows nothing when nothing is new. The
+// answer says whether the relay accepted it; whether the phone received it
+// only the phone knows.
+func (s *Server) testPushEndpoint(w http.ResponseWriter, r *http.Request, principal Principal) {
+	if principal.Role != "client" {
+		writeError(w, http.StatusForbidden, "ROLE_FORBIDDEN", "Only client devices receive push wake-ups.", false)
+		return
+	}
+	if !s.pushReady() {
+		writeError(w, http.StatusServiceUnavailable, "PUSH_UNAVAILABLE", "This server does not send push wake-ups.", false)
+		return
+	}
+	var endpoint string
+	var recent bool
+	err := s.db.QueryRowContext(r.Context(), `SELECT endpoint, COALESCE(tested_at>now()-make_interval(secs=>$2::int), false)
+      FROM push_endpoints WHERE device_id=$1`, principal.DeviceID, int(pushTestEvery.Seconds())).Scan(&endpoint, &recent)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "PUSH_NOT_REGISTERED", "This device has no push endpoint on this node.", false)
+		return
+	}
+	if err != nil {
+		writeDBUnavailable(w)
+		return
+	}
+	if recent {
+		writeError(w, http.StatusTooManyRequests, "PUSH_TEST_TOO_SOON", "A test wake-up was sent less than a minute ago.", true)
+		return
+	}
+	if _, err := s.db.ExecContext(r.Context(), `UPDATE push_endpoints SET tested_at=now() WHERE device_id=$1`, principal.DeviceID); err != nil {
+		writeDBUnavailable(w)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), pushSendTimeout)
+	err = s.push.Send(ctx, endpoint, "sms", principal.DeviceID)
+	cancel()
+	if err != nil {
+		_, _ = s.db.ExecContext(r.Context(), `UPDATE push_endpoints SET failures=failures+1 WHERE device_id=$1 AND endpoint=$2`, principal.DeviceID, endpoint)
+		writeJSON(w, http.StatusOK, map[string]any{"sent": false})
+		return
+	}
+	_, _ = s.db.ExecContext(r.Context(), `UPDATE push_endpoints SET failures=0, delivered_at=now() WHERE device_id=$1 AND endpoint=$2`, principal.DeviceID, endpoint)
+	writeJSON(w, http.StatusOK, map[string]any{"sent": true})
 }

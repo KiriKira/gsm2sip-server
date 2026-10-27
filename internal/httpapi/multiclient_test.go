@@ -111,8 +111,14 @@ func TestPostgresMultipleClientsHaveIndependentSessionsSMSAndReceipts(t *testing
 		selfCount := 0
 		foundPlatforms := map[string]string{}
 		for _, item := range items {
-			if len(item) != 5 {
-				t.Fatalf("client list exposed fields beyond id/name/platform/state/is_self: %v", item)
+			allowed := map[string]bool{"id": true, "name": true, "platform": true, "state": true, "is_self": true, "live": true, "last_active_at": true}
+			for field := range item {
+				if !allowed[field] {
+					t.Fatalf("client list exposed %q beyond id/name/platform/state/is_self/live/last_active_at: %v", field, item)
+				}
+			}
+			if len(item) < 6 {
+				t.Fatalf("client list omitted required fields: %v", item)
 			}
 			for _, forbidden := range []string{"access_token", "refresh_token", "password", "sip", "auth_username"} {
 				if _, ok := item[forbidden]; ok {

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
@@ -221,5 +222,94 @@ func TestPostgresLeavingANodeStopsItsWakeUps(t *testing.T) {
 	var tokens int
 	if err := database.db.QueryRow(`SELECT count(*) FROM push_endpoints WHERE device_id=$1`, client.DeviceID).Scan(&tokens); err != nil || tokens != 0 {
 		t.Fatalf("tokens after revoke: %d %v", tokens, err)
+	}
+}
+
+func TestPostgresPushTestAndStatus(t *testing.T) {
+	database := openIntegrationDatabase(t)
+	f := seedIntegrationFixture(t, database.db)
+	fake := &fakePush{}
+	handler := NewWithOptions(database.db, nil, Options{Push: fake}).Handler()
+	status := func() map[string]any {
+		t.Helper()
+		reply := requestJSON(t, handler, http.MethodGet, "/v1/devices/self/push-endpoint", f.clientToken, nil, "")
+		requireStatus(t, reply, http.StatusOK)
+		var out map[string]any
+		if err := json.Unmarshal(reply.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	test := func(code int) map[string]any {
+		t.Helper()
+		reply := requestJSON(t, handler, http.MethodPost, "/v1/devices/self/push-endpoint/test", f.clientToken, nil, "")
+		requireStatus(t, reply, code)
+		var out map[string]any
+		_ = json.Unmarshal(reply.Body.Bytes(), &out)
+		return out
+	}
+
+	if status()["registered"] != false {
+		t.Fatal("status before registration")
+	}
+	test(http.StatusNotFound)
+	requireStatus(t, requestJSON(t, handler, http.MethodPost, "/v1/devices/self/push-endpoint/test", f.gatewayToken, nil, ""), http.StatusForbidden)
+	requireStatus(t, requestJSON(t, handler, http.MethodPut, "/v1/devices/self/push-endpoint", f.clientToken,
+		map[string]string{"endpoint": "https://relay.example/v1/w/sealed"}, ""), http.StatusOK)
+	if got := status(); got["registered"] != true || got["failures"] != float64(0) || got["delivered_at"] == nil {
+		t.Fatalf("status after registration: %v", got)
+	}
+
+	// A test is a delivered, silent sms hint, at most once a minute.
+	if got := test(http.StatusOK); got["sent"] != true || fake.sentCount() != 1 || fake.sent[0] != "sms:"+f.clientID {
+		t.Fatalf("test push: %v %v", got, fake.sent)
+	}
+	test(http.StatusTooManyRequests)
+
+	// A relay that cannot be reached counts as a failure the phone can show.
+	if _, err := database.db.Exec(`UPDATE push_endpoints SET tested_at=now()-interval '2 minutes', delivered_at=now()-interval '1 hour'`); err != nil {
+		t.Fatal(err)
+	}
+	fake.err = errors.New("relay down")
+	if got := test(http.StatusOK); got["sent"] != false {
+		t.Fatalf("failed test: %v", got)
+	}
+	if got := status(); got["failures"] != float64(1) {
+		t.Fatalf("status after a failed test: %v", got)
+	}
+}
+
+func TestPostgresClientListShowsWhichPairingsStillSignIn(t *testing.T) {
+	database := openIntegrationDatabase(t)
+	f := seedIntegrationFixture(t, database.db)
+	handler := New(database.db, nil).Handler()
+	var owner string
+	if err := database.db.QueryRow(`SELECT owner_id::text FROM devices WHERE id=$1`, f.clientID).Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	// An earlier pairing of the same phone whose sessions were revoked.
+	if _, err := database.db.Exec(`INSERT INTO devices(id,owner_id,role,name) VALUES($1,$2,'client','same phone')`, newUUID(), owner); err != nil {
+		t.Fatal(err)
+	}
+	reply := requestJSON(t, handler, http.MethodGet, "/v1/clients", f.clientToken, nil, "")
+	requireStatus(t, reply, http.StatusOK)
+	var out struct {
+		Items []ClientSummary `json:"items"`
+	}
+	if err := json.Unmarshal(reply.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	live := map[bool]int{}
+	for _, item := range out.Items {
+		live[item.Live]++
+		if item.IsSelf && (!item.Live || item.LastActiveAt == nil) {
+			t.Fatalf("self: %+v", item)
+		}
+		if !item.Live && item.LastActiveAt != nil {
+			t.Fatalf("a device that never signed in has no activity: %+v", item)
+		}
+	}
+	if live[true] != 1 || live[false] != 1 {
+		t.Fatalf("clients: %+v", out.Items)
 	}
 }
