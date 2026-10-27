@@ -62,20 +62,25 @@ func (s *Server) putPushEndpoint(w http.ResponseWriter, r *http.Request, princip
 		return
 	}
 	// Start from the current events: registering must not announce history.
-	if _, err := s.db.ExecContext(r.Context(), `
+	// A different endpoint is a new generation, so answers about the old one
+	// no longer touch it.
+	var generation int64
+	if err := s.db.QueryRowContext(r.Context(), `
 		INSERT INTO push_endpoints(device_id,endpoint,pushed_event_cursor,pushed_call_cursor,delivered_at)
 		VALUES ($1,$2,
 			COALESCE((SELECT MAX(cursor) FROM server_events WHERE owner_id=$3),0),
 			COALESCE((SELECT MAX(cursor) FROM call_events WHERE client_device_id=$1),0),
 			now())
 		ON CONFLICT (device_id) DO UPDATE SET endpoint=EXCLUDED.endpoint,
+			generation=push_endpoints.generation+CASE WHEN push_endpoints.endpoint=EXCLUDED.endpoint THEN 0 ELSE 1 END,
 			pushed_event_cursor=EXCLUDED.pushed_event_cursor, pushed_call_cursor=EXCLUDED.pushed_call_cursor,
-			failures=0, next_attempt_at=now(), updated_at=now(), delivered_at=now()`,
-		principal.DeviceID, request.Endpoint, principal.OwnerID); err != nil {
+			failures=0, call_failures=0, next_attempt_at=now(), updated_at=now(), delivered_at=now()
+		RETURNING generation`,
+		principal.DeviceID, request.Endpoint, principal.OwnerID).Scan(&generation); err != nil {
 		writeDBUnavailable(w)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"push": "ready"})
+	writeJSON(w, http.StatusOK, map[string]any{"push": "ready", "endpoint_generation": generation})
 }
 
 func (s *Server) deletePushEndpoint(w http.ResponseWriter, r *http.Request, principal Principal) {
@@ -88,100 +93,6 @@ func (s *Server) deletePushEndpoint(w http.ResponseWriter, r *http.Request, prin
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// runPush announces new SMS and call events to registered phones. Each push
-// covers every event since the previous one; failures back off per device.
-func (s *Server) runPush(ctx context.Context) {
-	if s.push == nil {
-		return
-	}
-	tick := time.NewTicker(pushPeriod)
-	defer tick.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		}
-		if err := s.pushPending(ctx); err != nil && ctx.Err() == nil {
-			s.logger.Warn("push dispatch failed")
-		}
-	}
-}
-
-type pendingPush struct {
-	deviceID                string
-	endpoint                string
-	eventCursor, callCursor int64
-	pushedCallCursor        int64
-	failures                int
-}
-
-func (s *Server) pushPending(ctx context.Context) error {
-	queryCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	rows, err := s.db.QueryContext(queryCtx, `
-		SELECT device_id::text, endpoint, event_cursor, call_cursor, pushed_call_cursor, failures FROM (
-			SELECT t.device_id, t.endpoint, t.failures, t.pushed_event_cursor, t.pushed_call_cursor,
-				COALESCE((SELECT MAX(e.cursor) FROM server_events e WHERE e.owner_id=d.owner_id),0) AS event_cursor,
-				COALESCE((SELECT MAX(c.cursor) FROM call_events c WHERE c.client_device_id=t.device_id),0) AS call_cursor
-			FROM push_endpoints t JOIN devices d ON d.id=t.device_id
-			WHERE d.state='active' AND t.next_attempt_at<=now()
-		) pending
-		WHERE event_cursor>pushed_event_cursor OR call_cursor>pushed_call_cursor
-		LIMIT $1`, pushBatchLimit)
-	if err != nil {
-		cancel()
-		return err
-	}
-	var batch []pendingPush
-	for rows.Next() {
-		var item pendingPush
-		if err := rows.Scan(&item.deviceID, &item.endpoint, &item.eventCursor, &item.callCursor, &item.pushedCallCursor, &item.failures); err != nil {
-			rows.Close()
-			cancel()
-			return err
-		}
-		batch = append(batch, item)
-	}
-	err = rows.Err()
-	rows.Close()
-	cancel()
-	if err != nil {
-		return err
-	}
-	for _, item := range batch {
-		kind := "sms"
-		if item.callCursor > item.pushedCallCursor {
-			kind = "call"
-		}
-		sendCtx, stop := context.WithTimeout(ctx, pushSendTimeout)
-		sendErr := s.push.Send(sendCtx, item.endpoint, kind, item.deviceID)
-		stop()
-		if ctx.Err() != nil {
-			return nil
-		}
-		var execErr error
-		switch {
-		case sendErr == nil:
-			_, execErr = s.db.ExecContext(ctx, `
-				UPDATE push_endpoints SET pushed_event_cursor=GREATEST(pushed_event_cursor,$2),
-					pushed_call_cursor=GREATEST(pushed_call_cursor,$3), failures=0, delivered_at=now()
-				WHERE device_id=$1 AND endpoint=$4`, item.deviceID, item.eventCursor, item.callCursor, item.endpoint)
-		case errors.Is(sendErr, push.ErrEndpointGone), errors.Is(sendErr, push.ErrEndpointRefused), errors.Is(sendErr, push.ErrInvalidEndpoint):
-			// The phone registers a working endpoint again on its next check.
-			_, execErr = s.db.ExecContext(ctx, `DELETE FROM push_endpoints WHERE device_id=$1 AND endpoint=$2`, item.deviceID, item.endpoint)
-		default:
-			delay := pushBackoff(item.failures + 1)
-			_, execErr = s.db.ExecContext(ctx, `
-				UPDATE push_endpoints SET failures=failures+1, next_attempt_at=now()+$2*interval '1 millisecond'
-				WHERE device_id=$1 AND endpoint=$3`, item.deviceID, delay.Milliseconds(), item.endpoint)
-		}
-		if execErr != nil {
-			return execErr
-		}
-	}
-	return nil
 }
 
 func pushBackoff(failures int) time.Duration {
@@ -199,18 +110,16 @@ func pushBackoff(failures int) time.Duration {
 const pushTestEvery = time.Minute
 
 // getPushEndpoint reports how this node's wake-ups for the calling device
-// fare at its push endpoint: whether one is registered, consecutive failed
-// hand-offs, and when the relay last accepted one. The endpoint itself is
-// never returned.
+// fare at its push endpoint: whether one is registered, its generation,
+// consecutive failed hand-offs (SMS and wire 1, and calls apart), and when
+// the relay last accepted one. The endpoint itself is never returned.
 func (s *Server) getPushEndpoint(w http.ResponseWriter, r *http.Request, principal Principal) {
 	if principal.Role != "client" {
 		writeError(w, http.StatusForbidden, "ROLE_FORBIDDEN", "Only client devices receive push wake-ups.", false)
 		return
 	}
-	var failures int
-	var delivered sql.NullTime
-	err := s.db.QueryRowContext(r.Context(), `SELECT failures, delivered_at FROM push_endpoints WHERE device_id=$1`,
-		principal.DeviceID).Scan(&failures, &delivered)
+	out, err := scanPushStatus(s.db.QueryRowContext(r.Context(), `SELECT failures, call_failures, generation, delivered_at FROM push_endpoints WHERE device_id=$1`,
+		principal.DeviceID))
 	if errors.Is(err, sql.ErrNoRows) {
 		writeJSON(w, http.StatusOK, map[string]any{"registered": false})
 		return
@@ -218,10 +127,6 @@ func (s *Server) getPushEndpoint(w http.ResponseWriter, r *http.Request, princip
 	if err != nil {
 		writeDBUnavailable(w)
 		return
-	}
-	out := map[string]any{"registered": true, "failures": failures}
-	if delivered.Valid {
-		out["delivered_at"] = delivered.Time.UTC().Format(time.RFC3339)
 	}
 	writeJSON(w, http.StatusOK, out)
 }

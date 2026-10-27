@@ -55,6 +55,8 @@ func writeCallError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "CALL_NOT_FOUND", "Call resource was not found.", false)
 	case errors.Is(err, callsvc.ErrGatewayUnavailable):
 		writeError(w, http.StatusServiceUnavailable, "GATEWAY_UNAVAILABLE", "The gateway is not available for calls.", true)
+	case errors.Is(err, callsvc.ErrNoSubscribers):
+		writeError(w, http.StatusServiceUnavailable, "NO_INCOMING_SUBSCRIBERS", "No client receives incoming calls on this node.", false)
 	case errors.Is(err, callsvc.ErrSIMUnavailable):
 		writeError(w, http.StatusConflict, "SIM_MAPPING_CHANGED", "The selected SIM mapping is unavailable or changed.", false)
 	case errors.Is(err, callsvc.ErrCallIDConflict):

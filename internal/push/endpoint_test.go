@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"testing"
+	"time"
 )
 
 func TestWakeUpCarriesOnlyKindAndDevice(t *testing.T) {
@@ -27,6 +28,44 @@ func TestWakeUpCarriesOnlyKindAndDevice(t *testing.T) {
 	}
 	if headers.Get("Urgency") != "high" || headers.Get("TTL") != "60" {
 		t.Fatalf("headers %v", headers)
+	}
+}
+
+func TestWireTwoWakeCarriesIdentifiersAndDeliveryHeaders(t *testing.T) {
+	var got map[string]any
+	var headers http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = r.Header.Clone()
+		got = nil
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+	wake := Wake{Kind: "call", DeviceID: "dev-1", WakeID: "call-event-7", CallID: "call-1", Revision: 3,
+		Generation: 2, TTL: 18900 * time.Millisecond, Urgency: "high"}
+	if err := NewHTTP(true).Wake(context.Background(), server.URL+"/v1/w/abc", wake); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"v": 2.0, "kind": "call", "device_id": "dev-1", "wake_id": "call-event-7",
+		"call_id": "call-1", "revision": 3.0, "endpoint_generation": 2.0}
+	if len(got) != len(want) {
+		t.Fatalf("body %v", got)
+	}
+	for key, value := range want {
+		if got[key] != value {
+			t.Fatalf("body %v", got)
+		}
+	}
+	// TTL rounds down: the phone must still have the time the node promised.
+	if headers.Get("TTL") != "18" || headers.Get("Urgency") != "high" {
+		t.Fatalf("headers %v", headers)
+	}
+	wake = Wake{Kind: "sms", DeviceID: "dev-1", WakeID: "sms-event-9", Generation: 1, TTL: 24 * time.Hour, Urgency: "normal"}
+	if err := NewHTTP(true).Wake(context.Background(), server.URL+"/v1/w/abc", wake); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["call_id"]; ok || headers.Get("TTL") != "86400" || headers.Get("Urgency") != "normal" {
+		t.Fatalf("sms wake %v %v", got, headers)
 	}
 }
 

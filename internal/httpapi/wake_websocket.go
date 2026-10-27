@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -109,7 +110,7 @@ func (s *Server) wakeWebSocket(w http.ResponseWriter, r *http.Request) {
 		writeWakeClose(conn, websocket.CloseInternalServerErr, "wake state unavailable")
 		return
 	}
-	if err := writeWakeHint(conn); err != nil {
+	if err := writeWakeHint(conn, nil); err != nil {
 		return
 	}
 
@@ -133,6 +134,9 @@ func (s *Server) wakeWebSocket(w http.ResponseWriter, r *http.Request) {
 	pingTicker := time.NewTicker(wakePingPeriod)
 	defer pingTicker.Stop()
 	for {
+		// A committed call change wakes every connection at once; the poll
+		// catches everything else.
+		signal := s.wakeSignal()
 		select {
 		case <-r.Context().Done():
 			return
@@ -146,31 +150,13 @@ func (s *Server) wakeWebSocket(w http.ResponseWriter, r *http.Request) {
 				// this connection. HTTPS remains the durable synchronization path.
 			}
 			return
+		case <-signal:
+			if !s.wakePoll(r, conn, principal, &marker) {
+				return
+			}
 		case <-pollTicker.C:
-			pollCtx, pollCancel := context.WithTimeout(r.Context(), wakeQueryTimeout)
-			current, authErr := s.authenticate(r.WithContext(pollCtx))
-			if errors.Is(authErr, errInvalidCredentials) || errors.Is(authErr, sql.ErrNoRows) ||
-				(authErr == nil && !sameWakePrincipal(principal, current)) {
-				pollCancel()
-				writeWakeClose(conn, websocket.ClosePolicyViolation, "session expired or revoked")
+			if !s.wakePoll(r, conn, principal, &marker) {
 				return
-			}
-			if authErr != nil {
-				pollCancel()
-				writeWakeClose(conn, websocket.CloseInternalServerErr, "session check unavailable")
-				return
-			}
-			currentMarker, markerErr := s.readWakeMarker(pollCtx, principal)
-			pollCancel()
-			if markerErr != nil {
-				writeWakeClose(conn, websocket.CloseInternalServerErr, "wake state unavailable")
-				return
-			}
-			if !sameWakeMarker(marker, currentMarker) {
-				if err := writeWakeHint(conn); err != nil {
-					return
-				}
-				marker = currentMarker
 			}
 		case <-pingTicker.C:
 			if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(wakeWriteWait)); err != nil {
@@ -178,6 +164,61 @@ func (s *Server) wakeWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// wakePoll rechecks the session and sends a hint when the device's events
+// moved. It reports false once the connection is closed.
+func (s *Server) wakePoll(r *http.Request, conn *websocket.Conn, principal Principal, marker *wakeMarker) bool {
+	pollCtx, pollCancel := context.WithTimeout(r.Context(), wakeQueryTimeout)
+	defer pollCancel()
+	current, authErr := s.authenticate(r.WithContext(pollCtx))
+	if errors.Is(authErr, errInvalidCredentials) || errors.Is(authErr, sql.ErrNoRows) ||
+		(authErr == nil && !sameWakePrincipal(principal, current)) {
+		writeWakeClose(conn, websocket.ClosePolicyViolation, "session expired or revoked")
+		return false
+	}
+	if authErr != nil {
+		writeWakeClose(conn, websocket.CloseInternalServerErr, "session check unavailable")
+		return false
+	}
+	currentMarker, markerErr := s.readWakeMarker(pollCtx, principal)
+	if markerErr != nil {
+		writeWakeClose(conn, websocket.CloseInternalServerErr, "wake state unavailable")
+		return false
+	}
+	if sameWakeMarker(*marker, currentMarker) {
+		return true
+	}
+	var domains []string
+	if principal.Role == "client" {
+		reception, err := readReception(pollCtx, s.db, principal.DeviceID, false)
+		if err != nil {
+			writeWakeClose(conn, websocket.CloseInternalServerErr, "wake state unavailable")
+			return false
+		}
+		if reception.Version == 2 {
+			// A v2 client is told which domain moved. While it has SMS
+			// wake-ups off, SMS changes are left unannounced, and announced
+			// once SMS is back on.
+			if !reception.SMSEnabled {
+				currentMarker.cursor = marker.cursor
+			}
+			if currentMarker.callCursor != marker.callCursor {
+				domains = append(domains, "call")
+			}
+			if currentMarker.cursor != marker.cursor {
+				domains = append(domains, "sms")
+			}
+			if len(domains) == 0 {
+				return true
+			}
+		}
+	}
+	if err := writeWakeHint(conn, domains); err != nil {
+		return false
+	}
+	*marker = currentMarker
+	return true
 }
 
 func sameWakeOrigin(r *http.Request) bool {
@@ -301,11 +342,21 @@ func sameWakeTime(a, b sql.NullTime) bool {
 	return !a.Valid || a.Time.Equal(b.Time)
 }
 
-func writeWakeHint(conn *websocket.Conn) error {
+// writeWakeHint asks the device to sync; domains, for a reception v2 client,
+// says what changed ("call", "sms").
+func writeWakeHint(conn *websocket.Conn, domains []string) error {
 	if err := conn.SetWriteDeadline(time.Now().Add(wakeWriteWait)); err != nil {
 		return err
 	}
-	return conn.WriteMessage(websocket.TextMessage, []byte(`{"protocol_version":1,"type":"sync_required"}`))
+	hint := map[string]any{"protocol_version": 1, "type": "sync_required"}
+	if len(domains) > 0 {
+		hint["domains"] = domains
+	}
+	body, err := json.Marshal(hint)
+	if err != nil {
+		return err
+	}
+	return conn.WriteMessage(websocket.TextMessage, body)
 }
 
 func writeWakeClose(conn *websocket.Conn, code int, reason string) {

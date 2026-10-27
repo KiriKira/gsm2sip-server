@@ -14,6 +14,9 @@ var (
 	ErrSIMUnavailable     = errors.New("SIM mapping is unavailable or changed")
 	ErrBusy               = errors.New("gateway already has a call in progress")
 	ErrCallIDConflict     = errors.New("call_id is already used by another call")
+	// ErrNoSubscribers: no client on this node takes incoming calls now. The
+	// gateway offers the call to its other nodes.
+	ErrNoSubscribers = errors.New("no client receives incoming calls on this node")
 )
 
 type Call struct {

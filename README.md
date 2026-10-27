@@ -26,6 +26,9 @@ wake-only WebSocket，只发 `{"protocol_version":1,"type":"sync_required"}`；o
 来电同时邀请所有在线、已声明 RTC 能力的主机，由网关在全局账本里选定唯一 winner，其他主机得到
 `ended/answered_elsewhere`。控制租约过期时已拨出的通话标为 `unknown` 并保留占用，直到网关确认蜂窝结束。
 
+[Reception v2](docs/reception-v2.md) 让主机持久保存“接收来电/短信提醒”的选择：开启来电的 v2 主机休眠或离线时
+仍在来电邀请里，不再刷新 capability 或 sleep 授权；推送按来电和短信分开发送，带 call_id 与剩余振铃时间。
+
 平台标签不会授予 host root、短信或蜂窝控制权限。MagiskVM 或其他 Android 运行环境也必须单独验证 SIM/Telecom
 账户与实际媒体路径；当前契约不承诺特定 root 接口或短信必达。
 
@@ -33,6 +36,7 @@ wake-only WebSocket，只发 `{"protocol_version":1,"type":"sync_required"}`；o
 - [多节点（mesh）：多台独立服务器、按优先级自动切换、跨节点去重](docs/mesh.md)
 - [服务端计划](PLAN.md)
 - [原始协议](docs/protocol-v1.md)
+- [Reception v2：持久接收选择、分领域推送](docs/reception-v2.md)
 - [服务端 wire addendum](docs/server-wire-addendum.md)
 - [OpenAPI](openapi/openapi.yaml)
 - [跨端路线图](docs/roadmap.md)
