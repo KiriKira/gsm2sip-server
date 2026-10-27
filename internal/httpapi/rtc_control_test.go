@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/kirikira/gsm2sip-server/internal/rtcsignal"
 )
@@ -301,4 +302,93 @@ func TestIncomingPolicyAlwaysAnswersRTCForOlderGateways(t *testing.T) {
 		t.Fatalf("incoming policy did not select RTC: %s", reply.Body.String())
 	}
 	requireStatus(t, requestJSON(t, api.Handler(), "GET", "/v1/rtc/control/incoming-policy", f.clientToken, nil, ""), 403)
+}
+
+func TestPostgresSleepingClientIsOfferedCallsThroughPush(t *testing.T) {
+	db := openIntegrationDatabase(t)
+	f := seedIntegrationFixture(t, db.db)
+	fake := &fakePush{}
+	api := NewWithOptions(db.db, nil, Options{Push: fake})
+	t.Cleanup(api.ShutdownWebSockets)
+	handler := api.Handler()
+	if !containsJSON(requestJSON(t, handler, "GET", "/v1/capabilities", "", nil, "").Body.Bytes(), `"rtc_sleep":true`) {
+		t.Fatal("sleep not advertised with push")
+	}
+	sleepy := map[string]any{"version": 1, "enabled": true, "sleep_seconds": 1800}
+	capability := func(body map[string]any) string {
+		t.Helper()
+		reply := requestJSON(t, handler, "POST", "/v1/rtc/control/capability", f.clientToken, body, "")
+		requireStatus(t, reply, 200)
+		return reply.Body.String()
+	}
+	requireStatus(t, requestJSON(t, handler, "POST", "/v1/rtc/control/capability", f.gatewayToken, map[string]any{"version": 1, "enabled": true}, ""), 200)
+	rtcRegister(t, api, f.gatewayToken)
+
+	// Without a push endpoint nothing could wake the client: no grant.
+	if strings.Contains(capability(sleepy), "sleep_until") {
+		t.Fatal("sleep granted without a push endpoint")
+	}
+	requireStatus(t, requestJSON(t, handler, "PUT", "/v1/devices/self/push-endpoint", f.clientToken,
+		map[string]string{"endpoint": "https://relay.example/v1/w/sealed"}, ""), 200)
+	if !strings.Contains(capability(sleepy), "sleep_until") {
+		t.Fatal("sleep not granted with a working endpoint")
+	}
+	// The grant sends one delivered verification hint, and not again within the hour.
+	capability(sleepy)
+	deadline := time.Now().Add(2 * time.Second)
+	for fake.sentCount() < 1 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(50 * time.Millisecond)
+	fake.mu.Lock()
+	hints := append([]string(nil), fake.sent...)
+	fake.mu.Unlock()
+	if len(hints) != 1 || hints[0] != "sms:"+f.clientID {
+		t.Fatalf("verification hints: %v, want one delivered sms hint", hints)
+	}
+
+	// Long past the 90 s refresh, the sleeping client still gets the call,
+	// and the call event wakes it through push.
+	age := func() {
+		t.Helper()
+		if _, err := db.db.Exec(`UPDATE rtc_control_capabilities SET last_seen_at=now()-interval '10 minutes' WHERE device_id=$1`, f.clientID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	age()
+	call := controlCreate(t, f, api, true)
+	var ringing int
+	if err := db.db.QueryRow(`SELECT count(*) FROM call_participants WHERE call_id=$1 AND client_device_id=$2`, call.CallID, f.clientID).Scan(&ringing); err != nil || ringing != 1 {
+		t.Fatalf("sleeping client not in the incoming fork: %d %v", ringing, err)
+	}
+	if err := api.pushPending(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, sent := range fake.sent {
+		found = found || sent == "call:"+f.clientID
+	}
+	if !found {
+		t.Fatalf("no call wake-up: %v", fake.sent)
+	}
+	controlOp(t, api, f.clientToken, call, "reject", 200)
+
+	// A push endpoint that failed cannot be trusted to wake it: no candidate.
+	if _, err := db.db.Exec(`UPDATE push_endpoints SET failures=1 WHERE device_id=$1`, f.clientID); err != nil {
+		t.Fatal(err)
+	}
+	body := rtcCreateCall{Version: 1, OperationID: newUUID(), CallID: newUUID(), GatewayID: f.gatewayID, SIMID: f.simID, MappingRevision: 1, To: "15550100200"}
+	if reply := requestJSON(t, handler, "POST", "/v1/rtc/control/incoming", f.gatewayToken, body, ""); reply.Code == 201 {
+		t.Fatal("a client behind a failing endpoint was offered the call")
+	}
+	// A refresh without sleep_seconds (an older client) ends the grant.
+	if _, err := db.db.Exec(`UPDATE push_endpoints SET failures=0 WHERE device_id=$1`, f.clientID); err != nil {
+		t.Fatal(err)
+	}
+	capability(map[string]any{"version": 1, "enabled": true})
+	age()
+	body.OperationID, body.CallID = newUUID(), newUUID()
+	if reply := requestJSON(t, handler, "POST", "/v1/rtc/control/incoming", f.gatewayToken, body, ""); reply.Code == 201 {
+		t.Fatal("a refresh without sleep kept the grant")
+	}
 }
