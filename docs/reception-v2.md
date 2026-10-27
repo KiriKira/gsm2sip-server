@@ -4,7 +4,7 @@
 
 ## 0. 实现状态与精确契约
 
-R1-S 服务端部分已实现；整通拒接（`global_decline_v1`）、Homura 与 Madoka 的改动尚未实现。Kyubey 的 wire2 中继改动在 Kyubey 仓库单独提交。
+R1-S 服务端部分（含整通拒接的服务端一半）已实现。Homura 的剩余振铃时间已实现，整通拒接的网关裁决与 Madoka 的改动见各自仓库。Kyubey 的 wire2 中继改动在 Kyubey 仓库单独提交。
 
 ### 能力与配置
 
@@ -35,6 +35,13 @@ R1-S 服务端部分已实现；整通拒接（`global_decline_v1`）、Homura �
   - 沿用 `failures/next_attempt_at` 指数退避（上限 5 分钟）。关闭期间不推进 SMS 水位，重新开启后积压只发一条提示。
 - 端点重新登记为不同 URL 时 `endpoint_generation` 加一（同 URL 不变），PUT 响应和 GET 状态都返回该值；所有结果只更新或删除读到的那一代端点。
 - call 与 SMS 分别有 4 个和 2 个并发 worker，每个设备的每个领域同时只有一个任务。来电创建和呼入通话状态变化提交后立即触发一轮分发；原每秒扫描保留为兜底。
+
+### 整通拒接（global_decline_v1）
+
+- 节点在 `/v1/capabilities` 宣告 `global_decline_v1`。网关只在节点宣告后才在 `POST /v1/rtc/control/capability` 带 `"global_decline": true`（client 带此字段返回 400；不带则视为不支持）。
+- 该网关的呼入快照带 `global_decline: true`。只有此时 client 才能发 `decline_all`，否则 409，只能用原来的 `reject` 退出本机参与。
+- `decline_all` 要求：client 角色、呼入、尚无 winner，且本设备不是当前接听候选。它只记录请求，快照随即带 `decline_requested: true`；不改变通话状态，也不请求结束，不会抢在网关之前宣称已拒接。
+- 网关在安装范围的 winner 账本里裁决：拒接与接听互斥，先提交者胜。拒接胜出后拒绝蜂窝来电，等真实 END 之后再用网关操作 `declined` 结束各节点的通话。各参与设备的终态原因均为 `declined`，并释放占用。
 
 ### WebSocket
 

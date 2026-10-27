@@ -381,3 +381,71 @@ func TestPostgresReceptionV2WebSocketSaysWhatChangedAndCallsWakeAtOnce(t *testin
 		t.Fatalf("sms hint: %s", frame)
 	}
 }
+
+// addClient pairs another client of the fixture's owner and returns its id
+// and token.
+func addClient(t *testing.T, db *integrationDatabase, f integrationFixture) (string, string) {
+	t.Helper()
+	id, token := newUUID(), randomToken()
+	if _, err := db.db.Exec(`INSERT INTO devices(id,owner_id,role,name) VALUES ($1,$2,'client','client-a2')`, id, f.ownerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.db.Exec(`INSERT INTO sessions(id,device_id,access_hash,access_expires_at,refresh_hash,refresh_expires_at) VALUES ($1,$2,$3,now()+interval '1 day',$4,now()+interval '30 days')`,
+		newUUID(), id, tokenHash(token), tokenHash(randomToken())); err != nil {
+		t.Fatal(err)
+	}
+	return id, token
+}
+
+func TestPostgresDeclineAllWaitsForTheGatewayAndEndsEveryDevice(t *testing.T) {
+	db, f, api := controlFixture(t)
+	handler := api.Handler()
+	if !containsJSON(requestJSON(t, handler, "GET", "/v1/capabilities", "", nil, "").Body.Bytes(), `"global_decline_v1":true`) {
+		t.Fatal("global decline not advertised")
+	}
+	requireStatus(t, requestJSON(t, handler, "POST", "/v1/rtc/control/capability", f.clientToken,
+		map[string]any{"version": 1, "enabled": true, "global_decline": true}, ""), http.StatusBadRequest)
+	putReceptionAs(t, api, f.clientToken, 0, true, true, http.StatusOK)
+	// A second phone that is asleep: it is in the call, so declining on the
+	// first one alone would leave the caller ringing.
+	_, sleeperToken := addClient(t, db, f)
+	putReceptionAs(t, api, sleeperToken, 0, true, true, http.StatusOK)
+
+	// A gateway that cannot decide it: decline_all is refused, and the phone
+	// can only leave the call itself.
+	_, reply := offerIncoming(t, api, f, int64Pointer(20000))
+	call := reply.snapshot(t)
+	if call.GlobalDecline {
+		t.Fatal("global decline offered without gateway support")
+	}
+	controlOp(t, api, f.clientToken, call, "decline_all", 409)
+	controlOp(t, api, f.gatewayToken, controlGet(t, api, f.gatewayToken, call.CallID), "ended", 200)
+
+	requireStatus(t, requestJSON(t, handler, "POST", "/v1/rtc/control/capability", f.gatewayToken,
+		map[string]any{"version": 1, "enabled": true, "global_decline": true}, ""), 200)
+	_, reply = offerIncoming(t, api, f, int64Pointer(20000))
+	call = controlGet(t, api, f.clientToken, reply.snapshot(t).CallID)
+	if !call.GlobalDecline {
+		t.Fatal("global decline not offered")
+	}
+	call = controlOp(t, api, f.clientToken, call, "decline_all", 200)
+	if !call.DeclineRequested || call.State != "ringing" || call.EndRequested {
+		t.Fatalf("decline_all ended the call before the gateway decided: %+v", call)
+	}
+	controlOp(t, api, sleeperToken, controlGet(t, api, sleeperToken, call.CallID), "declined", 403)
+	gatewayView := controlGet(t, api, f.gatewayToken, call.CallID)
+	if !gatewayView.DeclineRequested {
+		t.Fatal("the gateway does not see the request")
+	}
+	controlOp(t, api, f.gatewayToken, gatewayView, "declined", 200)
+	for _, token := range []string{f.clientToken, sleeperToken} {
+		got := controlGet(t, api, token, call.CallID)
+		if got.State != "ended" || got.Reason == nil || *got.Reason != "declined" {
+			t.Fatalf("a device still has the call: %+v", got)
+		}
+	}
+	var slots int
+	if err := db.db.QueryRow(`SELECT count(*) FROM gateway_call_slots`).Scan(&slots); err != nil || slots != 0 {
+		t.Fatalf("slot after the real end: %d %v", slots, err)
+	}
+}

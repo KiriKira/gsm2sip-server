@@ -16,3 +16,11 @@ CREATE TABLE device_reception (
 -- SMS (and wire 1) wake-ups; call wake-ups count their own failures.
 ALTER TABLE push_endpoints ADD COLUMN generation BIGINT NOT NULL DEFAULT 1;
 ALTER TABLE push_endpoints ADD COLUMN call_failures INT NOT NULL DEFAULT 0;
+
+-- Global decline: a host's "decline" ends the whole call on every device.
+-- A gateway that can decide it declares global_decline; a client's request
+-- waits in rtc_control_calls until the gateway's durable winner/decline
+-- ledger decides and the cellular call really ends.
+ALTER TABLE rtc_control_capabilities ADD COLUMN global_decline BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE rtc_control_calls ADD COLUMN decline_requested_by UUID REFERENCES devices(id) ON DELETE SET NULL;
+ALTER TABLE rtc_control_calls ADD COLUMN decline_requested_at TIMESTAMPTZ;

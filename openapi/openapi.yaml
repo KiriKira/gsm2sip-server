@@ -711,6 +711,9 @@ components:
           minimum: 0
           maximum: 86400
           description: Only to a node advertising rtc_sleep. A client with a push endpoint that last delivered without failure stays an incoming-call candidate for up to this long (capped at 1800) without the 90 s refresh, and is woken by push. A refresh without it ends the grant. The response then carries sleep_until.
+        global_decline:
+          type: boolean
+          description: Gateway only, to a node advertising global_decline_v1. The gateway decides decline_all and reports declined; a refresh without it withdraws that.
     RTCControlCreate:
       type: object
       required: [version, operation_id, call_id, gateway_id, sim_id, mapping_revision, to]
@@ -755,7 +758,14 @@ components:
         revision: {type: integer, minimum: 1}
         kind:
           type: string
-          enum: [start, accept, release, winner, dispatch, ringing, active, reject, cancel, hangup, ended, answered_elsewhere]
+          enum: [start, accept, release, winner, dispatch, ringing, active, reject, cancel, hangup, ended, answered_elsewhere, decline_all, declined]
+          description: >-
+            decline_all (client, only while the snapshot has global_decline):
+            the user declines the call for every device. It only records the
+            request (decline_requested); the gateway decides it against an
+            answer in its durable ledger and, after the real cellular END,
+            reports declined (gateway), which ends the call for every device
+            with reason declined. reject leaves only this device's part.
         candidate_client_id: {$ref: '#/components/schemas/UUID'}
     RTCControlSnapshot:
       allOf:
@@ -770,6 +780,8 @@ components:
             candidate_client_id: {$ref: '#/components/schemas/UUID'}
             candidate_until: {type: string, format: date-time}
             winner_client_id: {$ref: '#/components/schemas/UUID'}
+            global_decline: {type: boolean, description: 'Incoming call whose gateway decides decline_all.'}
+            decline_requested: {type: boolean, description: 'A host asked to decline the whole call; the gateway has not ended it yet.'}
             remaining_ms:
               type: integer
               minimum: 0
@@ -1079,6 +1091,9 @@ components:
         rtc_audio: {type: boolean}
         push: {type: boolean, description: This node posts wake-ups to registered push endpoints.}
         rtc_sleep: {type: boolean, description: Clients may send sleep_seconds with their call-control capability.}
+        global_decline_v1:
+          type: boolean
+          description: Gateways may declare global_decline; clients then see global_decline on incoming calls and may send decline_all.
         reception_v2:
           type: boolean
           description: >-
