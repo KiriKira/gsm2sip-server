@@ -59,21 +59,78 @@ func (s *Server) rtcControlCapability(w http.ResponseWriter, r *http.Request, p 
 	var body struct {
 		Version int   `json:"version"`
 		Enabled *bool `json:"enabled"`
+		// Sent only to a node advertising rtc_sleep: how long this client may
+		// go without refreshing and still be offered calls through push.
+		SleepSeconds *int `json:"sleep_seconds,omitempty"`
 	}
 	if !decodeOrError(w, r, &body, 1024) {
 		return
 	}
-	if body.Version != 1 || body.Enabled == nil {
+	if body.Version != 1 || body.Enabled == nil || body.SleepSeconds != nil && (*body.SleepSeconds < 0 || *body.SleepSeconds > 86400) {
 		writeCallError(w, calls.ErrInvalid)
 		return
 	}
-	_, err := s.db.ExecContext(r.Context(), `INSERT INTO rtc_control_capabilities(device_id,version,enabled) VALUES($1,1,$2) ON CONFLICT(device_id) DO UPDATE SET version=1,enabled=$2,last_seen_at=clock_timestamp()`, p.DeviceID, *body.Enabled)
+	sleep := 0
+	if *body.Enabled && body.SleepSeconds != nil && p.Role == "client" && s.pushReady() {
+		sleep = min(*body.SleepSeconds, rtcMaxSleepSeconds)
+	}
+	// A sleeping client is offered calls only while a push endpoint that
+	// last delivered without failure can wake it; the grant is checked here
+	// and again when a call picks its candidates.
+	var sleepUntil sql.NullTime
+	err := s.db.QueryRowContext(r.Context(), `INSERT INTO rtc_control_capabilities(device_id,version,enabled,sleep_until)
+      VALUES($1,1,$2,CASE WHEN $3::int>0 AND EXISTS(SELECT 1 FROM push_endpoints pe WHERE pe.device_id=$1 AND pe.failures=0)
+        THEN clock_timestamp()+make_interval(secs=>$3::int) END)
+      ON CONFLICT(device_id) DO UPDATE SET version=1,enabled=EXCLUDED.enabled,last_seen_at=clock_timestamp(),sleep_until=EXCLUDED.sleep_until
+      RETURNING sleep_until`, p.DeviceID, *body.Enabled, sleep).Scan(&sleepUntil)
 	if err != nil {
 		writeDBUnavailable(w)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"version": 1, "call_control": "rtc", "enabled": body.Enabled})
+	out := map[string]any{"version": 1, "call_control": "rtc", "enabled": body.Enabled}
+	if sleepUntil.Valid {
+		out["sleep_until"] = sleepUntil.Time.UTC().Format(time.RFC3339)
+		s.sleepCheck(p.DeviceID)
+	}
+	writeJSON(w, 200, out)
 }
+
+// rtcMaxSleepSeconds bounds one sleep grant; the client renews it well before.
+const rtcMaxSleepSeconds = 1800
+
+// rtcSleepCheckEvery spaces the verification hints sent to a sleeping client.
+// A client that stops receiving them stops asking to sleep.
+const rtcSleepCheckEvery = time.Hour
+
+// sleepCheck pushes a hint to a sleeping client at most once an hour, so the
+// client can confirm, end to end, that this node's wake-ups reach it. It is an
+// "sms" hint because the relay only validates "check" without delivering it;
+// the client answers with one sync that finds nothing new.
+func (s *Server) sleepCheck(deviceID string) {
+	if s.push == nil {
+		return
+	}
+	var endpoint string
+	err := s.db.QueryRow(`UPDATE push_endpoints SET sleep_checked_at=now()
+      WHERE device_id=$1 AND (sleep_checked_at IS NULL OR sleep_checked_at<now()-make_interval(secs=>$2::int))
+      RETURNING endpoint`, deviceID, int(rtcSleepCheckEvery.Seconds())).Scan(&endpoint)
+	if err != nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), pushSendTimeout)
+		defer cancel()
+		if err := s.push.Send(ctx, endpoint, "sms", deviceID); err != nil {
+			s.logger.Warn("sleep check push failed")
+		}
+	}()
+}
+
+// rtcCandidateSQL selects call-control clients that can take a call now: a
+// capability refreshed in the last 90 s, or a sleep grant still running for a
+// client whose push endpoint delivers. c aliases rtc_control_capabilities.
+const rtcCandidateSQL = `c.enabled AND (c.last_seen_at>clock_timestamp()-interval '90 seconds' OR
+      c.sleep_until>clock_timestamp() AND EXISTS(SELECT 1 FROM push_endpoints pe WHERE pe.device_id=c.device_id AND pe.failures=0))`
 
 // Serialize against credential revocation before locking call rows, matching the
 // media authorizer's device -> call ordering. Recheck the exact session token.
@@ -288,7 +345,7 @@ func (s *Server) rtcControlCreate(w http.ResponseWriter, r *http.Request, p Prin
 		seconds = 25
 		// Freeze the whole incoming fork before dispatch: it rings every client
 		// that currently advertises call control. Others never see the call.
-		rows, e := tx.QueryContext(ctx, `SELECT d.id::text FROM devices d JOIN rtc_control_capabilities c ON c.device_id=d.id WHERE d.owner_id=$1 AND d.role='client' AND d.state='active' AND c.enabled AND c.last_seen_at>clock_timestamp()-interval '90 seconds' AND EXISTS(SELECT 1 FROM sessions ss WHERE ss.device_id=d.id AND ss.refresh_expires_at>clock_timestamp()) ORDER BY d.id`, p.OwnerID)
+		rows, e := tx.QueryContext(ctx, `SELECT d.id::text FROM devices d JOIN rtc_control_capabilities c ON c.device_id=d.id WHERE d.owner_id=$1 AND d.role='client' AND d.state='active' AND `+rtcCandidateSQL+` AND EXISTS(SELECT 1 FROM sessions ss WHERE ss.device_id=d.id AND ss.refresh_expires_at>clock_timestamp()) ORDER BY d.id`, p.OwnerID)
 		if e != nil {
 			fail(e)
 			return
@@ -314,7 +371,7 @@ func (s *Server) rtcControlCreate(w http.ResponseWriter, r *http.Request, p Prin
 		}
 		client = clients[0]
 	} else {
-		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM rtc_control_capabilities WHERE device_id=$1 AND enabled AND last_seen_at>clock_timestamp()-interval '90 seconds')`, client).Scan(&valid); err != nil {
+		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM rtc_control_capabilities c WHERE c.device_id=$1 AND `+rtcCandidateSQL+`)`, client).Scan(&valid); err != nil {
 			fail(err)
 			return
 		}

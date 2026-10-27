@@ -18,7 +18,7 @@ paths:
   /rtc/control/capability:
     post:
       operationId: advertiseRTCCallControl
-      description: Advertise this authenticated device's protocol choice. Renew every 25 seconds; expires after 90 seconds. Does not change an existing call's adapter.
+      description: Advertise this authenticated device's protocol choice. Renew every 25 seconds; expires after 90 seconds, unless a sleep grant (sleep_seconds) is running. Does not change an existing call's adapter.
       requestBody:
         required: true
         content:
@@ -603,6 +603,11 @@ components:
       properties:
         version: {type: integer, const: 1}
         enabled: {type: boolean}
+        sleep_seconds:
+          type: integer
+          minimum: 0
+          maximum: 86400
+          description: Only to a node advertising rtc_sleep. A client with a push endpoint that last delivered without failure stays an incoming-call candidate for up to this long (capped at 1800) without the 90 s refresh, and is woken by push. A refresh without it ends the grant. The response then carries sleep_until.
     RTCControlCreate:
       type: object
       required: [version, operation_id, call_id, gateway_id, sim_id, mapping_revision, to]
@@ -918,6 +923,7 @@ components:
         rtc_call_control: {type: boolean, description: RTC call control is available.}
         rtc_audio: {type: boolean}
         push: {type: boolean, description: This node posts wake-ups to registered push endpoints.}
+        rtc_sleep: {type: boolean, description: Clients may send sleep_seconds with their call-control capability.}
         extensions:
           type: array
           items: {type: string}

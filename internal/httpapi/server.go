@@ -78,7 +78,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/capabilities", func(w http.ResponseWriter, _ *http.Request) {
 		// Public and secret-free: clients probe it to measure a node and to learn
 		// which optional request fields it accepts before sending them.
-		writeJSON(w, http.StatusOK, map[string]any{"protocol_version": 1, "extensions": SupportedExtensions, "rtc_audio": s.rtc != nil, "rtc_call_control": s.rtc != nil, "push": s.pushReady()})
+		writeJSON(w, http.StatusOK, map[string]any{"protocol_version": 1, "extensions": SupportedExtensions, "rtc_audio": s.rtc != nil, "rtc_call_control": s.rtc != nil, "push": s.pushReady(), "rtc_sleep": s.rtc != nil && s.pushReady()})
 	})
 	mux.HandleFunc("POST /v1/pairings/claim", s.claimPairing)
 	mux.HandleFunc("POST /v1/auth/refresh", s.refreshSession)

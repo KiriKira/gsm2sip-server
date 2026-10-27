@@ -52,7 +52,7 @@ All requests use the existing paired bearer session under `/v1`, with version
 
 | Method and path | Meaning |
 | --- | --- |
-| `POST /rtc/control/capability` | Explicit `{version:1, enabled:true|false}`; renew every 25 seconds, fresh for 90 seconds |
+| `POST /rtc/control/capability` | Explicit `{version:1, enabled:true|false}`; renew every 25 seconds, fresh for 90 seconds. With `sleep_seconds` (see below), a push-reachable client may sleep instead |
 | `POST /rtc/control/calls` | Host reserves an outgoing call, without dialing |
 | `POST /rtc/control/incoming` | Gateway reports a genuine ringing cellular call to each eligible node |
 | `GET /rtc/control/calls` | At most 32 device-scoped snapshots; suggested poll interval 750 ms |
@@ -136,3 +136,25 @@ instrumentation's synthetic PCM replaces only physical call-audio hardware.
 Passing those tests does not establish physical handset HAL audio; that last
 step requires a real Gateway handset. Lab test keys and injected test backends
 are excluded from the permanent-signed published application builds.
+
+## Sleeping clients
+
+A node that sends push wake-ups advertises `"rtc_sleep": true` in
+`GET /v1/capabilities`. A client may then add `sleep_seconds` to its
+capability. If the client has a push endpoint whose last delivery did not fail,
+the response carries `sleep_until` (at most 30 minutes ahead). Until then the
+client stays an incoming-call candidate without the 90-second refresh: a ringing
+call creates its call event, and the push dispatcher wakes the client within
+about a second. The client then reads the call over HTTPS as usual.
+
+- A failing endpoint (`failures > 0`) ends eligibility at once, without waiting
+  for `sleep_until`.
+- A capability refresh without `sleep_seconds`, or with `enabled:false`, ends
+  the grant. Older clients never send the field, and older nodes reject it, so a
+  client sends it only after seeing `rtc_sleep`.
+- At most once an hour per client, a grant also pushes an `sms` hint (the relay
+  only validates `check` hints without delivering them), so the client can
+  confirm end to end that this node's wake-ups reach it; it answers with one sync
+  that finds nothing new. A client that stops seeing hints stops asking to sleep.
+- Gateways never sleep: their own capability keeps the 90-second rule.
+
