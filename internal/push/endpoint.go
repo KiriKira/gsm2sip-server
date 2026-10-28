@@ -1,8 +1,8 @@
 // Package push wakes client phones by posting to the push endpoint each phone
 // registered: a Kyubey relay URL, or any compatible (UnifiedPush-style)
 // endpoint. The server holds no push credentials. A wake-up carries only
-// what changed and the phone's device ID on this node; the phone then reads
-// its events over HTTPS.
+// what changed and identifiers on this node; the phone then reads its events
+// over HTTPS.
 package push
 
 import (
@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"strconv"
 	"syscall"
 	"time"
 )
@@ -42,6 +43,23 @@ type Sender interface {
 	// Send posts kind ("sms", "call", or "check" to test the endpoint
 	// without waking the phone) for deviceID.
 	Send(ctx context.Context, endpoint, kind, deviceID string) error
+	// Wake posts a wire 2 wake-up, which only phones that switched to
+	// reception v2 understand.
+	Wake(ctx context.Context, endpoint string, wake Wake) error
+}
+
+// Wake is a wire 2 wake-up: which domain changed and, for a call, which call,
+// so the phone fetches that one call. TTL and Urgency travel as the standard
+// HTTP headers.
+type Wake struct {
+	Kind       string // "call" or "sms"
+	DeviceID   string
+	WakeID     string
+	CallID     string // calls only
+	Revision   int64
+	Generation int64
+	TTL        time.Duration
+	Urgency    string // "high", "normal", "low" or "very-low"
 }
 
 // HTTP posts wake-ups. Unless private endpoints are allowed, it refuses
@@ -107,18 +125,32 @@ func (h *HTTP) Validate(endpoint string) error {
 }
 
 func (h *HTTP) Send(ctx context.Context, endpoint, kind, deviceID string) error {
+	body, _ := json.Marshal(map[string]string{"kind": kind, "device_id": deviceID})
+	// WebPush hints: deliver soon, drop if not delivered within a minute.
+	return h.post(ctx, endpoint, body, 60, "high")
+}
+
+func (h *HTTP) Wake(ctx context.Context, endpoint string, wake Wake) error {
+	body := map[string]any{"v": 2, "kind": wake.Kind, "device_id": wake.DeviceID, "wake_id": wake.WakeID,
+		"revision": wake.Revision, "endpoint_generation": wake.Generation}
+	if wake.CallID != "" {
+		body["call_id"] = wake.CallID
+	}
+	encoded, _ := json.Marshal(body)
+	return h.post(ctx, endpoint, encoded, int64(max(wake.TTL, 0)/time.Second), wake.Urgency)
+}
+
+func (h *HTTP) post(ctx context.Context, endpoint string, body []byte, ttlSeconds int64, urgency string) error {
 	if err := h.Validate(endpoint); err != nil {
 		return err
 	}
-	body, _ := json.Marshal(map[string]string{"kind": kind, "device_id": deviceID})
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return ErrInvalidEndpoint
 	}
 	request.Header.Set("Content-Type", "application/json")
-	// WebPush hints: deliver soon, drop if not delivered within a minute.
-	request.Header.Set("TTL", "60")
-	request.Header.Set("Urgency", "high")
+	request.Header.Set("TTL", strconv.FormatInt(ttlSeconds, 10))
+	request.Header.Set("Urgency", urgency)
 	response, err := h.client.Do(request)
 	if err != nil {
 		if errors.Is(err, ErrInvalidEndpoint) {

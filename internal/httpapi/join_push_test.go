@@ -92,6 +92,9 @@ type fakePush struct {
 	err   error
 	sent  []string
 	check int
+	wakes []push.Wake
+	// wakeErr, when set, answers each wire 2 wake-up.
+	wakeErr func(push.Wake) error
 }
 
 func (f *fakePush) Validate(endpoint string) error {
@@ -113,6 +116,26 @@ func (f *fakePush) Send(_ context.Context, _, kind, deviceID string) error {
 		f.sent = append(f.sent, kind+":"+deviceID)
 	}
 	return nil
+}
+
+func (f *fakePush) Wake(_ context.Context, _ string, wake push.Wake) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.wakeErr != nil {
+		if err := f.wakeErr(wake); err != nil {
+			return err
+		}
+	} else if f.err != nil {
+		return f.err
+	}
+	f.wakes = append(f.wakes, wake)
+	return nil
+}
+
+func (f *fakePush) wakesSent() []push.Wake {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]push.Wake(nil), f.wakes...)
 }
 
 func (f *fakePush) sentCount() int { f.mu.Lock(); defer f.mu.Unlock(); return len(f.sent) }

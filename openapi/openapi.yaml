@@ -31,7 +31,13 @@ paths:
   /rtc/control/incoming:
     post:
       operationId: createRTCIncomingCall
-      description: Gateway reports a genuine ringing cellular call. A shared call_id identifies all node offers; no cellular answer follows from this request or a client's accept reservation.
+      description: >-
+        Gateway reports a genuine ringing cellular call. A shared call_id
+        identifies all node offers; no cellular answer follows from this
+        request or a client's accept reservation. The call rings every client
+        of the owner that receives incoming calls now: a reception v2 client
+        while incoming_enabled (asleep or offline included), any other client
+        by its call-control capability.
       requestBody:
         required: true
         content:
@@ -44,6 +50,13 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '409': {$ref: '#/components/responses/Conflict'}
+        '503':
+          description: >-
+            No call was created. NO_INCOMING_SUBSCRIBERS (only to a gateway
+            that sent remaining_ring_ms): no client of this node receives
+            incoming calls; offer the call to the other nodes.
+            GATEWAY_UNAVAILABLE: the same for older gateways, or the gateway
+            itself is not ready.
   /rtc/control/calls:
     post:
       operationId: createRTCOutgoingReservation
@@ -158,6 +171,10 @@ paths:
         frame closes with 1008, oversized data (>4 KiB) with 1009, and expired,
         rotated, or revoked credentials with 1008. A per-device limit of two
         connections applies. This channel does not represent call readiness.
+        A client may send Wake-Ping-Seconds (20 to 300, else 400
+        INVALID_WAKE_PING) to have the server ping at that interval instead;
+        it then answers within the interval plus 25 seconds and sends no
+        pings of its own. Each ping wakes a sleeping phone.
       responses:
         '101':
           description: WebSocket upgrade completed; messages follow the description above.
@@ -502,11 +519,18 @@ paths:
         Client only. Registers the device's push endpoint (a Kyubey relay URL
         or another compatible endpoint) after it accepts a POST of
         {"kind":"check","device_id":...}, so only endpoints that reach the
-        phone are stored. Each later wake-up is a POST of {"kind":"sms"|"call",
-        "device_id":...} with Urgency high and TTL 60; the phone then
-        synchronises over HTTPS. 404 or 410 from the endpoint removes it.
-        Registering does not announce earlier events. Only public https://
-        endpoints are accepted unless the node allows private ones.
+        phone are stored. For a device on reception version 1 each later
+        wake-up is a POST of {"kind":"sms"|"call","device_id":...} with
+        Urgency high and TTL 60. A reception v2 device gets wire 2 instead:
+        {"v":2,"kind":"call"|"sms","device_id","wake_id","revision",
+        "endpoint_generation"} plus "call_id" for a call, one per changed call
+        with the TTL header set to what is left of its ring window (Urgency
+        high), and SMS apart with TTL 86400 (Urgency high when a message
+        arrived, else normal). The phone then synchronises over HTTPS. 404 or
+        410 from the endpoint removes it. Registering does not announce
+        earlier events; a different endpoint is a new endpoint_generation.
+        Only public https:// endpoints are accepted unless the node allows
+        private ones.
       requestBody:
         required: true
         content:
@@ -528,6 +552,7 @@ paths:
                 required: [push]
                 properties:
                   push: {type: string, const: ready}
+                  endpoint_generation: {type: integer, minimum: 1, description: 'Unchanged when the same endpoint registers again.'}
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '422': {description: 'PUSH_ENDPOINT_REJECTED: the endpoint does not reach this device.'}
@@ -551,9 +576,51 @@ paths:
                 required: [registered]
                 properties:
                   registered: {type: boolean}
-                  failures: {type: integer, minimum: 0, description: Consecutive hand-offs the endpoint did not accept.}
+                  failures: {type: integer, minimum: 0, description: Consecutive SMS (and wire 1) hand-offs the endpoint did not accept.}
+                  call_failures: {type: integer, minimum: 0, description: Consecutive wire 2 call hand-offs the endpoint did not accept.}
+                  endpoint_generation: {type: integer, minimum: 1}
                   delivered_at: {type: string, format: date-time, description: When the endpoint last accepted a wake-up for this device.}
         '403': {$ref: '#/components/responses/Forbidden'}
+  /devices/self/reception:
+    get:
+      operationId: getReception
+      description: Client only. Whether this node offers the device incoming calls and SMS wake-ups.
+      responses:
+        '200':
+          description: Current settings.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReceptionConfig'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    put:
+      operationId: putReception
+      description: >-
+        Client only, on a node advertising reception_v2. Replaces the settings
+        if they still have expected_revision (0 before the first write). At
+        version 2 the device is offered incoming calls while incoming_enabled,
+        without capability refreshes or sleep grants, and can place calls with
+        incoming calls off. Turning incoming off withdraws the device from
+        calls still ringing it, without hanging them up; a call it began to
+        accept goes on. sms_enabled off stops SMS wake-ups to the device
+        (push and WebSocket) until turned back on, when the backlog is
+        announced once; it does not stop the gateway or delete messages.
+        After a 409, or a lost answer, read the settings and write the latest
+        choice again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReceptionUpdate'}
+      responses:
+        '200':
+          description: Settings stored.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReceptionConfig'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {description: 'RECEPTION_REVISION_CONFLICT: the settings changed since expected_revision.'}
+        '503': {description: 'RTC_CONTROL_DISABLED: this node has no call control.'}
   /devices/self/push-endpoint/test:
     post:
       operationId: testPush
@@ -648,6 +715,9 @@ components:
           minimum: 0
           maximum: 86400
           description: Only to a node advertising rtc_sleep. A client with a push endpoint that last delivered without failure stays an incoming-call candidate for up to this long (capped at 1800) without the 90 s refresh, and is woken by push. A refresh without it ends the grant. The response then carries sleep_until.
+        global_decline:
+          type: boolean
+          description: Gateway only, to a node advertising global_decline_v1. The gateway decides decline_all and reports declined; a refresh without it withdraws that.
     RTCControlCreate:
       type: object
       required: [version, operation_id, call_id, gateway_id, sim_id, mapping_revision, to]
@@ -660,6 +730,16 @@ components:
         mapping_revision: {type: integer, minimum: 1}
         to: {type: string, maxLength: 64, pattern: '^[^\r\n]*$'}
         from: {type: string, maxLength: 64, pattern: '^[^\r\n]*$'}
+        remaining_ring_ms:
+          type: integer
+          minimum: 1
+          maximum: 60000
+          description: >-
+            Incoming only, to a node advertising reception_v2. What is left of
+            the call's ring window, measured on the gateway's monotonic clock
+            from the first cellular RINGING. The call expires after
+            min(25000, remaining_ring_ms). It is not part of the operation's
+            identity: a retry may send less and replays the first answer.
     RTCOutgoingCall:
       allOf:
         - {$ref: '#/components/schemas/RTCControlCreate'}
@@ -667,6 +747,7 @@ components:
           properties:
             to: {type: string, minLength: 1}
             from: {const: ''}
+          not: {required: [remaining_ring_ms]}
       unevaluatedProperties: false
     RTCIncomingCall:
       allOf: [{$ref: '#/components/schemas/RTCControlCreate'}]
@@ -681,7 +762,14 @@ components:
         revision: {type: integer, minimum: 1}
         kind:
           type: string
-          enum: [start, accept, release, winner, dispatch, ringing, active, reject, cancel, hangup, ended, answered_elsewhere]
+          enum: [start, accept, release, winner, dispatch, ringing, active, reject, cancel, hangup, ended, answered_elsewhere, decline_all, declined]
+          description: >-
+            decline_all (client, only while the snapshot has global_decline):
+            the user declines the call for every device. It only records the
+            request (decline_requested); the gateway decides it against an
+            answer in its durable ledger and, after the real cellular END,
+            reports declined (gateway), which ends the call for every device
+            with reason declined. reject leaves only this device's part.
         candidate_client_id: {$ref: '#/components/schemas/UUID'}
     RTCControlSnapshot:
       allOf:
@@ -696,6 +784,16 @@ components:
             candidate_client_id: {$ref: '#/components/schemas/UUID'}
             candidate_until: {type: string, format: date-time}
             winner_client_id: {$ref: '#/components/schemas/UUID'}
+            global_decline: {type: boolean, description: 'Incoming call whose gateway decides decline_all.'}
+            decline_requested: {type: boolean, description: 'A host asked to decline the whole call; the gateway has not ended it yet.'}
+            remaining_ms:
+              type: integer
+              minimum: 0
+              description: >-
+                While the call rings or connects: milliseconds left before it
+                expires, by the server's clock when the snapshot was taken.
+                A phone times its ringing from receipt on its own monotonic
+                clock and never rings past it.
     WakeSyncRequired:
       type: object
       additionalProperties: false
@@ -703,6 +801,37 @@ components:
       properties:
         protocol_version: {const: 1}
         type: {const: sync_required}
+        domains:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {type: string, enum: [call, sms]}
+          description: >-
+            Only to a reception v2 client: what changed. "call" asks for the
+            call-control snapshot, "sms" for the message events. Never "sms"
+            while the client has SMS wake-ups off; those changes are announced
+            once it turns them back on.
+    ReceptionConfig:
+      type: object
+      additionalProperties: false
+      required: [version, incoming_enabled, sms_enabled, revision]
+      properties:
+        version: {type: integer, enum: [1, 2]}
+        incoming_enabled: {type: boolean}
+        sms_enabled: {type: boolean}
+        revision:
+          type: integer
+          minimum: 0
+          description: 0 until the client first writes; version 1 then mirrors the call-control capability.
+    ReceptionUpdate:
+      type: object
+      additionalProperties: false
+      required: [version, expected_revision, incoming_enabled, sms_enabled]
+      properties:
+        version: {type: integer, enum: [1, 2]}
+        expected_revision: {type: integer, minimum: 0}
+        incoming_enabled: {type: boolean}
+        sms_enabled: {type: boolean}
     UUID:
       type: string
       format: uuid
@@ -966,6 +1095,15 @@ components:
         rtc_audio: {type: boolean}
         push: {type: boolean, description: This node posts wake-ups to registered push endpoints.}
         rtc_sleep: {type: boolean, description: Clients may send sleep_seconds with their call-control capability.}
+        global_decline_v1:
+          type: boolean
+          description: Gateways may declare global_decline; clients then see global_decline on incoming calls and may send decline_all.
+        reception_v2:
+          type: boolean
+          description: >-
+            Clients may write /devices/self/reception, gateways may send
+            remaining_ring_ms, and a v2 client gets wire 2 push wake-ups and
+            WebSocket domains.
         extensions:
           type: array
           items: {type: string}

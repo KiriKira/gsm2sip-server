@@ -26,6 +26,14 @@ type rtcControlSnapshot struct {
 	CandidateID      string     `json:"candidate_client_id,omitempty"`
 	WinnerID         string     `json:"winner_client_id,omitempty"`
 	CandidateUntil   *time.Time `json:"candidate_until,omitempty"`
+	// RemainingMS is how long a ringing or connecting call has left, by the
+	// server's clock, for a phone that times its ringing on its own clock.
+	RemainingMS *int64 `json:"remaining_ms,omitempty"`
+	// GlobalDecline: the call's gateway can decide decline_all.
+	GlobalDecline bool `json:"global_decline,omitempty"`
+	// DeclineRequested: a host asked to decline the whole call and the
+	// gateway has not ended it yet.
+	DeclineRequested bool `json:"decline_requested,omitempty"`
 }
 type rtcCreateCall struct {
 	Version         int    `json:"version"`
@@ -36,6 +44,13 @@ type rtcCreateCall struct {
 	MappingRevision int64  `json:"mapping_revision"`
 	To              string `json:"to"`
 	From            string `json:"from,omitempty"`
+	// RemainingRingMS, from a gateway offering an incoming call to a node
+	// that advertises reception_v2, is what is left of the call's ring
+	// window: the call expires then rather than 25 s after this request. A
+	// gateway that sends it also understands NO_INCOMING_SUBSCRIBERS. It is
+	// not part of the operation's identity, so a retry may send a smaller
+	// value and still replays the first answer.
+	RemainingRingMS *int64 `json:"remaining_ring_ms,omitempty"`
 }
 type rtcCallOperation struct {
 	Version     int    `json:"version"`
@@ -62,14 +77,19 @@ func (s *Server) rtcControlCapability(w http.ResponseWriter, r *http.Request, p 
 		// Sent only to a node advertising rtc_sleep: how long this client may
 		// go without refreshing and still be offered calls through push.
 		SleepSeconds *int `json:"sleep_seconds,omitempty"`
+		// Sent only by a gateway to a node advertising global_decline_v1: it
+		// decides decline_all in its winner ledger and reports "declined".
+		GlobalDecline *bool `json:"global_decline,omitempty"`
 	}
 	if !decodeOrError(w, r, &body, 1024) {
 		return
 	}
-	if body.Version != 1 || body.Enabled == nil || body.SleepSeconds != nil && (*body.SleepSeconds < 0 || *body.SleepSeconds > 86400) {
+	if body.Version != 1 || body.Enabled == nil || body.SleepSeconds != nil && (*body.SleepSeconds < 0 || *body.SleepSeconds > 86400) ||
+		body.GlobalDecline != nil && p.Role != "gateway" {
 		writeCallError(w, calls.ErrInvalid)
 		return
 	}
+	globalDecline := body.GlobalDecline != nil && *body.GlobalDecline
 	sleep := 0
 	if *body.Enabled && body.SleepSeconds != nil && p.Role == "client" && s.pushReady() {
 		sleep = min(*body.SleepSeconds, rtcMaxSleepSeconds)
@@ -78,11 +98,11 @@ func (s *Server) rtcControlCapability(w http.ResponseWriter, r *http.Request, p 
 	// last delivered without failure can wake it; the grant is checked here
 	// and again when a call picks its candidates.
 	var sleepUntil sql.NullTime
-	err := s.db.QueryRowContext(r.Context(), `INSERT INTO rtc_control_capabilities(device_id,version,enabled,sleep_until)
+	err := s.db.QueryRowContext(r.Context(), `INSERT INTO rtc_control_capabilities(device_id,version,enabled,sleep_until,global_decline)
       VALUES($1,1,$2,CASE WHEN $3::int>0 AND EXISTS(SELECT 1 FROM push_endpoints pe WHERE pe.device_id=$1 AND pe.failures=0)
-        THEN clock_timestamp()+make_interval(secs=>$3::int) END)
-      ON CONFLICT(device_id) DO UPDATE SET version=1,enabled=EXCLUDED.enabled,last_seen_at=clock_timestamp(),sleep_until=EXCLUDED.sleep_until
-      RETURNING sleep_until`, p.DeviceID, *body.Enabled, sleep).Scan(&sleepUntil)
+        THEN clock_timestamp()+make_interval(secs=>$3::int) END,$4)
+      ON CONFLICT(device_id) DO UPDATE SET version=1,enabled=EXCLUDED.enabled,last_seen_at=clock_timestamp(),sleep_until=EXCLUDED.sleep_until,global_decline=EXCLUDED.global_decline
+      RETURNING sleep_until`, p.DeviceID, *body.Enabled, sleep, globalDecline).Scan(&sleepUntil)
 	if err != nil {
 		writeDBUnavailable(w)
 		return
@@ -134,6 +154,9 @@ func (s *Server) sleepCheck(deviceID string) {
 const rtcCandidateSQL = `c.enabled AND (c.last_seen_at>clock_timestamp()-interval '90 seconds' OR
       c.sleep_until>clock_timestamp() AND EXISTS(SELECT 1 FROM push_endpoints pe WHERE pe.device_id=c.device_id AND pe.failures=0))`
 
+// incomingRingMS is an incoming call's ring window.
+const incomingRingMS = 25000
+
 // Serialize against credential revocation before locking call rows, matching the
 // media authorizer's device -> call ordering. Recheck the exact session token.
 func (s *Server) rtcControlIdentity(ctx context.Context, tx *sql.Tx, r *http.Request, p Principal, gateway string) error {
@@ -177,17 +200,24 @@ func (s *Server) rtcControlIdentity(ctx context.Context, tx *sql.Tx, r *http.Req
 
 func controlSnapshot(ctx context.Context, tx *sql.Tx, p Principal, id string, lock bool) (rtcControlSnapshot, error) {
 	var out rtcControlSnapshot
-	query := `SELECT c.call_id::text,c.gateway_id::text,c.client_device_id::text,c.sim_id::text,c.mapping_revision,c.direction,c.state,c.state_revision,COALESCE(c.from_address,''),c.to_address,COALESCE(c.reason,''),c.created_at,c.expires_at,c.answered_at,t.end_requested,t.dispatched,COALESCE(t.candidate_client_id::text,''),COALESCE(c.incoming_winner_client_device_id::text,''),t.candidate_until
+	query := `SELECT c.call_id::text,c.gateway_id::text,c.client_device_id::text,c.sim_id::text,c.mapping_revision,c.direction,c.state,c.state_revision,COALESCE(c.from_address,''),c.to_address,COALESCE(c.reason,''),c.created_at,c.expires_at,c.answered_at,t.end_requested,t.dispatched,COALESCE(t.candidate_client_id::text,''),COALESCE(c.incoming_winner_client_device_id::text,''),t.candidate_until,
+        CASE WHEN c.state NOT IN ('active','ended','unknown') AND c.expires_at IS NOT NULL THEN GREATEST(0,floor(EXTRACT(EPOCH FROM c.expires_at-clock_timestamp())*1000))::bigint END,
+        COALESCE((SELECT g.global_decline FROM rtc_control_capabilities g WHERE g.device_id=c.gateway_id),false),t.decline_requested_by IS NOT NULL
       FROM call_sessions c JOIN rtc_control_calls t ON t.call_id=c.call_id
       WHERE c.call_id=$1 AND c.owner_id=$2 AND c.control_transport='rtc'
         AND (c.gateway_id=$3 OR (c.direction='outgoing' AND c.client_device_id=$3) OR EXISTS(SELECT 1 FROM call_participants p WHERE p.call_id=c.call_id AND p.client_device_id=$3))`
 	if lock {
 		query += ` FOR UPDATE OF c,t`
 	}
-	err := tx.QueryRowContext(ctx, query, id, p.OwnerID, p.DeviceID).Scan(&out.CallID, &out.GatewayID, &out.ClientID, &out.SIMID, &out.MappingRevision, &out.Direction, &out.State, &out.StateRevision, &out.From, &out.To, &out.Reason, &out.CreatedAt, &out.ExpiresAt, &out.AnsweredAt, &out.EndRequested, &out.Dispatched, &out.CandidateID, &out.WinnerID, &out.CandidateUntil)
+	var remaining sql.NullInt64
+	err := tx.QueryRowContext(ctx, query, id, p.OwnerID, p.DeviceID).Scan(&out.CallID, &out.GatewayID, &out.ClientID, &out.SIMID, &out.MappingRevision, &out.Direction, &out.State, &out.StateRevision, &out.From, &out.To, &out.Reason, &out.CreatedAt, &out.ExpiresAt, &out.AnsweredAt, &out.EndRequested, &out.Dispatched, &out.CandidateID, &out.WinnerID, &out.CandidateUntil, &remaining, &out.GlobalDecline, &out.DeclineRequested)
 	if errors.Is(err, sql.ErrNoRows) {
 		return out, calls.ErrNotFound
 	}
+	if remaining.Valid {
+		out.RemainingMS = &remaining.Int64
+	}
+	out.GlobalDecline = out.GlobalDecline && out.Direction == "incoming"
 	out.Version = 1
 	out.ControlTransport = "rtc"
 	if err == nil && p.Role == "client" && out.Direction == "incoming" {
@@ -196,6 +226,7 @@ func controlSnapshot(ctx context.Context, tx *sql.Tx, p Principal, id string, lo
 		if state == "ended" {
 			out.State = "ended"
 			out.Reason = optionalString(reason)
+			out.RemainingMS = nil
 		}
 		out.ClientID = p.DeviceID
 	}
@@ -276,10 +307,13 @@ func (s *Server) rtcControlCreate(w http.ResponseWriter, r *http.Request, p Prin
 	body.CallID = strings.ToLower(body.CallID)
 	body.GatewayID = strings.ToLower(body.GatewayID)
 	body.SIMID = strings.ToLower(body.SIMID)
-	if body.Version != 1 || !validUUID(body.OperationID) || !validUUID(body.CallID) || !validUUID(body.GatewayID) || !validUUID(body.SIMID) || body.MappingRevision < 1 || (!incoming && (!validAddress(body.To) || body.From != "")) || (incoming && (len(body.To) > 64 || strings.ContainsAny(body.To, "\r\n"))) || len(body.From) > 64 || strings.ContainsAny(body.From, "\r\n") || (incoming && body.GatewayID != p.DeviceID) {
+	if body.Version != 1 || !validUUID(body.OperationID) || !validUUID(body.CallID) || !validUUID(body.GatewayID) || !validUUID(body.SIMID) || body.MappingRevision < 1 || (!incoming && (!validAddress(body.To) || body.From != "")) || (incoming && (len(body.To) > 64 || strings.ContainsAny(body.To, "\r\n"))) || len(body.From) > 64 || strings.ContainsAny(body.From, "\r\n") || (incoming && body.GatewayID != p.DeviceID) ||
+		(body.RemainingRingMS != nil && (!incoming || *body.RemainingRingMS < 1 || *body.RemainingRingMS > 60000)) {
 		writeCallError(w, calls.ErrInvalid)
 		return
 	}
+	remainingRing := body.RemainingRingMS
+	body.RemainingRingMS = nil
 	ctx := r.Context()
 	tx, err := beginDurable(ctx, s.db)
 	if err != nil {
@@ -339,15 +373,22 @@ func (s *Server) rtcControlCreate(w http.ResponseWriter, r *http.Request, p Prin
 	clients := []string{client}
 	state := "reserved"
 	direction := "outgoing"
-	seconds := 30
+	windowMS := int64(30000)
 	if incoming {
 		clients = nil
 		state = "ringing"
 		direction = "incoming"
-		seconds = 25
+		windowMS = incomingRingMS
+		if remainingRing != nil {
+			windowMS = min(windowMS, *remainingRing)
+		}
 		// Freeze the whole incoming fork before dispatch: it rings every client
-		// that currently advertises call control. Others never see the call.
-		rows, e := tx.QueryContext(ctx, `SELECT d.id::text FROM devices d JOIN rtc_control_capabilities c ON c.device_id=d.id WHERE d.owner_id=$1 AND d.role='client' AND d.state='active' AND `+rtcCandidateSQL+` AND EXISTS(SELECT 1 FROM sessions ss WHERE ss.device_id=d.id AND ss.refresh_expires_at>clock_timestamp()) ORDER BY d.id`, p.OwnerID)
+		// that receives incoming calls now. Others never see the call. A v2
+		// client is included while it is offline: push or its next connection
+		// reaches it within the ring window, or the call expires for it. The
+		// share lock orders this against a client turning incoming calls off.
+		rows, e := tx.QueryContext(ctx, `SELECT d.id::text FROM devices d LEFT JOIN device_reception r ON r.device_id=d.id LEFT JOIN rtc_control_capabilities c ON c.device_id=d.id
+          WHERE d.owner_id=$1 AND d.role='client' AND d.state='active' AND `+receptionCandidateSQL+` AND EXISTS(SELECT 1 FROM sessions ss WHERE ss.device_id=d.id AND ss.refresh_expires_at>clock_timestamp()) ORDER BY d.id FOR SHARE OF d`, p.OwnerID)
 		if e != nil {
 			fail(e)
 			return
@@ -368,12 +409,20 @@ func (s *Server) rtcControlCreate(w http.ResponseWriter, r *http.Request, p Prin
 			return
 		}
 		if len(clients) == 0 {
-			fail(calls.ErrGatewayUnavailable)
+			if remainingRing != nil {
+				fail(calls.ErrNoSubscribers)
+			} else {
+				fail(calls.ErrGatewayUnavailable)
+			}
 			return
 		}
 		client = clients[0]
 	} else {
-		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM rtc_control_capabilities c WHERE c.device_id=$1 AND `+rtcCandidateSQL+`)`, client).Scan(&valid); err != nil {
+		// Placing a call does not depend on receiving them: a v2 client may
+		// call out with incoming calls off. Older clients still need a live
+		// call-control capability.
+		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM device_reception WHERE device_id=$1 AND protocol_version=2)
+          OR EXISTS(SELECT 1 FROM rtc_control_capabilities c WHERE c.device_id=$1 AND `+rtcCandidateSQL+`)`, client).Scan(&valid); err != nil {
 			fail(err)
 			return
 		}
@@ -391,7 +440,7 @@ func (s *Server) rtcControlCreate(w http.ResponseWriter, r *http.Request, p Prin
 		fail(calls.ErrCallIDConflict)
 		return
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO call_sessions(call_id,owner_id,client_device_id,gateway_id,sim_id,mapping_revision,direction,to_address,from_address,state,expires_at,gateway_endpoint_id,client_endpoint_id,control_transport) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9,''),$10,clock_timestamp()+($11*interval '1 second'),'','','rtc')`, body.CallID, p.OwnerID, client, body.GatewayID, body.SIMID, body.MappingRevision, direction, body.To, body.From, state, seconds)
+	_, err = tx.ExecContext(ctx, `INSERT INTO call_sessions(call_id,owner_id,client_device_id,gateway_id,sim_id,mapping_revision,direction,to_address,from_address,state,expires_at,gateway_endpoint_id,client_endpoint_id,control_transport) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9,''),$10,clock_timestamp()+($11*interval '1 millisecond'),'','','rtc')`, body.CallID, p.OwnerID, client, body.GatewayID, body.SIMID, body.MappingRevision, direction, body.To, body.From, state, windowMS)
 	if err != nil {
 		fail(err)
 		return
@@ -430,6 +479,9 @@ func (s *Server) rtcControlCreate(w http.ResponseWriter, r *http.Request, p Prin
 		return
 	}
 	s.logger.Info("RTC call created", "call_id", out.CallID, "call_control", "rtc", "direction", direction)
+	if incoming {
+		s.kickWake()
+	}
 	writeJSON(w, 201, out)
 }
 
@@ -527,15 +579,16 @@ func (s *Server) rtcControlOperate(w http.ResponseWriter, r *http.Request, p Pri
 		fail(err)
 		return
 	}
-	if out.State == "ended" || (out.State == "unknown" && !(p.Role == "gateway" && body.Kind == "ended")) || out.StateRevision != body.Revision {
+	cellularEnd := body.Kind == "ended" || body.Kind == "declined"
+	if out.State == "ended" || (out.State == "unknown" && !(p.Role == "gateway" && cellularEnd)) || out.StateRevision != body.Revision {
 		fail(calls.ErrConflict)
 		return
 	}
-	if out.EndRequested && !(body.Kind == "ended" || body.Kind == "hangup" || body.Kind == "cancel") {
+	if out.EndRequested && !(cellularEnd || body.Kind == "hangup" || body.Kind == "cancel") {
 		fail(calls.ErrConflict)
 		return
 	}
-	if out.State != "active" && out.ExpiresAt != nil && !out.ExpiresAt.After(s.now()) && body.Kind != "ended" && body.Kind != "hangup" && body.Kind != "cancel" && body.Kind != "reject" {
+	if out.State != "active" && out.ExpiresAt != nil && !out.ExpiresAt.After(s.now()) && !cellularEnd && body.Kind != "hangup" && body.Kind != "cancel" && body.Kind != "reject" {
 		fail(calls.ErrConflict)
 		return
 	}
@@ -659,6 +712,16 @@ func (s *Server) rtcControlOperate(w http.ResponseWriter, r *http.Request, p Pri
 				err = controlRequestEnd(ctx, tx, out, "declined")
 			}
 		}
+	case "decline_all":
+		// The user declined the call for every device. Only the gateway can
+		// decide it against an answer in its durable ledger, so this records
+		// the request and the gateway ends the call; until then the call is
+		// unchanged and the reply says decline_requested.
+		if !isClient || out.Direction != "incoming" || !out.GlobalDecline || out.WinnerID != "" || out.CandidateID == p.DeviceID {
+			err = calls.ErrConflict
+			break
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE rtc_control_calls SET decline_requested_by=COALESCE(decline_requested_by,$2),decline_requested_at=COALESCE(decline_requested_at,clock_timestamp()) WHERE call_id=$1`, id, p.DeviceID)
 	case "cancel", "hangup":
 		if !isClient || (out.Direction == "incoming" && out.WinnerID != p.DeviceID && out.CandidateID != p.DeviceID) {
 			err = calls.ErrForbidden
@@ -681,6 +744,14 @@ func (s *Server) rtcControlOperate(w http.ResponseWriter, r *http.Request, p Pri
 			break
 		}
 		err = controlEnd(ctx, tx, id, "cellular_ended")
+	case "declined":
+		// The gateway decided a decline_all, here or through another node,
+		// and the cellular call has ended.
+		if !isGateway || out.Direction != "incoming" || out.WinnerID != "" {
+			err = calls.ErrForbidden
+			break
+		}
+		err = controlEnd(ctx, tx, id, "declined")
 	default:
 		err = calls.ErrInvalid
 	}
@@ -702,6 +773,9 @@ func (s *Server) rtcControlOperate(w http.ResponseWriter, r *http.Request, p Pri
 		return
 	}
 	s.logger.Info("RTC control committed", "call_id", id, "call_control", "rtc", "event", body.Kind, "revision", out.StateRevision)
+	if out.Direction == "incoming" {
+		s.kickWake()
+	}
 	writeJSON(w, 200, out)
 }
 

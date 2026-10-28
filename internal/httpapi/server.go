@@ -36,8 +36,10 @@ type Server struct {
 	history      *calls.History
 	rtc          *rtcMediaRuntime
 	push         push.Sender
+	pushes       *pushDispatcher
 
 	wsMu          sync.Mutex
+	wsWake        chan struct{}
 	wsByDevice    map[string]int
 	wsConnections map[*websocket.Conn]struct{}
 	wsClosing     bool
@@ -63,7 +65,7 @@ func NewWithOptions(database *sql.DB, logger *slog.Logger, options Options) *Ser
 		db: database, logger: logger, now: time.Now,
 		secretCipher: options.SecretCipher, history: calls.NewHistory(database),
 		wsByDevice: make(map[string]int), wsConnections: make(map[*websocket.Conn]struct{}),
-		push: options.Push,
+		push: options.Push, pushes: newPushDispatcher(), wsWake: make(chan struct{}),
 	}
 	server.startRTCMedia(options.RTC)
 	return server
@@ -78,7 +80,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/capabilities", func(w http.ResponseWriter, _ *http.Request) {
 		// Public and secret-free: clients probe it to measure a node and to learn
 		// which optional request fields it accepts before sending them.
-		writeJSON(w, http.StatusOK, map[string]any{"protocol_version": 1, "extensions": SupportedExtensions, "rtc_audio": s.rtc != nil, "rtc_call_control": s.rtc != nil, "push": s.pushReady(), "rtc_sleep": s.rtc != nil && s.pushReady()})
+		writeJSON(w, http.StatusOK, map[string]any{"protocol_version": 1, "extensions": SupportedExtensions, "rtc_audio": s.rtc != nil, "rtc_call_control": s.rtc != nil, "push": s.pushReady(), "rtc_sleep": s.rtc != nil && s.pushReady(),
+			"reception_v2": s.rtc != nil, "global_decline_v1": s.rtc != nil})
 	})
 	mux.HandleFunc("POST /v1/pairings/claim", s.claimPairing)
 	mux.HandleFunc("POST /v1/auth/refresh", s.refreshSession)
@@ -104,6 +107,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v1/devices/self/push-endpoint", s.authenticated(s.deletePushEndpoint))
 	mux.HandleFunc("GET /v1/devices/self/push-endpoint", s.authenticated(s.getPushEndpoint))
 	mux.HandleFunc("POST /v1/devices/self/push-endpoint/test", s.authenticated(s.testPushEndpoint))
+	mux.HandleFunc("GET /v1/devices/self/reception", s.authenticated(s.getReception))
+	mux.HandleFunc("PUT /v1/devices/self/reception", s.authenticated(s.putReception))
 	mux.HandleFunc("POST /v1/calls/{call_id}/media", s.authenticated(s.selectRTCMedia))
 	mux.HandleFunc("GET /v1/calls/{call_id}/media", s.authenticated(s.getRTCMedia))
 	mux.HandleFunc("POST /v1/calls/{call_id}/media/active", s.authenticated(s.rtcCellularActive))
