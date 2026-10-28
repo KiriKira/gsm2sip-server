@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,9 +19,14 @@ const (
 	wakeReadLimit               = 4 * 1024
 	wakePingPeriod              = 20 * time.Second
 	wakePongWait                = 45 * time.Second
-	wakeWriteWait               = 5 * time.Second
-	wakeQueryTimeout            = 2 * time.Second
-	wakePollPeriod              = time.Second
+	// A client may ask, with Wake-Ping-Seconds, for pings this far apart;
+	// each ping wakes a sleeping phone. It answers within wakePongGrace.
+	wakeMinPingSeconds = 20
+	wakeMaxPingSeconds = 300
+	wakePongGrace      = 25 * time.Second
+	wakeWriteWait      = 5 * time.Second
+	wakeQueryTimeout   = 2 * time.Second
+	wakePollPeriod     = time.Second
 )
 
 var errWakeApplicationFrame = errors.New("client application frames are not supported")
@@ -72,6 +78,16 @@ func (s *Server) wakeWebSocket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "ROLE_FORBIDDEN", "This device role cannot use the wake channel.", false)
 		return
 	}
+	pingPeriod, pongWait := wakePingPeriod, wakePongWait
+	if value := r.Header.Get("Wake-Ping-Seconds"); value != "" {
+		seconds, err := strconv.Atoi(value)
+		if err != nil || seconds < wakeMinPingSeconds || seconds > wakeMaxPingSeconds {
+			writeError(w, http.StatusBadRequest, "INVALID_WAKE_PING", "Wake-Ping-Seconds must be 20 to 300.", false)
+			return
+		}
+		pingPeriod = time.Duration(seconds) * time.Second
+		pongWait = pingPeriod + wakePongGrace
+	}
 	if !websocket.IsWebSocketUpgrade(r) {
 		writeError(w, http.StatusBadRequest, "WEBSOCKET_REQUIRED", "A WebSocket upgrade is required.", false)
 		return
@@ -97,12 +113,12 @@ func (s *Server) wakeWebSocket(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	conn.SetReadLimit(wakeReadLimit)
-	if err := conn.SetReadDeadline(time.Now().Add(wakePongWait)); err != nil {
+	if err := conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
 		writeWakeClose(conn, websocket.CloseInternalServerErr, "connection setup failed")
 		return
 	}
 	conn.SetPongHandler(func(string) error {
-		return conn.SetReadDeadline(time.Now().Add(wakePongWait))
+		return conn.SetReadDeadline(time.Now().Add(pongWait))
 	})
 
 	marker, err := s.readWakeMarker(r.Context(), principal)
@@ -131,7 +147,7 @@ func (s *Server) wakeWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	pollTicker := time.NewTicker(wakePollPeriod)
 	defer pollTicker.Stop()
-	pingTicker := time.NewTicker(wakePingPeriod)
+	pingTicker := time.NewTicker(pingPeriod)
 	defer pingTicker.Stop()
 	for {
 		// A committed call change wakes every connection at once; the poll

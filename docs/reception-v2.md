@@ -4,7 +4,7 @@
 
 ## 0. 实现状态与精确契约
 
-R1 的第一批实现已在四个仓库的 `claude/vibrant-babbage-ye0ey3` 分支提交：
+R1 已在四个仓库的 `claude/vibrant-babbage-ye0ey3` 分支实现：
 
 - **SoulGem（本仓库）：** 本节所列全部契约。
 - **Kyubey：** wire2 字段白名单；按 `TTL`/`Urgency` 头写入 FCM 的 TTL 与优先级，扣除中继自身耗时；限流按 kind 分开。
@@ -13,19 +13,14 @@ R1 的第一批实现已在四个仓库的 `claude/vibrant-babbage-ye0ey3` 分�
   - `NO_INCOMING_SUBSCRIBERS` 视为明确拒绝，继续尝试其他节点。
   - winner 账本增加 `decision` 列，接听与整通拒接在同一个 CAS 里互斥。
 - **Madoka：**
-  - 对 v2 节点写一次接收选择，按节点持久保存服务端的回答。
-  - 对这些节点不再续约 capability、申请 sleep、持有 `COMPAT_IDLE` 或设精确闹钟；空闲只保留 15 分钟、不唤醒设备的备用轮询。
-  - wire2 推送和 WebSocket `domains` 按领域分发。
-  - 用户拒接在网关支持时发 `decline_all`。
-  - 用户关闭“后台来电接收”后，打开页面不再自动重新开启。
+  - 对 v2 节点写一次接收选择（来电取“后台来电接收”开关，短信取“后台同步”开关），按节点持久保存服务端的回答。
+  - 对这些节点不再续约 capability、申请 sleep、持有 `COMPAT_IDLE` 或设精确闹钟。
+  - 推送可用时，呼叫控制在空闲轮询后连同前台通知一起停止，真实来电的推送再启动它；后台同步服务对该节点不再保持 WebSocket，改为 15 分钟 HTTPS 补查。
+  - 推送不可用时保留 WebSocket：只由服务端 ping，间隔由客户端经 `Wake-Ping-Seconds` 申请，从 120 秒开始，连接稳定时逐步升到 300 秒，疑似空闲断开时减半，最低 60 秒。
+  - wire2 推送和 WebSocket `domains` 按领域分发；用户拒接在网关支持时发 `decline_all`；用户关闭“后台来电接收”后，打开页面不再自动重新开启；通话页显示各节点的同步状态。
+  - 通话记录本来就只在前台同步时经 HTTPS 获取，不会启动呼叫控制，无需改动。
 
-尚未完成、仍属 R1 的部分：
-
-- 无 FCM 时的分类 WSS 心跳与退避调整。
-- 把来电专用前台服务改为仅在真实邀请时启动；目前开启接收时仍保留该前台服务，但空闲不持锁、不续约。
-- 通话记录与电话运行时完全拆分。
-- 正式的“接收来电”和短信开关界面。
-- 计划第 6 节的真机验收与 8 小时待机观察。
+尚待真机完成：计划第 6 节的真机验收与 8 小时待机观察。
 
 ### 能力与配置
 
@@ -65,6 +60,8 @@ R1 的第一批实现已在四个仓库的 `claude/vibrant-babbage-ye0ey3` 分�
 - 网关在安装范围的 winner 账本里裁决：拒接与接听互斥，先提交者胜。拒接胜出后拒绝蜂窝来电，等真实 END 之后再用网关操作 `declined` 结束各节点的通话。各参与设备的终态原因均为 `declined`，并释放占用。
 
 ### WebSocket
+
+- client 可在升级请求中带 `Wake-Ping-Seconds`（20–300，否则 400 `INVALID_WAKE_PING`），服务端即按此间隔 ping，pong 等待为该间隔加 25 秒，客户端不再自行 ping。Madoka 只对 v2 节点发送该头，旧节点仍是服务端 20 秒 ping。
 
 - 对 v2 client，`sync_required` 帧增加 `domains`（`call`、`sms`），说明是哪个领域变化。`sms_enabled=false` 时不为短信变化发提示，重新开启后补发一次。
 - 通话变化提交后立即唤醒所有连接，不等 1 秒轮询。旧客户端只检查 `protocol_version` 与 `type`，可忽略新增字段。

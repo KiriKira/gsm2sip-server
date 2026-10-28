@@ -449,3 +449,25 @@ func TestPostgresDeclineAllWaitsForTheGatewayAndEndsEveryDevice(t *testing.T) {
 		t.Fatalf("slot after the real end: %d %v", slots, err)
 	}
 }
+
+func TestPostgresWakeWebSocketPingsAtTheIntervalAskedFor(t *testing.T) {
+	_, f, api := controlFixture(t)
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	for _, bad := range []string{"10", "301", "two minutes"} {
+		_, response, err := dialWakeWithHeaders(t, server.URL, f.clientToken, http.Header{"Wake-Ping-Seconds": {bad}}, "")
+		if err == nil || response == nil || response.StatusCode != http.StatusBadRequest {
+			t.Fatalf("Wake-Ping-Seconds %q accepted", bad)
+		}
+		response.Body.Close()
+	}
+	conn, response, err := dialWakeWithHeaders(t, server.URL, f.clientToken, http.Header{"Wake-Ping-Seconds": {"120"}}, "")
+	if err != nil {
+		if response != nil {
+			response.Body.Close()
+		}
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	requireWakeHint(t, conn)
+}

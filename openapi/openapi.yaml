@@ -171,6 +171,10 @@ paths:
         frame closes with 1008, oversized data (>4 KiB) with 1009, and expired,
         rotated, or revoked credentials with 1008. A per-device limit of two
         connections applies. This channel does not represent call readiness.
+        A client may send Wake-Ping-Seconds (20 to 300, else 400
+        INVALID_WAKE_PING) to have the server ping at that interval instead;
+        it then answers within the interval plus 25 seconds and sends no
+        pings of its own. Each ping wakes a sleeping phone.
       responses:
         '101':
           description: WebSocket upgrade completed; messages follow the description above.
