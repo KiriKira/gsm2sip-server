@@ -20,7 +20,10 @@ R1 已在四个仓库的 `claude/vibrant-babbage-ye0ey3` 分支实现：
   - wire2 推送和 WebSocket `domains` 按领域分发；用户拒接在网关支持时发 `decline_all`；用户关闭“后台来电接收”后，打开页面不再自动重新开启；通话页显示各节点的同步状态。
   - 通话记录本来就只在前台同步时经 HTTPS 获取，不会启动呼叫控制，无需改动。
 
-尚待真机完成：计划第 6 节的真机验收与 8 小时待机观察。
+- **Homura（补充）：** 拒接已写入账本、蜂窝拒绝前进程中断时，重启后 Telecom 重新送来的同一通来电会被直接拒掉，不再响铃。
+- **Madoka（补充）：** 拒接后先显示等待网关确认，再回读结果；网络切换时替换旧网络上的 WebSocket，并等切换稳定约 2 秒后重连；诊断导出包含各节点的接收模式。
+
+验证顺序：先按 [模拟器验收计划](https://github.com/KiriKira/gsm2sip-client-android/blob/main/docs/reception-v2-emulator-test-plan.md)，再做计划第 6 节的真机验收与 8 小时待机观察。
 
 ### 能力与配置
 
